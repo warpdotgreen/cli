@@ -8,6 +8,7 @@
     new_puzzle_hash
     ; msg info
     nonce
+    sender
     target
     is_puzzle_hash
     deadline
@@ -26,10 +27,11 @@
     (list
       (list CREATE_COIN new_puzzle_hash 1) ; upgrade mechanism
       (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
+        (sha256 1 sender)
         (sha256 1 target)
         (sha256 1 is_puzzle_hash)
         (sha256 1 deadline)
-        (sha256tree message)
+        (sha256 1 (sha256tree message)) ; message was revealed on-chain
       ) 0)
     )
   )

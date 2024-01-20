@@ -1,16 +1,55 @@
 (mod (
+    ; first curry (automated)
+    SINGLETON_MOD_HASH
+    SINGLETON_LAUNCHER_PUZZLE_HASH
+
+    ; second curry
+    SENDER
     TARGET
     TARGET_IS_PUZZLE_HASH
     DEADLINE
-    MESSAGE
+    MESSAGE_HASH
 
     (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
     receiver_singleton_proof ;  (launcher_id . inner_puzzle_hash) or ()
+    my_coin_id
   )
 
   (include condition_codes.clib)
+  (include curry.clib)
+  (include sha256tree.clib)
 
-  (list
-    (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
+  (defun-inline value_b32_or_x (v)
+    (if (= (strlen v) 32) v (x))
+  )
+
+  (defun-inline verify_target () 
+    (if TARGET_IS_PUZZLE_HASH
+      (= receiver_puzzle_hash TARGET)
+      (all
+        (= TARGET (f receiver_singleton_proof))
+        (= receiver_puzzle_hash (curry_hashes_inline SINGLETON_MOD_HASH
+          (sha256tree (c SINGLETON_MOD_HASH (c (f sender_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
+          (r sender_singleton_proof)
+        ))
+      )
+    )
+  )
+
+  (if (verify_target)
+    (list
+      (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
+      (list ASSERT_MY_COIN_ID my_coin_id)
+      (list CREATE_COIN_ANNOUNCEMENT
+        (sha256
+          (value_b32_or_x receiver_parent_info)
+          (value_b32_or_x receiver_puzzle_hash)
+          receiver_amount
+        )
+      ) ; puzzle contains message info
+      (list ASSERT_COIN_ANNOUNCEMENT my_coin_id)
+    )
+    ; else
+    (x)
   )
 )
