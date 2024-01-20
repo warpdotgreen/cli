@@ -89,9 +89,10 @@ contract ChiaTokenMaster is IChiaBridgeMessageReceiver {
             _amount = _amount * 1e15;
         }
         WrappedToken(wrappedToken).burn(msg.sender, _amount);
-        ChiaBridge(bridge).sendMessage(
+        Bridge(bridge).sendMessage(
             chiaBridgeReceiverSingleton,
             false,
+            block.timestamp + 10 years,
             message
         );
     }

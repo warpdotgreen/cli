@@ -65,9 +65,10 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
             address(this),
             _amount * 1e9
         );
-        ChiaBridge(bridge).sendMessage(
+        Bridge(bridge).sendMessage(
             chiaBridgeReceiverSingleton,
             false,
+            block.timestamp + 10 years,
             message
         );
     }

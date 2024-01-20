@@ -1,4 +1,9 @@
+; cat_minter.clsp by yakuhito
+;; used to mint wrapped ERC20 CATs
+
 (mod (
     MESSAGE_COIN_MOD_HASH ; after first curry
+    ETH_BRIDGE_ADDRESS
+    
   )
 )
