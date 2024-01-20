@@ -9,16 +9,17 @@ contract ChiaBridge is IOwnable {
     event MessageSent(
         uint256 indexed nonce,
         bytes32 target,
-        bool isPuzzleHash, // when false, target a singleton id
+        bool isPuzzleHash, // when false, target is a singleton id
+        uint256 deadline,
         bytes[] message
     );
 
     function ethNonce() public unit256;
 
-
     function sendMessage(
         bytes32 _target,
         bool _isPuzzleHash,
+        uint256 _deadline,
         bytes[] message
     ) public;
 
@@ -26,6 +27,7 @@ contract ChiaBridge is IOwnable {
         uint256 _nonce,
         bytes32 _sender,
         address _target,
+        uint256 _deadline,
         bytes _message
     ) public;
 }

@@ -61,7 +61,6 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
             address(this),
             _amount * 1e9
         );
-        WrappedToken(wrappedToken).burn(msg.sender, _amount);
         ChiaBridge(bridge).sendMessage(
             chiaBridgeReceiverSingleton,
             false,
