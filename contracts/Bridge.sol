@@ -6,7 +6,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IChiaBridgeMessageReceiver.sol";
 
-contract ChiaBridge is Ownable {
+contract Bridge is Ownable {
     uint256 public ethNonce = 0;
     mapping(uint256 => bool) private nonceUsed;
 
@@ -26,13 +26,7 @@ contract ChiaBridge is Ownable {
     ) public {
         require(_deadline >= block.timestamp, "!deadline");
         ethNonce += 1;
-        emit MessageSent(
-            ethNonce,
-            _target,
-            _isPuzzleHash,
-            _timestamp,
-            _message
-        );
+        emit MessageSent(ethNonce, _target, _isPuzzleHash, _deadline, _message);
     }
 
     function receiveMessage(
