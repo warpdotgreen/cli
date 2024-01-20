@@ -4,6 +4,5 @@
 (mod (
     MESSAGE_COIN_MOD_HASH ; after first curry
     ETH_BRIDGE_ADDRESS
-    
   )
 )

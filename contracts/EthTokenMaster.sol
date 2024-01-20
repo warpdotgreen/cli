@@ -8,8 +8,8 @@ import "@openzeppelin/contracts/erc20/IERC20.sol";
 
 contract EthTokenMaster is IChiaBridgeMessageReceiver {
     address private bridge;
-    bytes32 private chiaBridgeSenderSingleton;
-    bytes32 private chiaBridgeReceiverSingleton;
+    bytes32 private chiaSideBurnPuzzle;
+    bytes32 private chiaSideMintPuzzle;
 
     struct AssetReturnMessage {
         address assetContract;
@@ -19,12 +19,12 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
 
     constructor(
         address _bridge,
-        bytes32 _chiaBridgeSenderSingleton,
-        bytes32 _chiaBridgeReceiverSingleton
+        bytes32 _chiaSideBurnPuzzle,
+        bytes32 _chiaSideMintPuzzle
     ) {
         bridge = _bridge;
-        chiaBridgeSenderSingleton = _chiaBridgeSenderSingleton;
-        chiaBridgeReceiverSingleton = _chiaBridgeReceiverSingleton;
+        chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
+        chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
 
     function receiveMessage(
@@ -34,10 +34,7 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         bytes _message
     ) public {
         require(msg.sender == bridge, "!bridge");
-        require(
-            _sender == chiaBridgeSenderSingleton && !_isPuzzleHash,
-            "!sender"
-        );
+        require(_sender == chiaSideBurnPuzzle && _isPuzzleHash, "!sender");
 
         AssetReturnMessage memory message = abi.decode(
             _message,
@@ -66,8 +63,8 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
             _amount * 1e9
         );
         Bridge(bridge).sendMessage(
-            chiaBridgeReceiverSingleton,
-            false,
+            chiaSideMintPuzzle,
+            true,
             block.timestamp + 10 years,
             message
         );

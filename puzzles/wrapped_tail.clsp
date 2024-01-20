@@ -1,0 +1,28 @@
+; wrapped_tail.clsp by yakuhito
+;; TAIL for CATs of ERC20-wrapped assets
+
+(mod (
+    CAT_MINTER_PUZZLE_HASH
+    ETH_CONTRACT_ADDRESS
+    Truths
+    parent_is_cat
+    lineage_proof
+    delta
+    inner_conditions
+    tail_solution ; = parent_parent_info if minting
+  )
+
+  (include "cat_truths.clib")
+
+  (if (all
+    (not parent_is_cat)
+    (= delta 0)
+    (= (strlen tail_solution) 32)
+    (= (my_parent_cat_truth Truths) (sha256 tail_solution CAT_MINTER_PUZZLE_HASH 0))
+  )
+    ; mint
+    ()
+    ; else
+    (x) ; todo: burn?
+  )
+)
