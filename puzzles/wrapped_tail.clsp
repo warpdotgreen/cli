@@ -3,16 +3,17 @@
 
 (mod (
     CAT_MINTER_PUZZLE_HASH
-    ETH_CONTRACT_ADDRESS
+    BURN_INNER_PUZZLE_SELF_HASH
     Truths
     parent_is_cat
     lineage_proof
     delta
     inner_conditions
-    tail_solution ; = parent_parent_info if minting
+    tail_solution ; = parent_parent_info if minting ; receiver_hash if burning
   )
 
   (include "cat_truths.clib")
+  (include "curry.clib")
 
   (if (all
     (not parent_is_cat)
@@ -20,9 +21,16 @@
     (= (strlen tail_solution) 32)
     (= (my_parent_cat_truth Truths) (sha256 tail_solution CAT_MINTER_PUZZLE_HASH 0))
   )
-    ; mint
-    ()
+    () ; mint
     ; else
-    (x) ; todo: burn?
+    (if (all
+      parent_is_cat
+      (= (- 0 delta) (my_amount_cat_truth Truths))
+      (= (my_inner_puzzle_hash_cat_truth Truths) (curry_hashes_inline BURN_INNER_PUZZLE_SELF_HASH tail_solution))
+    )
+      () ; burn
+      ; else
+      (x)
+    )
   )
 )
