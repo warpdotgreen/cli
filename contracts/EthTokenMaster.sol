@@ -30,17 +30,21 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
+        bool _isPuzzleHash,
         bytes _message
     ) public {
         require(msg.sender == bridge, "!bridge");
-        require(_sender == chiaBridgeSenderSingleton, "!sender");
+        require(
+            _sender == chiaBridgeSenderSingleton && !_isPuzzleHash,
+            "!sender"
+        );
 
         AssetReturnMessage memory message = abi.decode(
             _message,
             (AssetReturnMessage)
         );
 
-        IERC20(message.assetContract).transfer(
+        IERC20(message.assetContract).safeTransfer(
             message.receiver,
             message.amount
         );
@@ -56,7 +60,7 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         message[1] = abi.encode(_receiver);
         message[2] = abi.encode(_amount);
 
-        IERC20(_assetContract).transferFrom(
+        IERC20(_assetContract).safeTransferFrom(
             msg.sender,
             address(this),
             _amount * 1e9

@@ -38,6 +38,7 @@ contract ChiaBridge is Ownable {
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
+        bool _isPuzzleHash,
         address _target,
         uint256 _deadline,
         bytes memory _message
@@ -50,6 +51,7 @@ contract ChiaBridge is Ownable {
         (bool success, ) = IChiaBridgeMessageReceiver(_target).receiveMessage(
             _nonce,
             _sender,
+            _isPuzzleHash,
             _message
         );
         require(success, "tx failed");

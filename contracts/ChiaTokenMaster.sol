@@ -30,10 +30,14 @@ contract ChiaTokenMaster is IChiaBridgeMessageReceiver {
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
+        bool _isPuzzleHash,
         bytes _message
     ) public {
         require(msg.sender == bridge, "!bridge");
-        require(_sender == chiaBridgeSenderSingleton, "!sender");
+        require(
+            _sender == chiaBridgeSenderSingleton && _isPuzzleHash,
+            "!sender"
+        );
 
         MintMessage memory message = abi.decode(_message, (MintMessage));
 

@@ -10,6 +10,7 @@ interface IChiaBridgeMessageReceiver {
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
+        bool _isPuzzleHash,
         bytes _message
     ) public;
 }

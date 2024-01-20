@@ -1,4 +1,5 @@
 (mod (
-    NONCE 
+    CURRENT_NONCE
+    
   )
 )
