@@ -1,3 +1,6 @@
+; message_coin.clsp by yakuhito
+;; used to record messages from Ethereum - can be spent by the intended receiver (puzzle or singleton)
+
 (mod (
     ; first curry (automated)
     SINGLETON_MOD_HASH

@@ -1,3 +1,6 @@
+; upgrade_puzzle.clsp by yakuhito
+;; used to upgrade bridge sender if needed
+
 (mod (
   VALIDATOR_INFO
   validator_sig_switches
