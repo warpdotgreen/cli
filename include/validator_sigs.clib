@@ -1,6 +1,5 @@
 (
   (defun verify_validator_sigs_step (
-    agg_sig_me_or_unsafe
     treshold
     sigs_until_now
     validator_pks
@@ -8,9 +7,8 @@
     sig_data
     conditions_until_now
   )
-    (if (f validator_pks)
+    (if (r validator_pks)
       (verify_validator_sigs_step
-        agg_sig_me_or_unsafe
         treshold
         (+ sigs_until_now (f validator_sig_switches))
         (r validator_pks)
@@ -18,7 +16,7 @@
         sig_data
         (if (= (f validator_sig_switches) ()) conditions_until_now
           (c
-            (list agg_sig_me_or_unsafe (f validator_pks) sig_data) ; AGG_SIG_ME
+            (list 50 (f validator_pks) sig_data) ; AGG_SIG_ME
             conditions_until_now
           )
         )
@@ -29,14 +27,12 @@
   )
 
   (defun-inline verify_validator_sigs (
-    agg_sig_me_or_unsafe
     validator_info ; (treshold . pks)
     validator_sig_switches ; () or 1
     sig_data
     conditions_until_now
   )
     (verify_validator_sigs_step
-      agg_sig_me_or_unsafe
       (f validator_info)
       0
       (r validator_info)

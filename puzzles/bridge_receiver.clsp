@@ -3,8 +3,9 @@
 
 (mod (
     VALIDATOR_INFO
-    
-    validator_sigs
+    MESSAGE_COIN_MOD_HASH
+    validator_sig_switches
+    new_puzzle_hash
     ; msg info
     target
     is_puzzle_hash
@@ -14,51 +15,16 @@
 
   (include condition_codes.clib)
   (include sha256tree.clib)
+  (include validator_sigs.clib)
   (include curry.clib)
 
-  (defun-inline main (sender_coin_id message_hash)
+  (verify_validator_sigs
+    VALIDATOR_INFO
+    validator_sig_switches
+    (sha256tree new_puzzle_hash target is_puzzle_hash deadline message)
     (list
-      (list ASSERT_SECONDS_ABSOLUTE deadline)
-      (list ASSERT_MY_COIN_ID my_coin_id)
-      (list CREATE_PUZZLE_ANNOUNCEMENT sender_coin_id)
-      (list ASSERT_COIN_ANNOUNCEMENT (sha256 sender_coin_id my_coin_id message_hash))
-      (list CREATE_COIN
-        (curry_hashes_inline SELF_HASH (sha256 1 (+ CURRENT_NONCE 1)))
-        1
-      )
+      (list CREATE_COIN new_puzzle_hash 1) ; upgrade mechanism
+      (list CREATE_COIN (todo) 0)
     )
-  )
-
-  (defun-inline value_b32_or_x (v)
-    (if (= (strlen v) 32) v (x))
-  )
-
-  (defun-inline verify_sender_singleton_proof ()
-    (if (= sender_singleton_proof ())
-      1
-      ; else
-      (= sender_puzzle_hash (curry_hashes_inline SINGLETON_MOD_HASH
-        (sha256tree (c SINGLETON_MOD_HASH (c (f sender_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
-        (r sender_singleton_proof)
-      ))
-    )
-  )
-
-  (if (verify_sender_singleton_proof)
-    (main
-      (sha256
-        (value_b32_or_x sender_parent_info)
-        (value_b32_or_x sender_puzzle_hash)
-        sender_amount
-      )
-      (sha256tree (list
-        (= sender_singleton_proof ()) ; sender_by_puzzlehash
-        target
-        deadline
-        message
-      ))
-    )
-    ; else
-    (x)
   )
 )
