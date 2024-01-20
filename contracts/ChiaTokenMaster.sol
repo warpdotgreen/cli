@@ -17,7 +17,7 @@ contract ChiaTokenMaster is IChiaBridgeMessageReceiver {
         uint256 amount;
     }
 
-    constructor (
+    constructor(
         address _bridge,
         bytes32 _chiaBridgeSenderSingleton,
         bytes32 _chiaBridgeReceiverSingleton
@@ -40,26 +40,36 @@ contract ChiaTokenMaster is IChiaBridgeMessageReceiver {
         address wrappedToken = wrappedTokens[message.assetId];
         if (wrappedToken == address(0)) {
             if (message.assetId == bytes32(0)) {
-                wrappedToken = address(new WrappedToken("Wrapped Chia", "wXCH"));
+                wrappedToken = address(
+                    new WrappedToken("Wrapped Chia", "wXCH")
+                );
             } else {
-                wrappedToken = address(new WrappedToken("Chia Wrapped Asset", "CWA"));
+                wrappedToken = address(
+                    new WrappedToken("Chia Wrapped Asset", "CWA")
+                );
             }
             wrappedAssets[message.assetId] = wrappedAsset;
         }
 
         if (message.assetId == bytes32(0)) {
             // XCH has 12 decimals
-            WrappedToken(wrappedToken).mint(message.receiver, message.amount * 1e6);
+            WrappedToken(wrappedToken).mint(
+                message.receiver,
+                message.amount * 1e6
+            );
         } else {
             // Other asset - 3 decimals
-            WrappedToken(wrappedToken).mint(message.receiver, message.amount * 1e15);
+            WrappedToken(wrappedToken).mint(
+                message.receiver,
+                message.amount * 1e15
+            );
         }
     }
-    
+
     function bridgeToChia(
         bytes32 _assetId,
         bytes32 _receiver,
-        uint256 _amount // in Chia
+        uint256 _amount // on Chia
     ) public {
         bytes[] memory message = new bytes[](3);
         message[0] = abi.encode(_assetId);
@@ -69,7 +79,7 @@ contract ChiaTokenMaster is IChiaBridgeMessageReceiver {
         WrappedToken wrappedToken = wrappedTokens[_assetId];
         require(wrappedToken != address(0), "!wrappedToken");
 
-        if(_assetId == bytes32(0)) {
+        if (_assetId == bytes32(0)) {
             _amount = _amount * 1e6;
         } else {
             _amount = _amount * 1e15;

@@ -17,7 +17,7 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         uint256 amount;
     }
 
-    constructor (
+    constructor(
         address _bridge,
         bytes32 _chiaBridgeSenderSingleton,
         bytes32 _chiaBridgeReceiverSingleton
@@ -35,24 +35,32 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         require(msg.sender == bridge, "!bridge");
         require(_sender == chiaBridgeSenderSingleton, "!sender");
 
-        AssetReturnMessage memory message = abi.decode(_message, (AssetReturnMessage));
+        AssetReturnMessage memory message = abi.decode(
+            _message,
+            (AssetReturnMessage)
+        );
 
-        IERC20(message.assetContract).transfer(message.receiver, message.amount);
+        IERC20(message.assetContract).transfer(
+            message.receiver,
+            message.amount
+        );
     }
-    
+
     function bridgeToChia(
         address _assetContract,
         bytes32 _receiver,
-        uint256 _amount // in Chia
+        uint256 _amount // on Chia
     ) public {
         bytes[] memory message = new bytes[](3);
         message[0] = abi.encode(_assetContract);
         message[1] = abi.encode(_receiver);
         message[2] = abi.encode(_amount);
 
-        WrappedToken wrappedToken = wrappedTokens[_assetId];
-        require(wrappedToken != address(0), "!wrappedToken");
-
+        IERC20(_assetContract).transferFrom(
+            msg.sender,
+            address(this),
+            _amount * 1e9
+        );
         WrappedToken(wrappedToken).burn(msg.sender, _amount);
         ChiaBridge(bridge).sendMessage(
             chiaBridgeReceiverSingleton,
