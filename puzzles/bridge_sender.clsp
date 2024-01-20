@@ -1,3 +1,6 @@
+; bridge_sender.clsp by yakuhito
+;; used to send messages via the bridge
+
 (mod (
     SINGLETON_LAUNCHER_PUZZLE_HASH
     SINGLETON_MOD_HASH
@@ -22,6 +25,10 @@
       (list ASSERT_MY_COIN_ID my_coin_id)
       (list CREATE_PUZZLE_ANNOUNCEMENT sender_coin_id)
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 sender_coin_id my_coin_id message_hash))
+      (list CREATE_COIN
+        (curry_hashes_inline SELF_HASH (sha256 1 (+ CURRENT_NONCE 1)))
+        1
+      )
     )
   )
 
