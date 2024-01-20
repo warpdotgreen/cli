@@ -1,0 +1,19 @@
+; cat_mint_and_payout.clsp by yakuhito
+;; used as first innerpuz of freshly-minted wrapped ERC20 assets
+
+(mod (
+  RECEIVER
+  tail_puzzle
+  my_parent_info
+  my_amount
+)
+  (include "condition_codes.clib")
+
+  (list
+    (list ASSERT_MY_PARENT_ID my_parent_info)
+    (list ASSERT_MY_AMOUNT my_amount)
+    (list CREATE_COIN RECEIVER my_amount)
+    ; if tail_puzzle is not correct, the spend will fail
+    (list CREATE_COIN 0 -113 tail_puzzle my_parent_info)
+  )
+)

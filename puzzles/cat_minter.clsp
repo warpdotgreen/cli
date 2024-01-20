@@ -4,5 +4,54 @@
 (mod (
     MESSAGE_COIN_MOD_HASH ; after first curry
     ETH_BRIDGE_ADDRESS
+    CAT_MOD_HASH
+    WRAPPED_TAIL_MOD_HASH
+    CAT_MINT_AND_PAYOUT_MOD_HASH
+    sender
+    deadline
+    message
+    my_puzzle_hash
+    my_coin_id
+    message_coin_parent_info
+  )
+
+  (include "condition_codes.clib")
+  (include "curry.clib")
+  (include "sha256tree.clib")
+
+  (defun-inline main (message_coin_id)
+    (list
+      (list ASSERT_MY_COIN_ID my_coin_id)
+      (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 message_coin_id my_coin_id))
+      (list CREATE_COIN_ANNOUNCEMENT message_coin_id)
+      (list CREATE_COIN
+        (curry_hashes_inline CAT_MOD_HASH
+          (sha256 1 CAT_MOD_HASH)
+          (curry_hashes_inline WRAPPED_TAIL_MOD_HASH
+            (sha256 1 my_puzzle_hash) ; cat minter puzzle hash
+            (sha256 1 (f (r message))) ; eth erc20 contract
+          ) ; TAIL hash
+          (curry_hashes_inline CAT_MINT_AND_PAYOUT_MOD_HASH
+            (sha256 1 (f message))
+          ) ; inner puzzle
+        ) ; CAT puzzle hash
+        (f (r (r message))) ; amount
+      )
+    )
+  )
+
+  (main
+    (sha256
+      (if (= (strlen message_coin_parent_info) 32) message_coin_parent_info (x))
+      (curry_hashes_inline MESSAGE_COIN_MOD_HASH
+        (sha256 1 sender)
+        (sha256 1 my_puzzle_hash) ; target
+        (sha256 1 1) ; target_is_puzzle_hash
+        (sha256 deadline)
+        (sha256 1 (sha256tree message)); MESSAGE_HASH
+      )
+      0
+    )
   )
 )
