@@ -3,7 +3,7 @@
 
 (mod (
     VALIDATOR_INFO
-    MESSAGE_COIN_MOD_HASH
+    MESSAGE_COIN_MOD_HASH ; after 1st curry
     validator_sig_switches
     new_puzzle_hash
     ; msg info
