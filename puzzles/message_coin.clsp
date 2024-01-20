@@ -1,0 +1,16 @@
+(mod (
+    TARGET
+    TARGET_IS_PUZZLE_HASH
+    DEADLINE
+    MESSAGE
+
+    (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
+    receiver_singleton_proof ;  (launcher_id . inner_puzzle_hash) or ()
+  )
+
+  (include condition_codes.clib)
+
+  (list
+    (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
+  )
+)
