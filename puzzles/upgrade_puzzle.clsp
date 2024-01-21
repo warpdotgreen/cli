@@ -1,5 +1,5 @@
 ; upgrade_puzzle.clsp by yakuhito
-;; used to upgrade bridge sender if needed
+;; used to upgrade portal singleton if needed
 
 (mod (
   VALIDATOR_INFO

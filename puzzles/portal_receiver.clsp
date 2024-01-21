@@ -1,5 +1,5 @@
-; bridge_receiver.clsp by yakuhito
-;; used to receive messages via the bridge
+; portal_receiver.clsp by yakuhito
+;; used to receive messages via the portal
 
 (mod (
     VALIDATOR_INFO
