@@ -140,9 +140,41 @@ describe("EthTokenMaster", function () {
         });
     });
 
-    // describe("withdrawFee", function () {
-    //     // Tests for withdrawFee functionality, ensuring only the owner can withdraw fees and correct fee transfer
-    // });
+    describe("withdrawFee", function () {
+        const amount = ethers.parseUnits("10", 3);
+        const expectedFee = amount * chiaToEthAmountFactor * initialFee / 10000n;
 
-    // // Additional tests as needed for edge cases, error handling, and interaction with mock contracts
+        beforeEach(async function () {
+            const receiver = user.address;
+            const message = abiCoder.encode(
+                ["address", "address", "uint256"],
+                [mockERC20.target, receiver, amount]
+            );
+
+            await mockERC20.mint(ethTokenMaster.target, amount * chiaToEthAmountFactor);
+
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+            await bridge.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenMaster.target, deadline, message)
+            
+            const newBridgeBalance = await mockERC20.balanceOf(ethTokenMaster.target);
+            expect(newBridgeBalance).to.equal(expectedFee);
+
+            const bridgeFeeAmount = await ethTokenMaster.fees(mockERC20.target);
+            expect(bridgeFeeAmount).to.equal(expectedFee);
+        });
+
+        it("Should allow the owner to withdraw fees", async function () {
+            const initialOwnerBalance = await mockERC20.balanceOf(owner.address);
+
+            await ethTokenMaster.withdrawFee(mockERC20.target);
+
+            const finalOwnerBalance = await mockERC20.balanceOf(owner.address);
+            expect(finalOwnerBalance - initialOwnerBalance).to.equal(expectedFee);
+        });
+
+        it("Should fail if non-owner tries to withdraw fees", async function () {
+            await expect(ethTokenMaster.connect(user).withdrawFee(mockERC20.target))
+                .to.be.revertedWithCustomError(ethTokenMaster, "OwnableUnauthorizedAccount");
+        });
+    });
 });
