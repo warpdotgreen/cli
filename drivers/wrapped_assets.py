@@ -78,3 +78,14 @@ def get_cat_brun_inner_puzzle(
     first_curry.get_tree_hash(),
     target_receiver
   )
+
+def get_wrapped_tail(
+    portal_receiver_launcher_id: bytes32,
+    bridging_puzzle_hash: bytes32,
+    eth_token_bridge_address: bytes,
+    eth_erc20_address: bytes,
+) -> Program:
+  return WRAPPED_TAIL_MOD.curry(
+    get_cat_minter_puzzle(portal_receiver_launcher_id, bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
+    get_cat_burn_inner_puzzle_self_hash(bridging_puzzle_hash, eth_token_bridge_address, eth_erc20_address)
+  )
