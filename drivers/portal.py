@@ -36,20 +36,23 @@ def get_portal_receiver_inner_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: list[G1Element],
+      last_nonce: int = 0,
 ) -> Program:
     return PORTAL_RECEIVER_MOD.curry(
        (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
-       get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash()
+       get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash(),
+       last_nonce
     )
 
 def get_portal_receiver_full_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: List[G1Element],
+      last_nonce: int = 0,
 ) -> Program:
   return puzzle_for_singleton(
      launcher_id,
-     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys),
+     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
   )
 
 def get_portal_receiver_solution(
