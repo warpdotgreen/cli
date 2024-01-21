@@ -7,6 +7,7 @@ from chia.types.blockchain_format.sized_bytes import bytes32
 from chia_rs import G1Element
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
+from chia.types.blockchain_format.coin import Coin
 
 UPGRADE_PUZZLE_MOD = load_clvm_hex("puzzles/upgrade_puzzle.clvm.hex")
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clvm.hex")
@@ -50,3 +51,40 @@ def get_portal_receiver_full_puzzle(
      launcher_id,
      get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys),
   )
+
+def get_portal_receiver_solution(
+    validator_sig_switches: List[bool],
+    new_inner_puzzle_hash: bytes32,
+    nonce: int,
+    sender: bytes,
+    target: bytes32,
+    target_is_puzzle_hash: bool,
+    deadline: int,
+    message: Program,
+) -> Program:
+    return Program.to([
+       validator_sig_switches,
+       new_inner_puzzle_hash,
+       nonce,
+       sender,
+       target,
+       target_is_puzzle_hash,
+       deadline,
+       message
+    ])
+
+def get_message_coin_solution(
+    receiver_coin: Coin,
+    parent_parent_info: bytes32,
+    parent_inner_puzzle_hash: bytes32,
+    message_coin_id: bytes32,
+    receiver_singleton_launcher_id: bytes32 | None = None,
+    receiver_singleton_inner_puzzle_hash: bytes32 | None = None,
+) -> Program:
+    return Program.to([
+      (receiver_coin.parent_coin_info, (receiver_coin.puzzle_hash, receiver_coin.amount)),
+      0 if receiver_singleton_launcher_id is None and receiver_singleton_inner_puzzle_hash is None else (receiver_singleton_launcher_id, receiver_singleton_inner_puzzle_hash),
+      parent_parent_info,
+      parent_inner_puzzle_hash,
+      message_coin_id
+    ])
