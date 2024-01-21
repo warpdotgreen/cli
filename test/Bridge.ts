@@ -78,5 +78,21 @@ describe("Bridge", function () {
             await expect(bridge.connect(otherAccount).receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
                 .to.be.revertedWithCustomError(bridge, "OwnableUnauthorizedAccount");
         });
+
+        it("Should call receiveMessage on BridgeMessageReceiverMock and emit MessageReceived event", async function () {
+            const nonce = 1;
+            const sender = ethers.encodeBytes32String("sender");
+            const isPuzzleHash = true;
+            const message = "0x1234";
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+
+            // await bridge.sendMessage(sender, isPuzzleHash, deadline, [message]);
+
+            await expect(bridge.receiveMessage(nonce, sender, isPuzzleHash, mockReceiver.target, deadline, message))
+                .to.not.be.reverted;
+            await expect(mockReceiver.receiveMessage(nonce, sender, isPuzzleHash, message))
+                .to.emit(mockReceiver, "MessageReceived")
+                .withArgs(nonce, sender, isPuzzleHash, message);
+        });
     });
 });
