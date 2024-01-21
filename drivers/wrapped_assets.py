@@ -3,6 +3,7 @@ from drivers.portal import get_message_coin_puzzle_1st_curry
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
+from chia.types.blockchain_format.coin import Coin
 
 WRAPPED_TAIL_MOD = load_clvm_hex("puzzles/wrapped_tail.clvm.hex")
 WRAPPED_TAIL_MOD_HASH = WRAPPED_TAIL_MOD.get_tree_hash()
@@ -89,3 +90,61 @@ def get_wrapped_tail(
     get_cat_minter_puzzle(portal_receiver_launcher_id, bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
     get_cat_burn_inner_puzzle_self_hash(bridging_puzzle_hash, eth_token_bridge_address, eth_erc20_address)
   )
+
+def get_burn_inner_puzzle_solution(
+    cat_burner_parent_id: bytes32,
+    cat_burner_amount: int,
+    my_coin_id: bytes32,
+) -> Program:
+  return Program.to([
+    cat_burner_parent_id,
+    cat_burner_amount,
+    my_coin_id
+  ])
+
+def get_cat_mint_and_payout_inner_puzzle_solution(
+    tail_puzzle: Program,
+    my_parent_info: bytes32,
+    my_amount: int,
+) -> Program:
+  return Program.to([
+    tail_puzzle,
+    my_parent_info,
+    my_amount
+  ])
+
+def get_cat_minter_puzzle_solution(
+    deadline: int,
+    message: Program,
+    my_puzzle_hash: bytes32,
+    my_coin_id: bytes32,
+    message_coin_parent_info: bytes32,
+) -> Program:
+  return Program.to([
+    deadline,
+    message,
+    my_puzzle_hash,
+    my_coin_id,
+    message_coin_parent_info
+  ])
+
+def get_cat_burner_puzzle_solution(
+    cat_parent_info: bytes32,
+    tail_hash: bytes32,
+    cat_amount: int,
+    eth_erc20_address: bytes,
+    eth_receiver_address: bytes,
+    time_now_ish: int,
+    my_coin: Coin
+) -> Program:
+  return Program.to([
+    cat_parent_info,
+    raw_hash([b'\x01', tail_hash]),
+    cat_amount,
+    eth_erc20_address,
+    eth_receiver_address,
+    time_now_ish,
+    my_coin.amount,
+    my_coin.puzzle_hash,
+    my_coin.name()
+  ])
