@@ -24,10 +24,6 @@
   (include curry.clib)
   (include sha256tree.clib)
 
-  (defun-inline value_b32_or_x (v)
-    (if (= (strlen v) 32) v (x))
-  )
-
   (defun-inline verify_target () 
     (if TARGET_IS_PUZZLE_HASH
       (= receiver_puzzle_hash TARGET)
@@ -41,28 +37,36 @@
     )
   )
 
-  (if (verify_target)
-    (list
-      (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
-      (list ASSERT_MY_COIN_ID my_coin_id)
-      (list ASSERT_MY_PARENT_ID (sha256
-        parent_parent_info
-        (curry_hashes_inline SINGLETON_MOD_HASH
-          (sha256tree (c SINGLETON_MOD_HASH (c PORTAL_RECEIVER_LAUNCHER_ID SINGLETON_LAUNCHER_PUZZLE_HASH)))
-          parent_inner_puzzle_hash
-        )
-        1 ; parent amount
-      ))
-      (list CREATE_COIN_ANNOUNCEMENT
-        (sha256
-          (value_b32_or_x receiver_parent_info)
-          (value_b32_or_x receiver_puzzle_hash)
-          receiver_amount
-        )
-      ) ; puzzle contains message info
-      (list ASSERT_COIN_ANNOUNCEMENT my_coin_id)
+  (defun-inline main (receiver_coin_id)
+    (if (verify_target)
+      (list
+        (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
+        (list ASSERT_MY_COIN_ID my_coin_id)
+        (list ASSERT_MY_PARENT_ID (sha256
+          parent_parent_info
+          (curry_hashes_inline SINGLETON_MOD_HASH
+            (sha256tree (c SINGLETON_MOD_HASH (c PORTAL_RECEIVER_LAUNCHER_ID SINGLETON_LAUNCHER_PUZZLE_HASH)))
+            parent_inner_puzzle_hash
+          )
+          1 ; parent amount
+        ))
+        (list CREATE_COIN_ANNOUNCEMENT receiver_coin_id) ; puzzle contains message info
+        (list ASSERT_COIN_ANNOUNCEMENT (sha256 receiver_coin_id my_coin_id))
+      )
+      ; else
+      (x)
     )
-    ; else
-    (x)
+  )
+
+  (defun-inline value_b32_or_x (v)
+    (if (= (strlen v) 32) v (x))
+  )
+
+  (main
+    (sha256
+      (value_b32_or_x receiver_parent_info)
+      (value_b32_or_x receiver_puzzle_hash)
+      receiver_amount
+    )
   )
 )

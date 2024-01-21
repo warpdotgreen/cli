@@ -7,6 +7,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.types.coin_spend import CoinSpend
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
+from chia.types.condition_opcodes import ConditionOpcode
 import pytest
 import pytest_asyncio
 import random
@@ -180,3 +181,38 @@ class TestPortal:
         )
 
         await wait_for_coin(node, message_coin)
+
+        # 3. Receive message via message coin
+        tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
+        message_claimer: Coin = tx_record.additions[0]
+        await wait_for_coin(node, message_claimer)
+        
+        message_coin_solution = get_message_coin_solution(
+            message_claimer,
+            portal.parent_coin_info,
+            portal_inner_puzzle.get_tree_hash(),
+            message_coin.name()
+        )
+        message_coin_spend = CoinSpend(
+            message_coin,
+            message_coin_puzzle,
+            message_coin_solution
+        )
+
+        message_claimer_solution = Program.to([
+            [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, message_coin.name()]
+        ])
+        message_claimer_spend = CoinSpend(
+            message_claimer,
+            one_puzzle,
+            message_claimer_solution
+        )
+
+        message_claim_bundle = SpendBundle(
+            [message_coin_spend, message_claimer_spend],
+            AugSchemeMPL.aggregate([])
+        )
+
+        open("/tmp/sb.json", "w").write(json.dumps(message_claim_bundle.to_json_dict(), indent=4))
+        await node.push_tx(message_claim_bundle)
+        await wait_for_coin(node, message_coin, also_wait_for_spent=True)
