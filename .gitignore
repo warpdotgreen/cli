@@ -150,3 +150,7 @@ venv/
 main.sym
 .pytest_cache
 .pytest_cache/
+tests/__pycache__
+tests/__pycache__/
+drivers/__pycache__
+drivers/__pycache__/
