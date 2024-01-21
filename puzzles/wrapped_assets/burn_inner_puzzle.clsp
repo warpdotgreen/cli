@@ -18,7 +18,7 @@
 
   (defun-inline main (cat_bruner_coin_id)
     (list
-      (list ASSERT_MY_ID my_coin_id)
+      (list ASSERT_MY_COIN_ID my_coin_id)
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 cat_bruner_coin_id my_coin_id))
       (list CREATE_COIN_ANNOUNCEMENT cat_bruner_coin_id)
     )
