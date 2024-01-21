@@ -52,3 +52,29 @@ def get_cat_mint_and_payout_inner_puzzle(
   return CAT_MINT_AND_PAYOUT_MOD.curry(
     receiver
   )
+
+def get_cat_burn_inner_puzzle_self_hash(
+    bridging_puzzle_hash: bytes32,
+    eth_token_bridge_address: bytes,
+    eth_erc20_address: bytes,
+) -> bytes32:
+  return BURN_INNER_PUZZLE_MOD.curry(
+    get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
+    eth_erc20_address
+  ).get_tree_hash()
+
+def get_cat_brun_inner_puzzle(
+    bridging_puzzle_hash: bytes32,
+    eth_token_bridge_address: bytes,
+    eth_erc20_address: bytes,
+    target_receiver: bytes,
+) -> Program:
+  first_curry = BURN_INNER_PUZZLE_MOD.curry(
+    get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
+    eth_erc20_address
+  )
+
+  return first_curry.curry(
+    first_curry.get_tree_hash(),
+    target_receiver
+  )
