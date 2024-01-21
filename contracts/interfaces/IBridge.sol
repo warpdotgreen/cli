@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT License
 /* yak tracks all over the place */
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/IOwnable.sol";
-
-contract ChiaBridge is IOwnable {
+interface IBridge {
     event MessageSent(
         uint256 indexed nonce,
         bytes32 target,
@@ -14,20 +12,21 @@ contract ChiaBridge is IOwnable {
         bytes[] message
     );
 
-    function ethNonce() public unit256;
+    function ethNonce() external returns (uint256);
 
     function sendMessage(
         bytes32 _target,
         bool _isPuzzleHash,
         uint256 _deadline,
-        bytes[] message
-    ) public;
+        bytes[] memory message
+    ) external;
 
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
+        bool _isPuzzleHash,
         address _target,
         uint256 _deadline,
-        bytes _message
-    ) public;
+        bytes memory _message
+    ) external;
 }

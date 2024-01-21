@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT License
 /* yak tracks all over the place */
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IChiaBridgeMessageReceiver.sol";
+import "./interfaces/IBridgeMessageReceiver.sol";
 
 contract Bridge is Ownable {
     uint256 public ethNonce = 0;
@@ -17,6 +17,8 @@ contract Bridge is Ownable {
         uint256 deadline,
         bytes[] message
     );
+
+    constructor() Ownable(msg.sender) {}
 
     function sendMessage(
         bytes32 _target,
@@ -42,12 +44,11 @@ contract Bridge is Ownable {
 
         nonceUsed[_nonce] = true;
 
-        (bool success, ) = IChiaBridgeMessageReceiver(_target).receiveMessage(
+        IBridgeMessageReceiver(_target).receiveMessage(
             _nonce,
             _sender,
             _isPuzzleHash,
             _message
         );
-        require(success, "tx failed");
     }
 }
