@@ -5,8 +5,12 @@ pragma solidity ^0.8.0;
 
 import "./interfaces/IChiaBridgeMessageReceiver.sol";
 import "@openzeppelin/contracts/erc20/IERC20.sol";
+import "@openzeppelin/contracts/acess/Ownable.sol";
 
-contract EthTokenMaster is IChiaBridgeMessageReceiver {
+// owner can only withdraw fees
+contract EthTokenMaster is IChiaBridgeMessageReceiver, Ownable {
+    mapping(address => uint256) fees;
+    uint256 fee = 100; // initial fee - 1%
     address private bridge;
     bytes32 private chiaSideBurnPuzzle;
     bytes32 private chiaSideMintPuzzle;
@@ -27,6 +31,12 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
 
+    // fee between 0% and 5%
+    function updateFee(uint256 _newFee) public onlyOwner {
+        require(_newFee < 500, "fee too high");
+        fee = _newFee;
+    }
+
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,
@@ -41,9 +51,11 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
             (AssetReturnMessage)
         );
 
+        uint256 fee = (message.amount * fee) / 10000;
+        fees[message.assetContract] += fee;
         IERC20(message.assetContract).safeTransfer(
             message.receiver,
-            message.amount
+            message.amount - fee
         );
     }
 
@@ -52,21 +64,31 @@ contract EthTokenMaster is IChiaBridgeMessageReceiver {
         bytes32 _receiver,
         uint256 _amount // on Chia
     ) public {
+        uint256 fee = (message.amount * fee) / 10000;
+
         bytes[] memory message = new bytes[](3);
         message[0] = abi.encode(_assetContract);
         message[1] = abi.encode(_receiver);
-        message[2] = abi.encode(_amount);
+        message[2] = abi.encode(_amount - fee);
 
+        fees[_assetContract] += fee * 1e9;
         IERC20(_assetContract).safeTransferFrom(
             msg.sender,
             address(this),
             _amount * 1e9
         );
+
         Bridge(bridge).sendMessage(
             chiaSideMintPuzzle,
             true,
             block.timestamp + 10 years,
             message
         );
+    }
+
+    function withdrawFee(address _assetContract) public onlyOwner {
+        uint256 amount = fees[_assetContract];
+        fees[_assetContract] = 0;
+        IERC20(_assetContract).safeTransfer(msg.sender, amount);
     }
 }
