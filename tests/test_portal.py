@@ -158,7 +158,7 @@ class TestPortal:
         )
 
         portal_spend_bundle = SpendBundle(
-            [portal_solution],
+            [CoinSpend(portal, portal_full_puzzle, portal_solution)],
             message_signature
         )
 
