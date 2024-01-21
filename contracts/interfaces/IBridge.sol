@@ -3,7 +3,7 @@
 
 pragma solidity ^0.8.20;
 
-interface IBridge {
+interface IPortal {
     event MessageSent(
         uint256 indexed nonce,
         bytes32 target,

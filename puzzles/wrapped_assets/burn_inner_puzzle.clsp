@@ -2,12 +2,8 @@
 ;; used to burn a CAT representing an ERC20-wrapped asset
 
 (mod (
-  BRIDGE_SENDER_SINGLETON_STRUCT
-  BRIDGE_SENDER_SELF_HASH
-  ETH_TOKEN_MASTER_ADDRESS
-  ETH_ASSET_CONTRACT_ADDRESS
-  SELF_HASH
-  RECEIVER
+  CAT_BURNER_PUZZLE_HASH
+  ETH_ERC20_
   bridge_sender_last_nonce_hash
   bridge_sender_parent_info
   brige_sender_inner_puzzle_hash
