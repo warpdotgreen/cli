@@ -5,17 +5,17 @@ from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from chia.types.blockchain_format.coin import Coin
 
-WRAPPED_TAIL_MOD = load_clvm_hex("puzzles/wrapped_tail.clvm.hex")
+WRAPPED_TAIL_MOD = load_clvm_hex("puzzles/wrapped_tail.clsp")
 WRAPPED_TAIL_MOD_HASH = WRAPPED_TAIL_MOD.get_tree_hash()
 
-CAT_MINTER_MOD = load_clvm_hex("puzzles/cat_minter.clvm.hex")
+CAT_MINTER_MOD = load_clvm_hex("puzzles/cat_minter.clsp")
 
-CAT_MINT_AND_PAYOUT_MOD = load_clvm_hex("puzzles/cat_mint_and_payout.clvm.hex")
+CAT_MINT_AND_PAYOUT_MOD = load_clvm_hex("puzzles/cat_mint_and_payout.clsp")
 CAT_MINT_AND_PAYOUT_MOD_HASH = CAT_MINT_AND_PAYOUT_MOD.get_tree_hash()
 
-CAT_BURNER_MOD = load_clvm_hex("puzzles/cat_burner.clvm.hex")
+CAT_BURNER_MOD = load_clvm_hex("puzzles/cat_burner.clsp")
 
-BURN_INNER_PUZZLE_MOD = load_clvm_hex("puzzles/burn_inner_puzzle.clvm.hex")
+BURN_INNER_PUZZLE_MOD = load_clvm_hex("puzzles/burn_inner_puzzle.clsp")
 BURN_INNER_PUZZLE_MOD_HASH = BURN_INNER_PUZZLE_MOD.get_tree_hash()
 
 def get_cat_burner_puzzle(

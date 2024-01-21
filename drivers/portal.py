@@ -9,9 +9,8 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
 from chia.types.blockchain_format.coin import Coin
 
-UPGRADE_PUZZLE_MOD = load_clvm_hex("puzzles/upgrade_puzzle.clvm.hex")
-MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clvm.hex")
-PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clvm.hex")
+MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
+PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
 
 def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> Program:
     return MESSAGE_COIN_MOD.curry(SINGLETON_MOD_HASH, SINGLETON_LAUNCHER_HASH, portal_receiver_launcher_id)
