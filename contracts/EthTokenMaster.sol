@@ -9,12 +9,16 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+interface ERC20Decimals {
+    function decimals() external returns (uint8);
+}
+
 contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
-    mapping(address => uint256) fees;
-    uint256 fee = 100; // initial fee - 1%
-    address private bridge;
-    bytes32 private chiaSideBurnPuzzle;
-    bytes32 private chiaSideMintPuzzle;
+    mapping(address => uint256) public fees;
+    uint256 public fee = 100; // initial fee - 1%
+    address public bridge;
+    bytes32 public chiaSideBurnPuzzle;
+    bytes32 public chiaSideMintPuzzle;
 
     struct AssetReturnMessage {
         address assetContract;
@@ -52,7 +56,12 @@ contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
             (AssetReturnMessage)
         );
 
+        uint256 chiaToEthFactor = 10 **
+            ERC20Decimals(message.assetContract).decimals() /
+            1000;
+        message.amount = message.amount * chiaToEthFactor;
         uint256 transferFee = (message.amount * fee) / 10000;
+
         fees[message.assetContract] += transferFee;
         SafeERC20.safeTransfer(
             IERC20(message.assetContract),
@@ -73,12 +82,15 @@ contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
         message[1] = abi.encode(_receiver);
         message[2] = abi.encode(_amount - transferFee);
 
-        fees[_assetContract] += transferFee * 1e9;
+        uint256 chiaToEthFactor = 10 **
+            ERC20Decimals(_assetContract).decimals() /
+            1000;
+        fees[_assetContract] += transferFee * chiaToEthFactor;
         SafeERC20.safeTransferFrom(
             IERC20(_assetContract),
             msg.sender,
             address(this),
-            _amount * 1e9
+            _amount * chiaToEthFactor
         );
 
         IBridge(bridge).sendMessage(
