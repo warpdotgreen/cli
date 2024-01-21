@@ -2,46 +2,33 @@
 ;; used to burn a CAT representing an ERC20-wrapped asset
 
 (mod (
+  ; 1st curry
   CAT_BURNER_PUZZLE_HASH
-  ETH_ERC20_
-  bridge_sender_last_nonce_hash
-  bridge_sender_parent_info
-  brige_sender_inner_puzzle_hash
+  ETH_ERC20_ADDRESS
+  ; 2nd curry
+  SELF_HASH
+  TARGET_RECEIVER
+  cat_burner_parent_id
+  cat_burner_amount
   my_coin_id
-  my_amount
-  time_now_ish
-  tail_reveal
 )
   (include "condition_codes.clib")
   (include "curry.clib")
   (include "sha256tree.clib")
 
-  (defun-inline main (bridge_sender_coin_id message_hash)
+  (defun-inline main (cat_bruner_coin_id)
     (list
-      (list ASSERT_MY_COIN_ID my_coin_id)
-      (list ASSERT_MY_AMOUNT my_amount)
-      (list ASSERT_COIN_ANNOUNCEMENT (sha256 bridge_sender_coin_id my_coin_id))
-      (list CREATE_COIN_ANNOUNCEMENT (concat bridge_sender_coin_id message_hash))
-      (list ASSERT_SECONDS_ABSOLUTE time_now_ish)
-      (list CREATE_COIN 0 -113 tail_reveal (sha256 1 RECEIVER))
+      (list ASSERT_MY_ID my_coin_id)
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 cat_bruner_coin_id my_coin_id))
+      (list CREATE_COIN_ANNOUNCEMENT cat_bruner_coin_id)
     )
   )
 
   (main
     (sha256
-      (if (= (strlen bridge_sender_parent_info) 32) bridge_sender_parent_info (x))
-      (curry_hashes_inline (f BRIDGE_SENDER_SINGLETON_STRUCT)
-        (sha256tree BRIDGE_SENDER_SINGLETON_STRUCT)
-        (curry_hashes_inline BRIDGE_SENDER_SELF_HASH bridge_sender_last_nonce_hash) ; inner puzzle
-      ) ; bridge sender full puzzle hash
-      1
-    ) ; bridge sender coin id
-
-    (sha256tree (list
-      1 ; sender_by_puzzlehash
-      ETH_TOKEN_MASTER_ADDRESS ; target
-      ( + time_now_ish 315360000) ; deadline (10 years)
-      (list ETH_ASSET_CONTRACT_ADDRESS RECEIVER my_amount)
-    )) ; message hash
+      (if (= (strlen cat_burner_parent_id) 32) cat_burner_parent_id (x))
+      CAT_BURNER_PUZZLE_HASH
+      cat_burner_amount
+    )
   )
 )
