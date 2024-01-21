@@ -78,14 +78,19 @@ class TestPortal:
         portal = Coin(portal_launcher_id, portal_full_puzzle_hash, 1)
 
         conditions, portal_launcher_spend = launch_conditions_and_coinsol(
-            portal_launcher,
+            portal_launcher_parent,
             portal_inner_puzzle,
             [],
             1
         )
-        portal_launcher_parent_spend = CoinSpend(portal_launcher, one_puzzle, Program.to(conditions))
+        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
 
-        await node.push_tx(SpendBundle([portal_launcher_parent_spend, portal_launcher_spend], AugSchemeMPL.aggregate([])))
+        portal_creation_bundle = SpendBundle(
+            [portal_launcher_parent_spend, portal_launcher_spend],
+            AugSchemeMPL.aggregate([])
+        )
+        open("/tmp/sb.json", "w").write(json.dumps(portal_creation_bundle.to_json_dict(), indent=4))
+        await node.push_tx(portal_creation_bundle)
         await wait_for_coin(node, portal)
 
         print('Done :)')
