@@ -213,6 +213,8 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
 
+        open("/tmp/p", "w").write(bytes(message_coin_spend.puzzle_reveal).hex())
+        open("/tmp/s", "w").write(bytes(message_coin_spend.solution).hex())
         open("/tmp/sb.json", "w").write(json.dumps(message_claim_bundle.to_json_dict(), indent=4))
         await node.push_tx(message_claim_bundle)
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)

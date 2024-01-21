@@ -16,7 +16,7 @@
 
     (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
     receiver_singleton_proof ;  (launcher_id . inner_puzzle_hash) or ()
-    (parent_parent_info parent_inner_puzzle_hash) ; parent proof
+    (parent_parent_info . parent_inner_puzzle_hash) ; parent proof
     my_coin_id
   )
 

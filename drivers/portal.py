@@ -86,7 +86,6 @@ def get_message_coin_solution(
     return Program.to([
       (receiver_coin.parent_coin_info, (receiver_coin.puzzle_hash, receiver_coin.amount)),
       0 if receiver_singleton_launcher_id is None and receiver_singleton_inner_puzzle_hash is None else (receiver_singleton_launcher_id, receiver_singleton_inner_puzzle_hash),
-      parent_parent_info,
-      parent_inner_puzzle_hash,
+      (parent_parent_info, parent_inner_puzzle_hash),
       message_coin_id
     ])
