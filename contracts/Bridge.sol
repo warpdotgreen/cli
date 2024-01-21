@@ -40,7 +40,7 @@ contract Bridge is Ownable {
         bytes memory _message
     ) public onlyOwner {
         require(!nonceUsed[_nonce], "!nonce");
-        require(_deadline <= block.timestamp, "!deadline");
+        require(_deadline >= block.timestamp, "!deadline");
 
         nonceUsed[_nonce] = true;
 
