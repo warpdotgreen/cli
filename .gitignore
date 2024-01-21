@@ -147,3 +147,4 @@ node_modules
 # yak
 venv
 venv/
+main.sym
