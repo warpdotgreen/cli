@@ -1,33 +1,54 @@
 from chia.rpc.wallet_rpc_client import WalletRpcClient
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
-from blspy import AugSchemeMPL, PrivateKey, G1Element
+from blspy import AugSchemeMPL, PrivateKey, G1Element, G2Element
 from chia.util.bech32m import encode_puzzle_hash
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
-    launch_conditions_and_coinsol
+    launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.types.coin_spend import CoinSpend
 import pytest
 import pytest_asyncio
-import os
-import sys
 import random
+import time
 import json
 
 from tests.utils import *
 from drivers.portal import *
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+VALIDATOR_TRESHOLD = 7
+VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]
+NONCE = 1337
+SENDER = to_eth_address("sender")
+DEADLINE = int(time.time()) + 24 * 60 * 60
+MESSAGE = Program.to(["yaku", "hito", 1337])
+
+assert len(VALIDATOR_SIG_SWITCHES) == 11
+assert sum(VALIDATOR_SIG_SWITCHES) == VALIDATOR_TRESHOLD
 
 @pytest_asyncio.fixture(scope="function")
 async def validator_set():
-    validator_treshold = 7
     validator_sks: List[PrivateKey] = []
     validator_pks: List[G1Element] = []
     for i in range(11):
         sk = AugSchemeMPL.key_gen(random.randbytes(32))
         validator_sks.append(sk)
         validator_pks.append(sk.get_g1())
-    return validator_treshold, validator_sks, validator_pks
+    return validator_sks, validator_pks
+
+def get_validator_set_sigs(
+    message: bytes,
+    validator_sks: List[PrivateKey],
+    validator_sig_switches: List[bool]
+) -> List[G2Element]:
+    sigs = []
+    for i, use_sig in enumerate(validator_sig_switches):
+        if not use_sig:
+            continue
+
+        sig = AugSchemeMPL.sign(validator_sks[i], message)
+        sigs.append(sig)
+    
+    return sigs
 
 class TestPortal:
     @pytest.mark.asyncio
@@ -51,7 +72,7 @@ class TestPortal:
         node, wallets = setup
         wallet = wallets[0]
 
-        signature_treshold, validator_sks, validator_pks = validator_set
+        validator_sks, validator_pks = validator_set
 
         # 1. Launch portal receiver
         one_puzzle = Program.to(1)
@@ -67,7 +88,7 @@ class TestPortal:
 
         portal_inner_puzzle = get_portal_receiver_inner_puzzle(
             portal_launcher_id,
-            signature_treshold,
+            VALIDATOR_TRESHOLD,
             validator_pks,
         )
         portal_full_puzzle = puzzle_for_singleton(
@@ -89,8 +110,29 @@ class TestPortal:
             [portal_launcher_parent_spend, portal_launcher_spend],
             AugSchemeMPL.aggregate([])
         )
-        open("/tmp/sb.json", "w").write(json.dumps(portal_creation_bundle.to_json_dict(), indent=4))
         await node.push_tx(portal_creation_bundle)
         await wait_for_coin(node, portal)
 
-        print('Done :)')
+        # 2. Send message via portal (to the '1' puzzle)
+        new_portal_inner_puzzle = get_portal_receiver_inner_puzzle(
+            portal_launcher_id,
+            VALIDATOR_TRESHOLD,
+            validator_pks,
+            last_nonce=NONCE
+        )
+        
+        portal_inner_solution = get_portal_receiver_inner_solution(
+            VALIDATOR_SIG_SWITCHES,
+            new_portal_inner_puzzle.get_tree_hash(),
+            NONCE,
+            SENDER,
+            one_puzzle_hash,
+            True,
+            DEADLINE,
+            MESSAGE
+        )
+        portal_solution = solution_for_singleton(
+            lineage_proof_for_coinsol(portal_launcher_spend),
+            1,
+            portal_inner_solution
+        )

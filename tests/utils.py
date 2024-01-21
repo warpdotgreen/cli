@@ -181,3 +181,6 @@ async def wait_for_coin(
         coin_record = await node.get_coin_record_by_name(coin.name())
 
     return coin_record
+
+def to_eth_address(identifier: str) -> bytes:
+    return b"\x00" * (20 - len(identifier)) + identifier.encode()

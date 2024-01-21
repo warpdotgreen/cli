@@ -54,7 +54,7 @@ def get_portal_receiver_full_puzzle(
      get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
   )
 
-def get_portal_receiver_solution(
+def get_portal_receiver_inner_solution(
     validator_sig_switches: List[bool],
     new_inner_puzzle_hash: bytes32,
     nonce: int,
