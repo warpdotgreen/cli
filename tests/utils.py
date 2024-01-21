@@ -6,6 +6,7 @@ if something doesn't make sense, please update it, and also let me know so I can
 from chia.full_node.mempool_check_conditions import get_name_puzzle_conditions
 from chia.full_node.bundle_tools import simple_solution_generator
 from chia.types.blockchain_format.program import INFINITE_COST
+from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.types.generator_types import BlockGenerator
 from chia.consensus.cost_calculator import NPCResult
@@ -32,7 +33,10 @@ from chia.types.spend_bundle import SpendBundle
 from chia.simulator.simulator_full_node_rpc_client import SimulatorFullNodeRpcClient
 from chia.rpc.wallet_rpc_client import WalletRpcClient
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import *
-
+from chia.wallet.util.tx_config import CoinSelectionConfig, TXConfig
+from chia.types.blockchain_format.coin import Coin
+from chia.types.coin_record import CoinRecord
+import time
 
 # taken from https://github.com/Chia-Network/chia-dev-tools/blob/main/cdv/cmds/chia_inspect.py
 def get_spend_bundle_cost(spend_bundle: SpendBundle) -> int:
@@ -162,3 +166,18 @@ async def _setup(node_and_wallet_services):
     for wallet_rpc_server in wallet_rpc_servers:
         await wallet_rpc_server.await_closed()
     await rpc_server_node.await_closed()
+
+def get_tx_config(coin_amount) -> TXConfig:
+    return TXConfig(coin_amount, 10e18, [], [], True)
+
+async def wait_for_coin(
+    node: FullNodeRpcClient,
+    coin: Coin,
+    also_wait_for_spent: bool = False,
+  ) -> CoinRecord:
+    coin_record = await node.get_coin_record_by_name(coin.name())
+    while coin_record is None or (also_wait_for_spent and not coin_record.spent):
+        time.sleep(0.5)
+        coin_record = await node.get_coin_record_by_name(coin.name())
+
+    return coin_record
