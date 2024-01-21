@@ -10,7 +10,6 @@
   (include validator_sigs.clib)
 
   (verify_validator_sigs
-    AGG_SIG_ME
     VALIDATOR_INFO
     validator_sig_switches
     new_puzzle_hash
