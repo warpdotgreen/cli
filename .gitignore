@@ -148,3 +148,5 @@ node_modules
 venv
 venv/
 main.sym
+.pytest_cache
+.pytest_cache/
