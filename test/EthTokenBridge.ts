@@ -1,14 +1,14 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EthTokenMaster, ERC20Mock, Bridge } from "../typechain-types";
+import { EthTokenBridge, ERC20Mock, Portal } from "../typechain-types";
 
-describe("EthTokenMaster", function () {
-    let ethTokenMaster: EthTokenMaster;
+describe("EthTokenBridge", function () {
+    let ethTokenBridge: EthTokenBridge;
     let mockERC20: ERC20Mock;
-    let bridge: Bridge;
+    let portal: Portal;
     let owner: any;
     let user: any;
-    let bridgeAddress: string;
+    let portalAddress: string;
     let chiaSideBurnPuzzle: string;
     let chiaSideMintPuzzle: string;
     const initialFee = 100n; // 1%
@@ -22,44 +22,44 @@ describe("EthTokenMaster", function () {
         const ERC20Factory = await ethers.getContractFactory("ERC20Mock");
         mockERC20 = await ERC20Factory.deploy("MockToken", "MTK");
 
-        const BridgeFactory = await ethers.getContractFactory("Bridge");
-        bridge = await BridgeFactory.deploy();
-        bridgeAddress = bridge.target as string;
+        const PortalFactory = await ethers.getContractFactory("Portal");
+        portal = await PortalFactory.deploy();
+        portalAddress = portal.target as string;
 
         chiaSideBurnPuzzle = ethers.encodeBytes32String("burnPuzzle");
         chiaSideMintPuzzle = ethers.encodeBytes32String("mintPuzzle");
 
-        const EthTokenMasterFactory = await ethers.getContractFactory("EthTokenMaster");
-        ethTokenMaster = await EthTokenMasterFactory.deploy(bridgeAddress, chiaSideBurnPuzzle, chiaSideMintPuzzle);
+        const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
+        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, chiaSideBurnPuzzle, chiaSideMintPuzzle);
     });
 
     describe("Deployment", function () {
         it("Should set the correct initial values", async function () {
-            expect(await ethTokenMaster.bridge()).to.equal(bridgeAddress);
-            expect(await ethTokenMaster.chiaSideBurnPuzzle()).to.equal(chiaSideBurnPuzzle);
-            expect(await ethTokenMaster.chiaSideMintPuzzle()).to.equal(chiaSideMintPuzzle);
-            expect(await ethTokenMaster.fee()).to.equal(initialFee);
+            expect(await ethTokenBridge.portal()).to.equal(portalAddress);
+            expect(await ethTokenBridge.chiaSideBurnPuzzle()).to.equal(chiaSideBurnPuzzle);
+            expect(await ethTokenBridge.chiaSideMintPuzzle()).to.equal(chiaSideMintPuzzle);
+            expect(await ethTokenBridge.fee()).to.equal(initialFee);
         });
     });
 
     describe("updateFee", function () {
         it("Should allow the owner to update the fee", async function () {
             const newFee = 200; // 2%
-            await expect(ethTokenMaster.updateFee(newFee))
+            await expect(ethTokenBridge.updateFee(newFee))
                 .to.not.be.reverted;
-            expect(await ethTokenMaster.fee()).to.equal(newFee);
+            expect(await ethTokenBridge.fee()).to.equal(newFee);
         });
 
         it("Should revert if the new fee is too high", async function () {
             const newFee = 600; // 6%
-            await expect(ethTokenMaster.updateFee(newFee))
+            await expect(ethTokenBridge.updateFee(newFee))
                 .to.be.revertedWith("fee too high");
         });
 
         it("Should revert if called by non-owner", async function () {
             const newFee = 200; // 2%
-            await expect(ethTokenMaster.connect(user).updateFee(newFee))
-                .to.be.revertedWithCustomError(ethTokenMaster, "OwnableUnauthorizedAccount");
+            await expect(ethTokenBridge.connect(user).updateFee(newFee))
+                .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
         });
     });
 
@@ -70,15 +70,15 @@ describe("EthTokenMaster", function () {
             const expectedFee = chiaAmount * initialFee / 10000n;
 
             await mockERC20.mint(user.address, chiaAmount * chiaToEthAmountFactor);
-            await mockERC20.connect(user).approve(ethTokenMaster.target, chiaAmount * chiaToEthAmountFactor);
+            await mockERC20.connect(user).approve(ethTokenBridge.target, chiaAmount * chiaToEthAmountFactor);
 
-            await expect(ethTokenMaster.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount))
-                .to.emit(bridge, "MessageSent");
+            await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount))
+                .to.emit(portal, "MessageSent");
 
-            const newBalance = await mockERC20.balanceOf(ethTokenMaster.target);
+            const newBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBalance).to.equal(chiaAmount * chiaToEthAmountFactor);
 
-            const bridgeFeeAmount = await ethTokenMaster.fees(mockERC20.target);
+            const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
             expect(bridgeFeeAmount).to.equal(expectedFee * chiaToEthAmountFactor);
 
         });
@@ -87,7 +87,7 @@ describe("EthTokenMaster", function () {
             const receiver = ethers.encodeBytes32String("receiverOnChia");
             const amount = ethers.parseUnits("10", 18);
 
-            await expect(ethTokenMaster.connect(user).bridgeToChia(mockERC20.target, receiver, amount))
+            await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount))
                 .to.be.reverted;
         });
     });
@@ -102,29 +102,29 @@ describe("EthTokenMaster", function () {
             );
             const expectedFee = amount * chiaToEthAmountFactor * initialFee / 10000n;
 
-            await mockERC20.mint(ethTokenMaster.target, amount * chiaToEthAmountFactor);
+            await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await bridge.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenMaster.target, deadline, message)
+            await portal.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
             
-            const newBridgeBalance = await mockERC20.balanceOf(ethTokenMaster.target);
+            const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);
 
-            const bridgeFeeAmount = await ethTokenMaster.fees(mockERC20.target);
+            const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
             expect(bridgeFeeAmount).to.equal(expectedFee);
 
             const newBalance = await mockERC20.balanceOf(receiver);
             expect(newBalance).to.equal(amount * chiaToEthAmountFactor - expectedFee);
         });
 
-        it("Should fail if sender is not the bridge", async function () {
+        it("Should fail if sender is not the portal", async function () {
             const message = abiCoder.encode(
                 ["address", "address", "uint256"],
                 [mockERC20.target, user.address, ethers.parseUnits("10", 3)]
             );
 
-            await expect(ethTokenMaster.connect(user).receiveMessage(1, chiaSideBurnPuzzle, true, message))
-                .to.be.revertedWith("!bridge");
+            await expect(ethTokenBridge.connect(user).receiveMessage(1, chiaSideBurnPuzzle, true, message))
+                .to.be.revertedWith("!portal");
         });
 
         it("Should fail if message sender puzzle hash does not match", async function () {
@@ -135,7 +135,7 @@ describe("EthTokenMaster", function () {
             );
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(bridge.receiveMessage(1, invalidPuzzle, true, ethTokenMaster.target, deadline, message))
+            await expect(portal.receiveMessage(1, invalidPuzzle, true, ethTokenBridge.target, deadline, message))
                 .to.be.revertedWith("!sender");
         });
     });
@@ -151,30 +151,30 @@ describe("EthTokenMaster", function () {
                 [mockERC20.target, receiver, amount]
             );
 
-            await mockERC20.mint(ethTokenMaster.target, amount * chiaToEthAmountFactor);
+            await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await bridge.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenMaster.target, deadline, message)
+            await portal.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
             
-            const newBridgeBalance = await mockERC20.balanceOf(ethTokenMaster.target);
+            const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);
 
-            const bridgeFeeAmount = await ethTokenMaster.fees(mockERC20.target);
+            const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
             expect(bridgeFeeAmount).to.equal(expectedFee);
         });
 
         it("Should allow the owner to withdraw fees", async function () {
             const initialOwnerBalance = await mockERC20.balanceOf(owner.address);
 
-            await ethTokenMaster.withdrawFee(mockERC20.target);
+            await ethTokenBridge.withdrawFee(mockERC20.target);
 
             const finalOwnerBalance = await mockERC20.balanceOf(owner.address);
             expect(finalOwnerBalance - initialOwnerBalance).to.equal(expectedFee);
         });
 
         it("Should fail if non-owner tries to withdraw fees", async function () {
-            await expect(ethTokenMaster.connect(user).withdrawFee(mockERC20.target))
-                .to.be.revertedWithCustomError(ethTokenMaster, "OwnableUnauthorizedAccount");
+            await expect(ethTokenBridge.connect(user).withdrawFee(mockERC20.target))
+                .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
         });
     });
 });

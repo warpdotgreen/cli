@@ -3,8 +3,8 @@
 
 pragma solidity ^0.8.20;
 
-import "./interfaces/IBridgeMessageReceiver.sol";
-import "./interfaces/IBridge.sol";
+import "./interfaces/IPortalMessageReceiver.sol";
+import "./interfaces/IPortal.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -13,10 +13,10 @@ interface ERC20Decimals {
     function decimals() external returns (uint8);
 }
 
-contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
+contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     mapping(address => uint256) public fees;
     uint256 public fee = 100; // initial fee - 1%
-    address public bridge;
+    address public portal;
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
 
@@ -27,11 +27,11 @@ contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
     }
 
     constructor(
-        address _bridge,
+        address _portal,
         bytes32 _chiaSideBurnPuzzle,
         bytes32 _chiaSideMintPuzzle
     ) Ownable(msg.sender) {
-        bridge = _bridge;
+        portal = _portal;
         chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
@@ -48,7 +48,7 @@ contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
         bool _isPuzzleHash,
         bytes memory _message
     ) public {
-        require(msg.sender == bridge, "!bridge");
+        require(msg.sender == portal, "!portal");
         require(_sender == chiaSideBurnPuzzle && _isPuzzleHash, "!sender");
 
         AssetReturnMessage memory message = abi.decode(
@@ -93,7 +93,7 @@ contract EthTokenMaster is IBridgeMessageReceiver, Ownable {
             _amount * chiaToEthFactor
         );
 
-        IBridge(bridge).sendMessage(
+        IPortal(portal).sendMessage(
             chiaSideMintPuzzle,
             true,
             block.timestamp + 10 * 12 * 365 days,

@@ -4,9 +4,9 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IBridgeMessageReceiver.sol";
+import "./interfaces/IPortalMessageReceiver.sol";
 
-contract Bridge is Ownable {
+contract Portal is Ownable {
     uint256 public ethNonce = 0;
     mapping(uint256 => bool) private nonceUsed;
 
@@ -44,7 +44,7 @@ contract Bridge is Ownable {
 
         nonceUsed[_nonce] = true;
 
-        IBridgeMessageReceiver(_target).receiveMessage(
+        IPortalMessageReceiver(_target).receiveMessage(
             _nonce,
             _sender,
             _isPuzzleHash,

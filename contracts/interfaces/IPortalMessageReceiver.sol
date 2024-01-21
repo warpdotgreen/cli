@@ -3,7 +3,7 @@
 
 pragma solidity ^0.8.20;
 
-interface IBridgeMessageReceiver {
+interface IPortalMessageReceiver {
     function receiveMessage(
         uint256 _nonce,
         bytes32 _sender,

@@ -1,25 +1,25 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { Bridge, BridgeMessageReceiverMock } from "../typechain-types";
+import { Portal, PortalMessageReceiverMock } from "../typechain-types";
 
-describe("Bridge", function () {
-    let bridge: Bridge;
-    let mockReceiver: BridgeMessageReceiverMock;
+describe("Portal", function () {
+    let portal: Portal;
+    let mockReceiver: PortalMessageReceiverMock;
     let owner: any;
     let otherAccount: any;
     const deadlineOffset = 3600; // 1 hour
 
     beforeEach(async function () {
         [owner, otherAccount] = await ethers.getSigners();
-        const BridgeFactory = await ethers.getContractFactory("Bridge");
-        bridge = await BridgeFactory.deploy();
-        const MockReceiverFactory = await ethers.getContractFactory("BridgeMessageReceiverMock");
+        const PortalFactory = await ethers.getContractFactory("Portal");
+        portal = await PortalFactory.deploy();
+        const MockReceiverFactory = await ethers.getContractFactory("PortalMessageReceiverMock");
         mockReceiver = await MockReceiverFactory.deploy();
     });
 
     describe("Deployment", function () {
         it("Should set the right owner", async function () {
-            expect(await bridge.owner()).to.equal(owner.address);
+            expect(await portal.owner()).to.equal(owner.address);
         });
     });
 
@@ -27,16 +27,16 @@ describe("Bridge", function () {
         it("Should emit a MessageSent event and increment nonce", async function () {
             const target = ethers.encodeBytes32String("target");
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(bridge.sendMessage(target, true, deadline, ["0x1234"]))
-                .to.emit(bridge, "MessageSent")
+            await expect(portal.sendMessage(target, true, deadline, ["0x1234"]))
+                .to.emit(portal, "MessageSent")
                 .withArgs(1, target, true, deadline, ["0x1234"]);
-            expect(await bridge.ethNonce()).to.equal(1);
+            expect(await portal.ethNonce()).to.equal(1);
         });
 
         it("Should fail if deadline is in the past", async function () {
             const target = ethers.encodeBytes32String("target");
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            await expect(bridge.sendMessage(target, true, deadline, ["0x1234"]))
+            await expect(portal.sendMessage(target, true, deadline, ["0x1234"]))
                 .to.be.revertedWith("!deadline");
         });
     });
@@ -46,8 +46,8 @@ describe("Bridge", function () {
             const nonce = 1;
             const sender = ethers.encodeBytes32String("sender");
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await bridge.sendMessage(sender, true, deadline, ["0x1234"]);
-            await expect(bridge.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
+            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
+            await expect(portal.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
                 .to.not.be.reverted;
         });
 
@@ -55,9 +55,9 @@ describe("Bridge", function () {
             const nonce = 1;
             const sender = ethers.encodeBytes32String("sender");
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await bridge.sendMessage(sender, true, deadline, ["0x1234"]);
-            await bridge.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234");
-            await expect(bridge.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
+            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
+            await portal.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234");
+            await expect(portal.receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
                 .to.be.revertedWith("!nonce");
         });
 
@@ -65,8 +65,8 @@ describe("Bridge", function () {
             const nonce = 1;
             const sender = ethers.encodeBytes32String("sender");
             const futureDeadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            // await bridge.sendMessage(sender, true, futureDeadline, ["0x1234"]);
-            await expect(bridge.receiveMessage(nonce, sender, true, mockReceiver.target, futureDeadline, "0x1234"))
+            // await portal.sendMessage(sender, true, futureDeadline, ["0x1234"]);
+            await expect(portal.receiveMessage(nonce, sender, true, mockReceiver.target, futureDeadline, "0x1234"))
                 .to.be.revertedWith("!deadline");
         });
 
@@ -74,21 +74,21 @@ describe("Bridge", function () {
             const nonce = 1;
             const sender = ethers.encodeBytes32String("sender");
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await bridge.sendMessage(sender, true, deadline, ["0x1234"]);
-            await expect(bridge.connect(otherAccount).receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
-                .to.be.revertedWithCustomError(bridge, "OwnableUnauthorizedAccount");
+            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
+            await expect(portal.connect(otherAccount).receiveMessage(nonce, sender, true, mockReceiver.target, deadline, "0x1234"))
+                .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
 
-        it("Should call receiveMessage on BridgeMessageReceiverMock and emit MessageReceived event", async function () {
+        it("Should call receiveMessage on PortalMessageReceiverMock and emit MessageReceived event", async function () {
             const nonce = 1;
             const sender = ethers.encodeBytes32String("sender");
             const isPuzzleHash = true;
             const message = "0x1234";
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
 
-            // await bridge.sendMessage(sender, isPuzzleHash, deadline, [message]);
+            // await portal.sendMessage(sender, isPuzzleHash, deadline, [message]);
 
-            await expect(bridge.receiveMessage(nonce, sender, isPuzzleHash, mockReceiver.target, deadline, message))
+            await expect(portal.receiveMessage(nonce, sender, isPuzzleHash, mockReceiver.target, deadline, message))
                 .to.not.be.reverted;
             await expect(mockReceiver.receiveMessage(nonce, sender, isPuzzleHash, message))
                 .to.emit(mockReceiver, "MessageReceived")

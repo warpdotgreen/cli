@@ -2,9 +2,9 @@
 /* ChatGPT tracks all over the place */
 pragma solidity ^0.8.20;
 
-import "../interfaces/IBridgeMessageReceiver.sol";
+import "../interfaces/IPortalMessageReceiver.sol";
 
-contract BridgeMessageReceiverMock is IBridgeMessageReceiver {
+contract PortalMessageReceiverMock is IPortalMessageReceiver {
     // Event for logging
     event MessageReceived(
         uint256 nonce,
