@@ -70,7 +70,7 @@ def get_portal_receiver_inner_solution(
        nonce,
        sender,
        target,
-       target_is_puzzle_hash,
+       1 if target_is_puzzle_hash else 0,
        deadline,
        message
     ])

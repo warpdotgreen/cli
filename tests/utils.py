@@ -176,9 +176,12 @@ async def wait_for_coin(
     also_wait_for_spent: bool = False,
   ) -> CoinRecord:
     coin_record = await node.get_coin_record_by_name(coin.name())
-    while coin_record is None or (also_wait_for_spent and not coin_record.spent):
-        time.sleep(0.5)
-        coin_record = await node.get_coin_record_by_name(coin.name())
+    for _ in range(60):
+      if coin_record is not None and (not also_wait_for_spent or coin_record.spent):
+        break
+      
+      time.sleep(0.5)
+      coin_record = await node.get_coin_record_by_name(coin.name())
 
     return coin_record
 

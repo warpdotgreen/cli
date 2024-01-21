@@ -144,7 +144,7 @@ class TestPortal:
             NONCE,
             SENDER,
             one_puzzle_hash,
-            True,
+            1,
             DEADLINE,
             MESSAGE
         ])).get_tree_hash()
@@ -164,3 +164,19 @@ class TestPortal:
 
         await node.push_tx(portal_spend_bundle)
         await wait_for_coin(node, portal, also_wait_for_spent=True)
+
+        message_coin_puzzle = get_message_coin_puzzle(
+            portal_launcher_id,
+            SENDER,
+            one_puzzle_hash,
+            True,
+            DEADLINE,
+            Program(MESSAGE).get_tree_hash()
+        )
+        message_coin = Coin(
+            portal.name(),
+            message_coin_puzzle.get_tree_hash(),
+            0
+        )
+
+        await wait_for_coin(node, message_coin)
