@@ -14,6 +14,7 @@ describe("EthTokenMaster", function () {
     const initialFee = 100n; // 1%
     const chiaToEthAmountFactor = 1000000000000000n;
     const deadlineOffset = 3600; // 1 hour
+    const abiCoder = new ethers.AbiCoder()
 
     beforeEach(async function () {
         [owner, user] = await ethers.getSigners();
@@ -95,48 +96,48 @@ describe("EthTokenMaster", function () {
         it("Should correctly process received messages and transfer assets", async function () {
             const receiver = user.address;
             const amount = ethers.parseUnits("10", 3);
-            const expectedFee = amount * initialFee / 10000n;
-            const abiCoder = new ethers.AbiCoder()
             const message = abiCoder.encode(
                 ["address", "address", "uint256"],
                 [mockERC20.target, receiver, amount]
             );
+            const expectedFee = amount * chiaToEthAmountFactor * initialFee / 10000n;
 
-            await mockERC20.mint(ethTokenMaster.target, amount);
+            await mockERC20.mint(ethTokenMaster.target, amount * chiaToEthAmountFactor);
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
             await bridge.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenMaster.target, deadline, message)
             
             const newBridgeBalance = await mockERC20.balanceOf(ethTokenMaster.target);
-            expect(newBridgeBalance).to.equal(expectedFee * chiaToEthAmountFactor);
+            expect(newBridgeBalance).to.equal(expectedFee);
 
             const bridgeFeeAmount = await ethTokenMaster.fees(mockERC20.target);
-            expect(bridgeFeeAmount).to.equal(expectedFee * chiaToEthAmountFactor);
+            expect(bridgeFeeAmount).to.equal(expectedFee);
 
             const newBalance = await mockERC20.balanceOf(receiver);
-            expect(newBalance).to.equal((amount - expectedFee) * chiaToEthAmountFactor);
+            expect(newBalance).to.equal(amount * chiaToEthAmountFactor - expectedFee);
         });
 
-        // it("Should fail if sender is not the bridge", async function () {
-        //     const message = ethers.utils.defaultAbiCoder.encode(
-        //         ["address", "address", "uint256"],
-        //         [mockERC20.address, user.address, ethers.utils.parseUnits("10", 18)]
-        //     );
+        it("Should fail if sender is not the bridge", async function () {
+            const message = abiCoder.encode(
+                ["address", "address", "uint256"],
+                [mockERC20.target, user.address, ethers.parseUnits("10", 3)]
+            );
 
-        //     await expect(ethTokenMaster.connect(user).receiveMessage(1, chiaSideBurnPuzzle, true, message))
-        //         .to.be.revertedWith("!bridge");
-        // });
+            await expect(ethTokenMaster.connect(user).receiveMessage(1, chiaSideBurnPuzzle, true, message))
+                .to.be.revertedWith("!bridge");
+        });
 
-        // it("Should fail if message sender puzzle hash does not match", async function () {
-        //     const invalidPuzzle = ethers.utils.formatBytes32String("invalidPuzzle");
-        //     const message = ethers.utils.defaultAbiCoder.encode(
-        //         ["address", "address", "uint256"],
-        //         [mockERC20.address, user.address, ethers.utils.parseUnits("10", 18)]
-        //     );
+        it("Should fail if message sender puzzle hash does not match", async function () {
+            const invalidPuzzle = ethers.encodeBytes32String("invalidPuzzle");
+            const message = abiCoder.encode(
+                ["address", "address", "uint256"],
+                [mockERC20.target, user.address, ethers.parseUnits("10", 3)]
+            );
 
-        //     await expect(ethTokenMaster.receiveMessage(1, invalidPuzzle, true, message))
-        //         .to.be.revertedWith("!sender");
-        // });
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+            await expect(bridge.receiveMessage(1, invalidPuzzle, true, ethTokenMaster.target, deadline, message))
+                .to.be.revertedWith("!sender");
+        });
     });
 
     // describe("withdrawFee", function () {
