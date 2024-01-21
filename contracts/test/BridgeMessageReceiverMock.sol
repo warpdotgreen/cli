@@ -7,14 +7,14 @@ import "../interfaces/IPortalMessageReceiver.sol";
 contract PortalMessageReceiverMock is IPortalMessageReceiver {
     // Event for logging
     event MessageReceived(
-        uint256 nonce,
+        bytes32 nonce,
         bytes32 sender,
         bool isPuzzleHash,
         bytes message
     );
 
     function receiveMessage(
-        uint256 _nonce,
+        bytes32 _nonce,
         bytes32 _sender,
         bool _isPuzzleHash,
         bytes memory _message

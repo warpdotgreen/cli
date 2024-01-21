@@ -15,6 +15,7 @@ describe("EthTokenBridge", function () {
     const chiaToEthAmountFactor = 1000000000000000n;
     const deadlineOffset = 3600; // 1 hour
     const abiCoder = new ethers.AbiCoder()
+    const nonce1 = ethers.encodeBytes32String("nonce1")
 
     beforeEach(async function () {
         [owner, user] = await ethers.getSigners();
@@ -105,7 +106,7 @@ describe("EthTokenBridge", function () {
             await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await portal.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
+            await portal.receiveMessage(nonce1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
             
             const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);
@@ -123,7 +124,7 @@ describe("EthTokenBridge", function () {
                 [mockERC20.target, user.address, ethers.parseUnits("10", 3)]
             );
 
-            await expect(ethTokenBridge.connect(user).receiveMessage(1, chiaSideBurnPuzzle, true, message))
+            await expect(ethTokenBridge.connect(user).receiveMessage(nonce1, chiaSideBurnPuzzle, true, message))
                 .to.be.revertedWith("!portal");
         });
 
@@ -135,7 +136,7 @@ describe("EthTokenBridge", function () {
             );
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(portal.receiveMessage(1, invalidPuzzle, true, ethTokenBridge.target, deadline, message))
+            await expect(portal.receiveMessage(nonce1, invalidPuzzle, true, ethTokenBridge.target, deadline, message))
                 .to.be.revertedWith("!sender");
         });
     });
@@ -154,7 +155,7 @@ describe("EthTokenBridge", function () {
             await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await portal.receiveMessage(1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
+            await portal.receiveMessage(nonce1, chiaSideBurnPuzzle, true, ethTokenBridge.target, deadline, message)
             
             const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);

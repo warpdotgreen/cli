@@ -8,7 +8,7 @@ import "./interfaces/IPortalMessageReceiver.sol";
 
 contract Portal is Ownable {
     uint256 public ethNonce = 0;
-    mapping(uint256 => bool) private nonceUsed;
+    mapping(bytes32 => bool) private nonceUsed;
 
     event MessageSent(
         uint256 indexed nonce,
@@ -32,7 +32,7 @@ contract Portal is Ownable {
     }
 
     function receiveMessage(
-        uint256 _nonce,
+        bytes32 _nonce,
         bytes32 _sender,
         bool _isPuzzleHash,
         address _target,

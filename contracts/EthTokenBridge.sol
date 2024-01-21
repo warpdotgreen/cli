@@ -43,7 +43,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     }
 
     function receiveMessage(
-        uint256 /* _nonce */,
+        bytes32 /* _nonce */,
         bytes32 _sender,
         bool _isPuzzleHash,
         bytes memory _message
