@@ -33,9 +33,9 @@
       (= receiver_puzzle_hash TARGET)
       (all
         (= TARGET (f receiver_singleton_proof))
-        (= receiver_puzzle_hash (curry_hashes_inline SINGLETON_MOD_HASH
-          (sha256tree (c SINGLETON_MOD_HASH (c (f sender_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
-          (r sender_singleton_proof)
+        (= receiver_puzzle_hash (curry_hashes SINGLETON_MOD_HASH
+          (sha256tree (c SINGLETON_MOD_HASH (c (f receiver_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
+          (r receiver_singleton_proof)
         ))
       )
     )
@@ -51,7 +51,7 @@
           (sha256tree (c SINGLETON_MOD_HASH (c PORTAL_RECEIVER_LAUNCHER_ID SINGLETON_LAUNCHER_PUZZLE_HASH)))
           parrent_inner_puzzle_hash
         )
-        1; parent amount
+        1 ; parent amount
       ))
       (list CREATE_COIN_ANNOUNCEMENT
         (sha256
