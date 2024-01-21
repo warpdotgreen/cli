@@ -45,3 +45,10 @@ def get_cat_minter_puzzle(
     BURN_INNER_PUZZLE_MOD_HASH,
     eth_token_bridge_address
   )
+
+def get_cat_mint_and_payout_inner_puzzle(
+    receiver: bytes32
+) -> Program:
+  return CAT_MINT_AND_PAYOUT_MOD.curry(
+    receiver
+  )
