@@ -6,6 +6,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.types.coin_spend import CoinSpend
+from chia.consensus.default_constants import DEFAULT_CONSTANTS
 import pytest
 import pytest_asyncio
 import random
@@ -120,10 +121,11 @@ class TestPortal:
             validator_pks,
             last_nonce=NONCE
         )
+        new_portal_inner_puzzle_hash: bytes32 = Program(new_portal_inner_puzzle).get_tree_hash()
         
         portal_inner_solution = get_portal_receiver_inner_solution(
             VALIDATOR_SIG_SWITCHES,
-            new_portal_inner_puzzle.get_tree_hash(),
+            new_portal_inner_puzzle_hash,
             NONCE,
             SENDER,
             one_puzzle_hash,
@@ -136,3 +138,29 @@ class TestPortal:
             1,
             portal_inner_solution
         )
+
+        message_to_sign: bytes = Program(Program.to([
+            new_portal_inner_puzzle_hash,
+            NONCE,
+            SENDER,
+            one_puzzle_hash,
+            True,
+            DEADLINE,
+            MESSAGE
+        ])).get_tree_hash()
+        message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
+        message_signature = AugSchemeMPL.aggregate(
+            get_validator_set_sigs(
+                message_to_sign,
+                validator_sks,
+                VALIDATOR_SIG_SWITCHES
+            )
+        )
+
+        portal_spend_bundle = SpendBundle(
+            [portal_solution],
+            message_signature
+        )
+
+        await node.push_tx(portal_spend_bundle)
+        await wait_for_coin(node, portal, also_wait_for_spent=True)
