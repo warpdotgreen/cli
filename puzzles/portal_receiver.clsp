@@ -9,7 +9,7 @@
     MESSAGE_COIN_MOD_HASH ; after 1st curry
     SELF_HASH
     LAST_NONCES
-    new_puzzle_hash ; inner puzzle hash or ()
+    new_puzzle_hash ; new inner puzzle hash or ()
     ; msg info
     nonces ; (list nonce1 nonce2 ... )
     msg_infos ; (list (list validator_sig_switches sender target is_puzzle_hash deadline message) ... )
@@ -21,9 +21,11 @@
   (include curry.clib)
 
   (defun process_messages (
+    VALIDATOR_INFO
+    MESSAGE_COIN_MOD_HASH
+    new_puzzle_hash
     (nonce . remaining_nonces)
-    (validator_sig_switches sender target is_puzzle_hash deadline message)
-    remaining_msg_infos
+    ((validator_sig_switches sender target is_puzzle_hash deadline message) . remaining_msg_infos)
   )
     (verify_validator_sigs
       VALIDATOR_INFO
@@ -44,7 +46,10 @@
             (sha256 1 (sha256tree message)) ; message was revealed on-chain
           ) 0)
           (if remaining_msg_infos
-            (process_messages remaining_nonces (f remaining_msg_infos) (r remaining_msg_infos))
+            (process_messages
+              VALIDATOR_INFO MESSAGE_COIN_MOD_HASH new_puzzle_hash
+              remaining_nonces remaining_msg_infos
+            )
             ; else 
             ()
           )
@@ -65,6 +70,6 @@
       )
       1
     ) ; re-create
-    (process_messages nonces (f msg_infos) (r msg_infos)) 
+    (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH new_puzzle_hash nonces msg_infos) 
   )
 )
