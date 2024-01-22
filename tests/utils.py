@@ -187,3 +187,6 @@ async def wait_for_coin(
 
 def to_eth_address(identifier: str) -> bytes:
     return b"\x00" * (20 - len(identifier)) + identifier.encode()
+
+def encode_bytes32(identifier: str) -> bytes32:
+    return b"\x00" * (32 - len(identifier)) + identifier.encode()
