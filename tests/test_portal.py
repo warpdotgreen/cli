@@ -159,20 +159,22 @@ class TestPortal:
             portal_launcher_id,
             VALIDATOR_TRESHOLD,
             validator_pks,
-            last_nonce=NONCE
+            last_nonces=[NONCE]
         )
         new_portal_inner_puzzle_hash: bytes32 = Program(new_portal_inner_puzzle).get_tree_hash()
         
         target = one_puzzle_hash if with_ph else message_claimer_launcher_id
+        msg = PortalMessage(
+            nonce=NONCE,
+            validator_sig_switches=VALIDATOR_SIG_SWITCHES,
+            sender=SENDER,
+            target=target,
+            target_is_puzzle_hash=with_ph,
+            deadline=DEADLINE,
+            message=MESSAGE
+        )
         portal_inner_solution = get_portal_receiver_inner_solution(
-            VALIDATOR_SIG_SWITCHES,
-            new_portal_inner_puzzle_hash,
-            NONCE,
-            SENDER,
-            target,
-            with_ph,
-            DEADLINE,
-            MESSAGE
+            [msg]
         )
         portal_solution = solution_for_singleton(
             lineage_proof_for_coinsol(portal_launcher_spend),
@@ -181,7 +183,7 @@ class TestPortal:
         )
 
         message_to_sign: bytes = Program(Program.to([
-            new_portal_inner_puzzle_hash,
+            0, # no update to inner puzzle hash
             NONCE,
             SENDER,
             target,

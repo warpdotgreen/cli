@@ -8,6 +8,7 @@ from chia_rs import G1Element
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
 from chia.types.blockchain_format.coin import Coin
+import dataclasses
 
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
@@ -58,6 +59,7 @@ def get_portal_receiver_full_puzzle(
      get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonces),
   )
 
+@dataclasses.dataclass(frozen=True)
 class PortalMessage:
     nonce: int
     validator_sig_switches: List[bool]
@@ -68,11 +70,11 @@ class PortalMessage:
     message: Program
 
 def get_portal_receiver_inner_solution(
-    new_inner_puzzle_hash: bytes32,
     messages: List[PortalMessage],
+    new_inner_puzzle_hash: bytes32 | None = None,
 ) -> Program:
     return Program.to([
-       new_inner_puzzle_hash,
+       new_inner_puzzle_hash if new_inner_puzzle_hash is not None else 0,
        [message.nonce for message in messages],
        [
           [
