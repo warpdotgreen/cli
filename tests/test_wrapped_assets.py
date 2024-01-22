@@ -154,4 +154,6 @@ class TestPortal:
             [message_coin_spend, minter_coin_spend],
             AugSchemeMPL.aggregate([])
         )
+
+        open("/tmp/sb.json", "w").write(json.dumps(mint_bundle.to_json_dict(), indent=2))
         await node.push_tx(mint_bundle)

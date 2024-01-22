@@ -52,7 +52,7 @@
         (sha256 1 ETH_TOKEN_BRIDGE_ADDRESS)
         (sha256 1 my_puzzle_hash) ; target
         (sha256 1 1) ; target_is_puzzle_hash
-        (sha256 deadline)
+        (sha256 1 deadline)
         (sha256 1 (sha256tree message)); MESSAGE_HASH
       )
       0
