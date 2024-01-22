@@ -14,7 +14,7 @@ import json
 
 from tests.utils import *
 from drivers.wrapped_assets import *
-from drivers.portal import get_message_coin_puzzle
+from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
 SENDER = to_eth_address("sender")
@@ -118,4 +118,40 @@ class TestPortal:
             0
         )
         await wait_for_coin(node, message_coin)
-         
+
+        # 3. Claim message coin & mint asset
+        minter_address = encode_puzzle_hash(minter_puzzle_hash, "txch")
+        tx_record = await wallet.send_transaction(1, 10000, minter_address, get_tx_config(10000))
+        minter_coin: Coin = tx_record.additions[0]
+        await wait_for_coin(node, minter_coin)
+
+        message_coin_solution = get_message_coin_solution(
+            minter_coin,
+            portal.parent_coin_info,
+            one_puzzle_hash,
+            message_coin.name()
+        )
+        message_coin_spend = CoinSpend(
+            message_coin,
+            message_coin_puzzle,
+            message_coin_solution
+        )
+
+        minter_puzzle_solution = get_cat_minter_puzzle_solution(
+            DEADLINE,
+            message,
+            minter_puzzle_hash,
+            minter_coin.name(),
+            message_coin.parent_coin_info
+        )
+        minter_coin_spend = CoinSpend(
+            minter_coin,
+            minter_puzzle,
+            minter_puzzle_solution
+        )
+
+        mint_bundle = SpendBundle(
+            [message_coin_spend, minter_coin_spend],
+            AugSchemeMPL.aggregate([])
+        )
+        await node.push_tx(mint_bundle)
