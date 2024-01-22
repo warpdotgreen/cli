@@ -33,17 +33,7 @@
     )
       () ; burn
       ; else
-      (x
-        "yakyak"
-        (=
-          (my_parent_cat_truth Truths)
-          (sha256 tail_solution CAT_MINTER_PUZZLE_HASH (my_amount_cat_truth Truths))
-        )
-        (my_parent_cat_truth Truths)
-        tail_solution 
-        CAT_MINTER_PUZZLE_HASH
-        (my_amount_cat_truth Truths)
-      )
+      (x)
     )
   )
 )
