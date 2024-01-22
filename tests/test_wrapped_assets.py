@@ -275,7 +275,8 @@ class TestPortal:
         cat_burn_inner_solution = get_burn_inner_puzzle_solution(
             burner_coin.parent_coin_info,
             1,
-            last_cat_coin.name()
+            last_cat_coin.name(),
+            wrapped_asset_tail
         )
         last_cat = SpendableCAT(
             last_cat_coin,
@@ -302,7 +303,7 @@ class TestPortal:
             ERC20_ASSET_CONTRACT,
             ETH_RECEIVER,
             int(time.time()) - 24 * 60 * 60,
-            burner_coin.name()
+            burner_coin
         )
         burner_spend = CoinSpend(
             burner_coin,

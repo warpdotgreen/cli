@@ -95,11 +95,13 @@ def get_burn_inner_puzzle_solution(
     cat_burner_parent_id: bytes32,
     cat_burner_amount: int,
     my_coin_id: bytes32,
+    tail_reveal: Program
 ) -> Program:
   return Program.to([
     cat_burner_parent_id,
     cat_burner_amount,
-    my_coin_id
+    my_coin_id,
+    tail_reveal
   ])
 
 def get_cat_mint_and_payout_inner_puzzle_solution(
