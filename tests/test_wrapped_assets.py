@@ -28,7 +28,7 @@ SENDER = to_eth_address("eth_token_master")
 DEADLINE = int(time.time()) + 24 * 60 * 60
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 ERC20_ASSET_CONTRACT = to_eth_address("erc20")
-
+ETH_RECEIVER = to_eth_address("eth_receiver")
 
 class TestPortal:
     @pytest.mark.asyncio
@@ -206,3 +206,113 @@ class TestPortal:
             CAT_MOD, [cat]
         )
         await node.push_tx(cat_spend_bundle)
+
+        one_cat_puzzle = construct_cat_puzzle(
+            CAT_MOD,
+            wrapped_asset_tail_hash,
+            one_puzzle,
+            CAT_MOD_HASH
+        )
+        one_cat_puzzle_hash = one_cat_puzzle.get_tree_hash()
+        one_cat_coin = Coin(
+            cat_coin.name(),
+            one_cat_puzzle_hash,
+            10000
+        )
+        await wait_for_coin(node, one_cat_coin)
+
+        # 5. Burn CAT coin
+        burner_puzzle = get_cat_burner_puzzle(
+            BRIDGING_PUZZLE_HASH,
+            SENDER,
+        )
+        burner_puzzle_hash = burner_puzzle.get_tree_hash()
+
+        burner_address = encode_puzzle_hash(burner_puzzle_hash, "txch")
+        tx_record = await wallet.send_transaction(1, 1, burner_address, get_tx_config(1))
+        burner_coin: Coin = tx_record.additions[0]
+        await wait_for_coin(node, burner_coin)
+
+        cat_burn_inner_puzzle = get_cat_brun_inner_puzzle(
+            BRIDGING_PUZZLE_HASH,
+            SENDER,
+            ERC20_ASSET_CONTRACT,
+            ETH_RECEIVER
+        )
+        cat_burn_inner_puzzle_hash = cat_burn_inner_puzzle.get_tree_hash()
+
+        one_cat_inner_solution = Program.to([
+            [ConditionOpcode.CREATE_COIN, one_puzzle_hash, 1],
+        ])
+        one_cat = SpendableCAT(
+            one_cat_coin,
+            wrapped_asset_tail_hash,
+            one_puzzle,
+            one_cat_inner_solution,
+            lineage_proof=LineageProof(
+                cat_coin.parent_coin_info,
+                cat_mint_and_payout_puzzle.get_tree_hash(),
+                cat_coin.amount
+            )
+        )
+
+        one_cat_spend = unsigned_spend_bundle_for_spendable_cats(
+            CAT_MOD, [one_cat]
+        ).coin_spends[0]
+
+        last_cat_full_puzzle = construct_cat_puzzle(
+            CAT_MOD,
+            wrapped_asset_tail_hash,
+            cat_burn_inner_puzzle,
+            CAT_MOD_HASH
+        )
+        last_cat_coin = Coin(
+            one_cat_coin.name(),
+            last_cat_full_puzzle.get_tree_hash(),
+            10000
+        )
+
+        cat_burn_inner_solution = get_burn_inner_puzzle_solution(
+            burner_coin.parent_coin_info,
+            1,
+            last_cat_coin.name()
+        )
+        last_cat = SpendableCAT(
+            last_cat_coin,
+            wrapped_asset_tail_hash,
+            cat_burn_inner_puzzle,
+            cat_burn_inner_solution,
+            lineage_proof=LineageProof(
+                one_cat_coin.parent_coin_info,
+                one_puzzle_hash,
+                one_cat_coin.amount
+            ),
+            extra_delta=-last_cat_coin.amount,
+            limitations_program_reveal=wrapped_asset_tail,
+            limitations_solution=raw_hash([b'\x01', ETH_RECEIVER])
+        )
+        last_cat_spend = unsigned_spend_bundle_for_spendable_cats(
+            CAT_MOD, [last_cat]
+        ).coin_spends[0]
+
+        burner_solution = get_cat_burner_puzzle_solution(
+            last_cat_coin.parent_coin_info,
+            wrapped_asset_tail_hash,
+            10000,
+            ERC20_ASSET_CONTRACT,
+            ETH_RECEIVER,
+            int(time.time()) - 24 * 60 * 60,
+            burner_coin.name()
+        )
+        burner_spend = CoinSpend(
+            burner_coin,
+            burner_puzzle,
+            burner_solution
+        )
+
+        burn_spend_bundle = SpendBundle(
+            [one_cat_spend, last_cat_spend, burner_spend],
+            AugSchemeMPL.aggregate([])
+        )
+        open("/tmp/sb.json", "w").write(json.dumps(burn_spend_bundle.to_json_dict(), indent=4)) 
+        await node.push_tx(burn_spend_bundle)

@@ -9,7 +9,7 @@
     lineage_proof
     delta
     inner_conditions
-    tail_solution ; = parent_parent_info if minting ; receiver_hash = (sha256 1 receiver) if burning
+    tail_solution ; = parent_parent_info if minting ; receiver_hash  = (sha256 1 receiver) if burning
   )
 
   (include "cat_truths.clib")
