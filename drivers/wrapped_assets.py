@@ -70,13 +70,11 @@ def get_cat_brun_inner_puzzle(
     eth_erc20_address: bytes,
     target_receiver: bytes,
 ) -> Program:
-  first_curry = BURN_INNER_PUZZLE_MOD.curry(
-    get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
+  return get_cat_burn_inner_puzzle_first_curry(
+    bridging_puzzle_hash,
+    eth_token_bridge_address,
     eth_erc20_address
-  )
-
-  return first_curry.curry(
-    first_curry.get_tree_hash(),
+  ).curry(
     target_receiver
   )
 
