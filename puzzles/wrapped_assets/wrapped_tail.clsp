@@ -19,7 +19,10 @@
     (not parent_is_cat)
     (= delta 0)
     (= (strlen tail_solution) 32)
-    (= (my_parent_cat_truth Truths) (sha256 tail_solution CAT_MINTER_PUZZLE_HASH 0))
+    (=
+      (my_parent_cat_truth Truths)
+      (sha256 tail_solution CAT_MINTER_PUZZLE_HASH (my_amount_cat_truth Truths))
+    )
   )
     () ; mint
     ; else
@@ -30,7 +33,17 @@
     )
       () ; burn
       ; else
-      (x)
+      (x
+        "yakyak"
+        (=
+          (my_parent_cat_truth Truths)
+          (sha256 tail_solution CAT_MINTER_PUZZLE_HASH (my_amount_cat_truth Truths))
+        )
+        (my_parent_cat_truth Truths)
+        tail_solution 
+        CAT_MINTER_PUZZLE_HASH
+        (my_amount_cat_truth Truths)
+      )
     )
   )
 )

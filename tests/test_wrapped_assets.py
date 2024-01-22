@@ -24,12 +24,11 @@ from drivers.wrapped_assets import *
 from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
-SENDER = to_eth_address("sender")
+SENDER = to_eth_address("eth_token_master")
 DEADLINE = int(time.time()) + 24 * 60 * 60
 MESSAGE = Program.to(["yaku", "hito", 1337])
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 ERC20_ASSET_CONTRACT = to_eth_address("erc20")
-ETH_TOKEN_MASTER_ADDRESS = to_eth_address("eth_token_master")
 
 
 class TestPortal:
@@ -169,7 +168,7 @@ class TestPortal:
         wrapped_asset_tail = get_wrapped_tail(
             portal_launcher_id,
             BRIDGING_PUZZLE_HASH,
-            ETH_TOKEN_MASTER_ADDRESS,
+            SENDER,
             ERC20_ASSET_CONTRACT
         )
         wrapped_asset_tail_hash = wrapped_asset_tail.get_tree_hash()
@@ -193,18 +192,32 @@ class TestPortal:
         cat_inner_solution = get_cat_mint_and_payout_inner_puzzle_solution(
             wrapped_asset_tail,
             cat_coin.amount,
-            message_coin.parent_coin_info
+            minter_coin.parent_coin_info
         )
         cat = SpendableCAT(
             cat_coin,
             wrapped_asset_tail_hash,
             cat_mint_and_payout_puzzle,
             cat_inner_solution,
-            limitations_solution=message_coin.parent_coin_info,
+            limitations_solution=minter_coin.parent_coin_info,
             limitations_program_reveal=wrapped_asset_tail
         )
 
         cat_spend_bundle = unsigned_spend_bundle_for_spendable_cats(
             CAT_MOD, [cat]
         )
+
+        open("/tmp/p", "w").write(bytes(cat_mint_and_payout_puzzle).hex())
+        open("/tmp/s", "w").write(bytes(cat_inner_solution).hex())
+        open("/tmp/p_tail", "w").write(bytes(wrapped_asset_tail).hex())
+        open("/tmp/s_tail", "w").write(bytes(message_coin.parent_coin_info).hex())
+        open("/tmp/p_full", "w").write(bytes(cat_spend_bundle.coin_spends[0].puzzle_reveal).hex())
+        open("/tmp/s_full", "w").write(bytes(cat_spend_bundle.coin_spends[0].solution).hex())
+        open("/tmp/sb.json", "w").write(json.dumps(cat_spend_bundle.to_json_dict(), indent=4))
+
+        print("Minter info")
+        print("------------")
+        print(f"Parent coin info: {minter_coin.parent_coin_info.hex()}")
+        print(f"Puzzle hash: {minter_coin.puzzle_hash.hex()}")
+        print(f"Amount: {minter_coin.amount}")
         await node.push_tx(cat_spend_bundle)
