@@ -1,22 +1,18 @@
 ; portal_receiver.clsp by yakuhito
 ;; used to receive messages via the portal
 
-;; LAST_NONCE is here to make sure validator sigs for a 'chain' of nonce confirmations
+;; LAST_NONCES is here to make sure validator sigs for a 'chain' of nonce confirmations
 ;; are invalidated because the coin ids will be different (caused by different puzzle hashes)
 
 (mod (
     VALIDATOR_INFO
     MESSAGE_COIN_MOD_HASH ; after 1st curry
-    LAST_NONCE
-    validator_sig_switches
-    new_puzzle_hash ; inner puzzle hash
+    SELF_HASH
+    LAST_NONCES
+    new_puzzle_hash ; inner puzzle hash or ()
     ; msg info
-    nonce
-    sender
-    target
-    is_puzzle_hash
-    deadline
-    message
+    nonces ; (list nonce1 nonce2 ... )
+    msg_infos ; (list (list validator_sig_switches sender target is_puzzle_hash deadline message) ... )
   )
 
   (include condition_codes.clib)
@@ -24,19 +20,51 @@
   (include validator_sigs.clib)
   (include curry.clib)
 
-  (verify_validator_sigs
-    VALIDATOR_INFO
-    validator_sig_switches
-    (sha256tree (list new_puzzle_hash nonce sender target is_puzzle_hash deadline message))
-    (list
-      (list CREATE_COIN new_puzzle_hash 1) ; upgrade mechanism
-      (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
-        (sha256 1 sender)
-        (sha256 1 target)
-        (sha256 1 is_puzzle_hash)
-        (sha256 1 deadline)
-        (sha256 1 (sha256tree message)) ; message was revealed on-chain
-      ) 0)
+  (defun process_messages (
+    (nonce . remaining_nonces)
+    (validator_sig_switches sender target is_puzzle_hash deadline message)
+    remaining_msg_infos
+  )
+    (verify_validator_sigs
+      VALIDATOR_INFO
+      validator_sig_switches
+      (sha256tree
+        (list
+          new_puzzle_hash
+          nonce
+          sender target is_puzzle_hash deadline message
+        )
+      )
+      (c
+        (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
+            (sha256 1 sender)
+            (sha256 1 target)
+            (sha256 1 is_puzzle_hash)
+            (sha256 1 deadline)
+            (sha256 1 (sha256tree message)) ; message was revealed on-chain
+          ) 0)
+          (if remaining_msg_infos
+            (process_messages remaining_nonces (f remaining_msg_infos) (r remaining_msg_infos))
+            ; else 
+            ()
+          )
+      )
     )
+  )
+
+  (c
+    (list
+      CREATE_COIN
+      (if (= new_puzzle_hash ())
+        (curry_hashes_inline SELF_HASH
+          (sha256 1 SELF_HASH)
+          (sha256tree LAST_NONCES)
+        )
+        ; else
+        new_puzzle_hash
+      )
+      1
+    ) ; re-create
+    (process_messages nonces (f msg_infos) (r msg_infos)) 
   )
 )
