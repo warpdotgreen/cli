@@ -201,9 +201,7 @@ class TestPortal:
             cat_mint_and_payout_puzzle,
             cat_inner_solution,
             limitations_solution=message_coin.parent_coin_info,
-            lineage_proof=None,
-            limitations_program_reveal=wrapped_asset_tail,
-            extra_delta=0
+            limitations_program_reveal=wrapped_asset_tail
         )
 
         cat_spend_bundle = unsigned_spend_bundle_for_spendable_cats(
