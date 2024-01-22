@@ -1,4 +1,4 @@
-# XCH-Eth Portal & Bidge
+# XCH-Eth Portal & Bridge
 ### (and the other way around)
 
 A Proof-of-Authority based cross-chain messaging protocol - a portal.
