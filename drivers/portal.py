@@ -35,44 +35,55 @@ def get_portal_receiver_inner_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: list[G1Element],
-      last_nonce: int = 0,
+      last_nonces: List[int] = [],
 ) -> Program:
-    return PORTAL_RECEIVER_MOD.curry(
-       (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
-       get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash(),
-       last_nonce
+    first_curry = PORTAL_RECEIVER_MOD.curry(
+      (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
+      get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash()
+    )
+
+    return first_curry.curry(
+      first_curry.get_tree_hash(), # SELF_HASH
+      last_nonces
     )
 
 def get_portal_receiver_full_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: List[G1Element],
-      last_nonce: int = 0,
+      last_nonces: List[int] = [],
 ) -> Program:
   return puzzle_for_singleton(
      launcher_id,
-     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
+     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonces),
   )
 
+class PortalMessage:
+    nonce: int
+    validator_sig_switches: List[bool]
+    sender: bytes
+    target: bytes32
+    target_is_puzzle_hash: bool
+    deadline: int
+    message: Program
+
 def get_portal_receiver_inner_solution(
-    validator_sig_switches: List[bool],
     new_inner_puzzle_hash: bytes32,
-    nonce: int,
-    sender: bytes,
-    target: bytes32,
-    target_is_puzzle_hash: bool,
-    deadline: int,
-    message: Program,
+    messages: List[PortalMessage],
 ) -> Program:
     return Program.to([
-       validator_sig_switches,
        new_inner_puzzle_hash,
-       nonce,
-       sender,
-       target,
-       1 if target_is_puzzle_hash else 0,
-       deadline,
-       message
+       [message.nonce for message in messages],
+       [
+          [
+              msg.validator_sig_switches,
+              msg.sender,
+              msg.target,
+              msg.target_is_puzzle_hash,
+              msg.deadline,
+              msg.message
+          ] for msg in messages
+       ]
     ])
 
 def get_message_coin_solution(
