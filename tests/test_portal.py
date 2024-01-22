@@ -8,6 +8,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
 from chia.types.coin_spend import CoinSpend
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.types.condition_opcodes import ConditionOpcode
+from chia.util.bech32m import decode_puzzle_hash
 import pytest
 import pytest_asyncio
 import random
@@ -120,6 +121,7 @@ class TestPortal:
         
         message_claimer_launcher_id: bytes32
         message_claimer_creation_bundle: SpendBundle
+        message_claimer_full_puzzle: Program = one_puzzle
         if not with_ph:
             message_claimer_launcher_parent = message_claimer
             message_claimer_launcher = generate_launcher_coin(message_claimer_launcher_parent, 1)
@@ -245,8 +247,10 @@ class TestPortal:
             message_coin_solution
         )
 
+        my_puzzle_hash = decode_puzzle_hash(await wallet.get_next_address(1, False))
         message_claimer_solution = Program.to([
-            [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, message_coin.name()]
+            [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, message_coin.name()],
+            [ConditionOpcode.CREATE_COIN, my_puzzle_hash, 1]
         ])
         if not with_ph:
             message_claimer_inner_solution = message_claimer_solution
@@ -258,7 +262,7 @@ class TestPortal:
         
         message_claimer_spend = CoinSpend(
             message_claimer,
-            one_puzzle,
+            message_claimer_full_puzzle,
             message_claimer_solution
         )
 
