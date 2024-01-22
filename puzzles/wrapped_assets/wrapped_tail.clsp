@@ -3,7 +3,7 @@
 
 (mod (
     CAT_MINTER_PUZZLE_HASH
-    CAT_BURN_INNER_PUZZLE_SELF_HASH
+    CAT_BURN_INNER_PUZZLE_FIRST_HASH
     Truths
     parent_is_cat
     lineage_proof
@@ -29,7 +29,10 @@
     (if (all
       parent_is_cat
       (= (- 0 delta) (my_amount_cat_truth Truths))
-      (= (my_inner_puzzle_hash_cat_truth Truths) (curry_hashes_inline CAT_BURN_INNER_PUZZLE_SELF_HASH tail_solution))
+      (=
+        (my_inner_puzzle_hash_cat_truth Truths)
+        (curry_hashes_inline CAT_BURN_INNER_PUZZLE_FIRST_HASH tail_solution)
+      )
     )
       () ; burn
       ; else

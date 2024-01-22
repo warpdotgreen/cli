@@ -54,15 +54,15 @@ def get_cat_mint_and_payout_inner_puzzle(
     receiver
   )
 
-def get_cat_burn_inner_puzzle_self_hash(
+def get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash: bytes32,
     eth_token_bridge_address: bytes,
     eth_erc20_address: bytes,
-) -> bytes32:
+) -> Program:
   return BURN_INNER_PUZZLE_MOD.curry(
     get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
     eth_erc20_address
-  ).get_tree_hash()
+  )
 
 def get_cat_brun_inner_puzzle(
     bridging_puzzle_hash: bytes32,
@@ -88,7 +88,7 @@ def get_wrapped_tail(
 ) -> Program:
   return WRAPPED_TAIL_MOD.curry(
     get_cat_minter_puzzle(portal_receiver_launcher_id, bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
-    get_cat_burn_inner_puzzle_self_hash(bridging_puzzle_hash, eth_token_bridge_address, eth_erc20_address)
+    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, eth_token_bridge_address, eth_erc20_address).get_tree_hash(),
   )
 
 def get_burn_inner_puzzle_solution(

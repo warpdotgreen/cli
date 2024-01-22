@@ -40,27 +40,20 @@
     )
   )
 
-  (defun-inline stager (burn_inner_puzzle_self_hash)
-    (main
-      (sha256
-        (if (= (strlen cat_parent_info) 32) cat_parent_info (x))
-        (curry_hashes_inline CAT_MOD_HASH
-          (sha256 1 CAT_MOD_HASH) ; CAT_MOD_HASH
-          tail_hash_hash ; TAIL_HASH
-          (curry_hashes_inline burn_inner_puzzle_self_hash
-            (sha256 1 burn_inner_puzzle_self_hash) ; SELF_HASH
-            (sha256 1 eth_receiver_address) ; TARGET_RECEIVER
-          ) ; INNER_PUZZLE
-        )
-        cat_amount
-      ) ; cat coin id
-    )
-  )
-
-  (stager
-    (curry_hashes_inline BURN_INNER_PUZZZLE_MOD_HASH
-      (sha256 1 my_puzzle_hash)
-      (sha256 1 eth_erc20_address)
-    ) ; SELF_HASH
+  (main
+    (sha256
+      (if (= (strlen cat_parent_info) 32) cat_parent_info (x))
+      (curry_hashes_inline CAT_MOD_HASH
+        (sha256 1 CAT_MOD_HASH) ; CAT_MOD_HASH
+        tail_hash_hash ; TAIL_HASH
+        (curry_hashes_inline (curry_hashes_inline BURN_INNER_PUZZZLE_MOD_HASH
+            (sha256 1 my_puzzle_hash)
+            (sha256 1 eth_erc20_address)
+          ) ; 1st curry
+          (sha256 1 eth_receiver_address) ; TARGET_RECEIVER
+        ) ; INNER_PUZZLE
+      )
+      cat_amount
+    ) ; cat coin id
   )
 )

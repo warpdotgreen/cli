@@ -34,7 +34,7 @@
             (sha256 1 (curry_hashes_inline CAT_BURN_INNER_MOD_HASH
               CAT_BURNER_PUZZLE_HASH_HASH
               (sha256 1 (f message)) ; eth erc20 contract
-            )) ; CAT_BURN_INNER_PUZZLE_SELF_HASH
+            )) ; CAT_BURN_INNER_PUZZLE_FIRST_HASH
           )) ; TAIL hash
           (curry_hashes_inline CAT_MINT_AND_PAYOUT_MOD_HASH
             (sha256 1 (f (r message))) ; receiver

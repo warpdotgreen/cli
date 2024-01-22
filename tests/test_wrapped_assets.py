@@ -295,6 +295,12 @@ class TestPortal:
         last_cat_spend = unsigned_spend_bundle_for_spendable_cats(
             CAT_MOD, [last_cat]
         ).coin_spends[0]
+        open("/tmp/p_tail", "w").write(bytes(wrapped_asset_tail).hex())
+        open("/tmp/s_tail", "w").write(bytes(raw_hash([b'\x01', ETH_RECEIVER])).hex())
+        open("/tmp/p_inner", "w").write(bytes(cat_burn_inner_puzzle).hex())
+        open("/tmp/s_inner", "w").write(bytes(cat_burn_inner_solution).hex())
+        open("/tmp/p", "w").write(bytes(last_cat_spend.puzzle_reveal).hex())
+        open("/tmp/s", "w").write(bytes(last_cat_spend.solution).hex())
 
         burner_solution = get_cat_burner_puzzle_solution(
             last_cat_coin.parent_coin_info,
