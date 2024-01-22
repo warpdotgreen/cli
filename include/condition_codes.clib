@@ -35,4 +35,7 @@
     ; block index
     (defconstant ASSERT_HEIGHT_RELATIVE 82)
     (defconstant ASSERT_HEIGHT_ABSOLUTE 83)
+
+    ; extra (yak-added for some reason)
+    (defconstant ASSERT_BEFORE_SECONDS_ABSOLUTE 85)
 )

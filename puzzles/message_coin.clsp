@@ -40,7 +40,7 @@
   (defun-inline main (receiver_coin_id)
     (if (verify_target)
       (list
-        (list ASSERT_SECONDS_ABSOLUTE DEADLINE)
+        (list ASSERT_BEFORE_SECONDS_ABSOLUTE DEADLINE)
         (list ASSERT_MY_COIN_ID my_coin_id)
         (list ASSERT_MY_PARENT_ID (sha256
           parent_parent_info
