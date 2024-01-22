@@ -104,13 +104,13 @@ def get_burn_inner_puzzle_solution(
 
 def get_cat_mint_and_payout_inner_puzzle_solution(
     tail_puzzle: Program,
-    my_parent_info: bytes32,
+    parent_parent_info: bytes32,
     my_amount: int,
 ) -> Program:
   return Program.to([
     tail_puzzle,
-    my_parent_info,
-    my_amount
+    my_amount,
+    parent_parent_info
   ])
 
 def get_cat_minter_puzzle_solution(

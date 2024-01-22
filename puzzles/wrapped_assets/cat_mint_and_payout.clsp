@@ -4,16 +4,15 @@
 (mod (
   RECEIVER
   tail_puzzle
-  my_parent_info
   my_amount
+  parent_parent_info
 )
   (include "condition_codes.clib")
 
   (list
-    (list ASSERT_MY_PARENT_ID my_parent_info)
     (list ASSERT_MY_AMOUNT my_amount)
     (list CREATE_COIN RECEIVER my_amount)
     ; if tail_puzzle is not correct, the spend will fail
-    (list CREATE_COIN 0 -113 tail_puzzle my_parent_info)
+    (list CREATE_COIN 0 -113 tail_puzzle parent_parent_info)
   )
 )
