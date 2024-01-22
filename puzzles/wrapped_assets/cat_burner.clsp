@@ -32,10 +32,16 @@
         CREATE_COIN
         BRIDGING_PUZZLE_HASH ; static
         my_amount ; allows changing min fee without changing puzzle hash
-        1 ; sender_as_puzzle_hash
-        ETH_TOKEN_BRIDGE_ADDRESS ; target on Eth
-        (+ time_now_ish 315360000) ; deadline - 10 years
-        (list eth_erc20_address eth_receiver_address cat_amount) ; message
+        (list
+          1 ; sender_as_puzzle_hash
+          ETH_TOKEN_BRIDGE_ADDRESS ; target on Eth
+          (+ time_now_ish 315360000) ; deadline - 10 years
+          ; begin message
+          eth_erc20_address
+          eth_receiver_address
+          cat_amount
+          ; end message
+        )
       )
     )
   )
