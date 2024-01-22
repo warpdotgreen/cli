@@ -13,6 +13,8 @@ from chia.wallet.cat_wallet.cat_utils import CAT_MOD
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from chia.wallet.cat_wallet.cat_utils import SpendableCAT
 from chia.wallet.lineage_proof import LineageProof
+from chia.util.condition_tools import conditions_dict_for_solution
+from chia.types.blockchain_format.program import INFINITE_COST
 from chia.wallet.cat_wallet.cat_utils import \
     unsigned_spend_bundle_for_spendable_cats
 import pytest
@@ -316,3 +318,16 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
         await node.push_tx(burn_spend_bundle)
+        await wait_for_coin(node, burner_coin, also_wait_for_spent=True)
+
+        # 6. Check message was created
+        conditions_dict = conditions_dict_for_solution(
+            burner_spend.puzzle_reveal,
+            burner_spend.solution,
+            INFINITE_COST
+        )
+        assert len(conditions_dict[ConditionOpcode.CREATE_COIN]) == 1
+
+        created_coin = conditions_dict[ConditionOpcode.CREATE_COIN][0]
+        assert created_coin.vars[0] == BRIDGING_PUZZLE_HASH
+        assert created_coin.vars[1] == b'\x01'
