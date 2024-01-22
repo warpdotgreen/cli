@@ -66,9 +66,7 @@ class TestPortal:
         wallet_resp = await wallet_client.healthz()
         assert wallet_resp['success']
 
-
-    @pytest.mark.asyncio
-    async def test_receive_message_ph(self, setup, validator_set):
+    async def do_ckeck(self, setup, validator_set, with_ph):
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
@@ -115,6 +113,45 @@ class TestPortal:
         await node.push_tx(portal_creation_bundle)
         await wait_for_coin(node, portal)
 
+        # 1.5 Launch claimer coin
+        tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
+        message_claimer: Coin = tx_record.additions[0]
+        await wait_for_coin(node, message_claimer)
+        
+        message_claimer_launcher_id: bytes32
+        message_claimer_creation_bundle: SpendBundle
+        if not with_ph:
+            message_claimer_launcher_parent = message_claimer
+            message_claimer_launcher = generate_launcher_coin(message_claimer_launcher_parent, 1)
+            message_claimer_launcher_id = message_claimer_launcher.name()
+
+            message_claimer_inner_puzzle = one_puzzle
+            message_claimer_full_puzzle = puzzle_for_singleton(
+                message_claimer_launcher_id,
+                message_claimer_inner_puzzle,
+            )
+            message_claimer_full_puzzle_hash = message_claimer_full_puzzle.get_tree_hash()
+            message_claimer = Coin(message_claimer_launcher_id, message_claimer_full_puzzle_hash, 1)
+
+            conditions, message_claimer_launcher_spend = launch_conditions_and_coinsol(
+                message_claimer_launcher_parent,
+                message_claimer_inner_puzzle,
+                [],
+                1
+            )
+            message_claimer_launcher_parent_spend = CoinSpend(
+                message_claimer_launcher_parent,
+                one_puzzle,
+                Program.to(conditions)
+            )
+
+            message_claimer_creation_bundle = SpendBundle(
+                [message_claimer_launcher_parent_spend, message_claimer_launcher_spend],
+                AugSchemeMPL.aggregate([])
+            )
+            await node.push_tx(message_claimer_creation_bundle)
+            await wait_for_coin(node, message_claimer)
+
         # 2. Send message via portal (to the '1' puzzle)
         new_portal_inner_puzzle = get_portal_receiver_inner_puzzle(
             portal_launcher_id,
@@ -124,13 +161,14 @@ class TestPortal:
         )
         new_portal_inner_puzzle_hash: bytes32 = Program(new_portal_inner_puzzle).get_tree_hash()
         
+        target = one_puzzle_hash if with_ph else message_claimer_launcher_id
         portal_inner_solution = get_portal_receiver_inner_solution(
             VALIDATOR_SIG_SWITCHES,
             new_portal_inner_puzzle_hash,
             NONCE,
             SENDER,
-            one_puzzle_hash,
-            True,
+            target,
+            with_ph,
             DEADLINE,
             MESSAGE
         )
@@ -144,8 +182,8 @@ class TestPortal:
             new_portal_inner_puzzle_hash,
             NONCE,
             SENDER,
-            one_puzzle_hash,
-            1,
+            target,
+            1 if with_ph else 0,
             DEADLINE,
             MESSAGE
         ])).get_tree_hash()
@@ -169,8 +207,8 @@ class TestPortal:
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
             SENDER,
-            one_puzzle_hash,
-            True,
+            target,
+            with_ph,
             DEADLINE,
             Program(MESSAGE).get_tree_hash()
         )
@@ -183,16 +221,24 @@ class TestPortal:
         await wait_for_coin(node, message_coin)
 
         # 3. Receive message via message coin
-        tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
-        message_claimer: Coin = tx_record.additions[0]
-        await wait_for_coin(node, message_claimer)
-        
-        message_coin_solution = get_message_coin_solution(
-            message_claimer,
-            portal.parent_coin_info,
-            portal_inner_puzzle.get_tree_hash(),
-            message_coin.name()
-        )
+
+        message_coin_solution: Program
+        if with_ph:
+            message_coin_solution = get_message_coin_solution(
+                message_claimer,
+                portal.parent_coin_info,
+                portal_inner_puzzle.get_tree_hash(),
+                message_coin.name()
+            )
+        else:
+            message_coin_solution = get_message_coin_solution(
+                message_claimer,
+                portal.parent_coin_info,
+                portal_inner_puzzle.get_tree_hash(),
+                message_coin.name(),
+                receiver_singleton_launcher_id=message_claimer_launcher_id,
+                receiver_singleton_inner_puzzle_hash=one_puzzle_hash
+            )
         message_coin_spend = CoinSpend(
             message_coin,
             message_coin_puzzle,
@@ -202,6 +248,14 @@ class TestPortal:
         message_claimer_solution = Program.to([
             [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, message_coin.name()]
         ])
+        if not with_ph:
+            message_claimer_inner_solution = message_claimer_solution
+            message_claimer_solution = solution_for_singleton(
+                lineage_proof_for_coinsol(message_claimer_launcher_spend),
+                1,
+                message_claimer_inner_solution
+            )
+        
         message_claimer_spend = CoinSpend(
             message_claimer,
             one_puzzle,
@@ -215,3 +269,11 @@ class TestPortal:
 
         await node.push_tx(message_claim_bundle)
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
+
+    @pytest.mark.asyncio
+    async def test_receive_message_ph(self, setup, validator_set):
+        await self.do_ckeck(setup, validator_set, True)
+
+    @pytest.mark.asyncio
+    async def test_receive_message_singleton(self, setup, validator_set):
+        await self.do_ckeck(setup, validator_set, False)
