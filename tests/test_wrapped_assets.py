@@ -242,7 +242,7 @@ class TestPortal:
         cat_burn_inner_puzzle_hash = cat_burn_inner_puzzle.get_tree_hash()
 
         one_cat_inner_solution = Program.to([
-            [ConditionOpcode.CREATE_COIN, one_puzzle_hash, 1],
+            [ConditionOpcode.CREATE_COIN, cat_burn_inner_puzzle_hash, 10000],
         ])
         one_cat = SpendableCAT(
             one_cat_coin,
