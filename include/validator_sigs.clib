@@ -10,7 +10,7 @@
     (if (r validator_pks)
       (verify_validator_sigs_step
         treshold
-        (+ sigs_until_now (f validator_sig_switches))
+        (+ sigs_until_now (if (f validator_sig_switches) 1 0))
         (r validator_pks)
         (r validator_sig_switches)
         sig_data
