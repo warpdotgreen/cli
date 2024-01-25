@@ -9,6 +9,8 @@ import "./interfaces/IPortalMessageReceiver.sol";
 contract Portal is Ownable {
     uint256 public ethNonce = 0;
     mapping(bytes32 => bool) private nonceUsed;
+    address private feeOwner;
+    uint256 public messageFee;
 
     event MessageSent(
         bytes32 indexed nonce,
@@ -19,7 +21,16 @@ contract Portal is Ownable {
         bytes[] contents
     );
 
-    constructor() Ownable(msg.sender) {}
+    constructor(
+        address _messageMultisig,
+        address _feeOwner,
+        uint256 _messageFee
+    ) Ownable(_messageMultisig) {
+        feeOwner = _feeOwner;
+        messageFee = _messageFee;
+    }
+
+    receive() external payable {}
 
     function sendMessage(
         bytes memory _destination_chain,
@@ -27,8 +38,9 @@ contract Portal is Ownable {
         bytes memory _destination_info,
         uint256 _deadline,
         bytes[] memory _contents
-    ) public {
+    ) public payable {
         require(_deadline >= block.timestamp, "!deadline");
+        require(msg.value == messageFee, "!fee");
         ethNonce += 1;
         emit MessageSent(
             bytes32(ethNonce),
@@ -64,5 +76,13 @@ contract Portal is Ownable {
             _deadline,
             _contents
         );
+    }
+
+    function withdrawFees(address[] _receivers, uint256[] _amounts) public {
+        require(msg.sender == feeOwner, "!feeOwner");
+
+        for (uint256 i = 0; i < _receivers.length; i++) {
+            payable(_receivers[i]).transfer(_amounts[i]);
+        }
     }
 }

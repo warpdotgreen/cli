@@ -15,6 +15,8 @@ interface IPortal {
 
     function ethNonce() external returns (uint256);
 
+    function messageFee() external returns (uint256);
+
     function sendMessage(
         bytes memory _destination_chain,
         bytes memory _destination_type,

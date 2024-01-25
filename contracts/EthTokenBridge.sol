@@ -76,11 +76,15 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         );
     }
 
+    receive() external payable {}
+
     function bridgeToChia(
         address _assetContract,
         bytes32 _receiver,
         uint256 _amount // on Chia
-    ) public {
+    ) public payable {
+        require(msg.value == IPortal(portal).messageFee(), "!fee");
+
         uint256 transferFee = (_amount * fee) / 10000;
 
         bytes[] memory message = new bytes[](3);
@@ -99,7 +103,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             _amount * chiaToEthFactor
         );
 
-        IPortal(portal).sendMessage(
+        IPortal(portal).sendMessage{value: msg.value}(
             "c", // chia
             "p", // puzzle hash
             chiaSideMintPuzzle,
