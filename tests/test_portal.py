@@ -173,7 +173,8 @@ class TestPortal:
             SOURCE_INFO,
             target,
             DEADLINE,
-            MESSAGE
+            MESSAGE,
+            destination_type='p' if with_ph else 's',
         )
         portal_solution = solution_for_singleton(
             lineage_proof_for_coinsol(portal_launcher_spend),
@@ -216,7 +217,8 @@ class TestPortal:
             NONCE,
             target,
             DEADLINE,
-            Program(MESSAGE).get_tree_hash()
+            Program(MESSAGE).get_tree_hash(),
+            destination_type='p' if with_ph else 's',
         )
         message_coin = Coin(
             portal.name(),

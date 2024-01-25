@@ -36,9 +36,9 @@ def get_cat_burner_puzzle(
 def get_cat_minter_puzzle(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
-    destination_info: bytes, # address of contract that receives message
-    destination_chain: bytes = b'e', # ethereum
-    destination_type: bytes = b'c', # contract
+    source_info: bytes, # address of contract that receives message
+    source_chain: bytes = b'e', # ethereum
+    source_type: bytes = b'c', # contract
 ) -> Program:
   return CAT_MINTER_MOD.curry(
     get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash(),
@@ -47,16 +47,16 @@ def get_cat_minter_puzzle(
     CAT_MINT_AND_PAYOUT_MOD_HASH,
     raw_hash([
       b'\x01',
-      get_cat_burner_puzzle(bridging_puzzle_hash, destination_info).get_tree_hash()
+      get_cat_burner_puzzle(bridging_puzzle_hash, source_info).get_tree_hash()
     ]), # CAT_BURNER_PUZZLE_HASH_HASH = (sha256 1 CAT_BURNER_PUZZLE_HASH_HASH)
     BURN_INNER_PUZZLE_MOD_HASH,
     raw_hash([
       b'\x02',
-      raw_hash([b'\x01', destination_info]),
+      raw_hash([b'\x01', source_info]),
       raw_hash([
         b'\x02',
-        raw_hash([b'\x01', destination_chain]),
-        raw_hash([b'\x01', destination_type]),
+        raw_hash([b'\x01', source_chain]),
+        raw_hash([b'\x01', source_type]),
       ]),
     ]), # SOURCE_STUFF_HASH
   )
@@ -95,17 +95,17 @@ def get_cat_burn_inner_puzzle(
 def get_wrapped_tail(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
-    destination_info: bytes,
+    source_info: bytes,
     source_chain_token_contract_address: bytes,
     destination_chain: bytes = b'e', # ethereum
     destination_type: bytes = b'c', # contract
 ) -> Program:
   return WRAPPED_TAIL_MOD.curry(
     get_cat_minter_puzzle(
-      portal_receiver_launcher_id, bridging_puzzle_hash, destination_info,
+      portal_receiver_launcher_id, bridging_puzzle_hash, source_info,
       destination_chain, destination_type
     ).get_tree_hash(),
-    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, destination_info, source_chain_token_contract_address).get_tree_hash(),
+    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, source_info, source_chain_token_contract_address).get_tree_hash(),
   )
 
 def get_burn_inner_puzzle_solution(
