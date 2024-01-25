@@ -26,7 +26,7 @@
 
   (defun-inline verify_target () 
     (if (= DESTINATION_TYPE 'p') ; puzzle hash
-      (= receiver_puzzle_hash DESTINATION_ADDRESS)
+      (= receiver_puzzle_hash DESTINATION_INFO)
       (all
         (= DESTINATION_INFO (f receiver_singleton_proof)) ; singleton if
         (= receiver_puzzle_hash (curry_hashes SINGLETON_MOD_HASH
