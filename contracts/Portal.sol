@@ -11,33 +11,45 @@ contract Portal is Ownable {
     mapping(bytes32 => bool) private nonceUsed;
 
     event MessageSent(
-        uint256 indexed nonce,
-        bytes32 target,
-        bool isPuzzleHash, // when false, target a singleton id
+        bytes32 indexed nonce,
+        bytes destination_chain,
+        bytes destination_type,
+        bytes destination_info,
         uint256 deadline,
-        bytes[] message
+        bytes[] contents
     );
 
     constructor() Ownable(msg.sender) {}
 
     function sendMessage(
-        bytes32 _target,
-        bool _isPuzzleHash,
+        bytes memory _destination_chain,
+        bytes memory _destination_type,
+        bytes memory _destination_info,
         uint256 _deadline,
-        bytes[] memory _message
+        bytes[] memory _contents
     ) public {
         require(_deadline >= block.timestamp, "!deadline");
         ethNonce += 1;
-        emit MessageSent(ethNonce, _target, _isPuzzleHash, _deadline, _message);
+        emit MessageSent(
+            bytes32(ethNonce),
+            _destination_chain,
+            _destination_type,
+            _destination_info,
+            _deadline,
+            _contents
+        );
     }
 
     function receiveMessage(
         bytes32 _nonce,
-        bytes32 _sender,
-        bool _isPuzzleHash,
-        address _target,
+        bytes memory _source_chain,
+        bytes memory _source_type,
+        bytes memory _source_info,
+        bytes memory _destination_chain,
+        bytes memory _destination_type,
+        bytes memory _destination_info,
         uint256 _deadline,
-        bytes memory _message
+        bytes memory _contents
     ) public onlyOwner {
         require(!nonceUsed[_nonce], "!nonce");
         require(_deadline >= block.timestamp, "!deadline");
@@ -46,9 +58,11 @@ contract Portal is Ownable {
 
         IPortalMessageReceiver(_target).receiveMessage(
             _nonce,
-            _sender,
-            _isPuzzleHash,
-            _message
+            _source_chain,
+            _source_type,
+            _source_info,
+            _deadline,
+            _contents
         );
     }
 }

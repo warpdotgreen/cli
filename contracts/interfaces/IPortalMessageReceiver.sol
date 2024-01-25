@@ -6,8 +6,9 @@ pragma solidity ^0.8.20;
 interface IPortalMessageReceiver {
     function receiveMessage(
         bytes32 _nonce,
-        bytes32 _sender,
-        bool _isPuzzleHash,
-        bytes memory _message
+        bytes memory _source_chain,
+        bytes memory _source_type,
+        bytes memory _source_info,
+        bytes memory _contents
     ) external;
 }
