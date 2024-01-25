@@ -21,7 +21,9 @@ from drivers.portal import *
 VALIDATOR_TRESHOLD = 7
 VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]
 NONCE = 1337
-SENDER = to_eth_address("sender")
+SOURCE_CHAIN = 'e'
+SOURCE_TYPE  = 'c'
+SOURCE_INFO = to_eth_address("sender")
 DEADLINE = int(time.time()) + 24 * 60 * 60
 MESSAGE = Program.to(["yaku", "hito", 1337])
 
@@ -168,9 +170,8 @@ class TestPortal:
             VALIDATOR_SIG_SWITCHES,
             new_portal_inner_puzzle_hash,
             NONCE,
-            SENDER,
+            SOURCE_INFO,
             target,
-            with_ph,
             DEADLINE,
             MESSAGE
         )
@@ -180,12 +181,15 @@ class TestPortal:
             portal_inner_solution
         )
 
+        # new_puzzle_hash nonce source_chain source_type source_info destination_type destination_info deadline message
         message_to_sign: bytes = Program(Program.to([
             new_portal_inner_puzzle_hash,
             NONCE,
-            SENDER,
+            SOURCE_CHAIN,
+            SOURCE_TYPE,
+            SOURCE_INFO,
+            'p' if with_ph else 's',
             target,
-            1 if with_ph else 0,
             DEADLINE,
             MESSAGE
         ])).get_tree_hash()
@@ -208,7 +212,7 @@ class TestPortal:
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
-            SENDER,
+            SOURCE_INFO,
             target,
             with_ph,
             DEADLINE,
