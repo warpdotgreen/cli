@@ -14,7 +14,11 @@ Portal contracts are upgradeable by the validators to enable new functionality t
 On Chia, messages are picked up by looking for the following output condition:
 
 ```
-(list CREATE_COIN [bridge_specific_puzzle_hash] [amount] ([sender_as_puzzle_hash] [target] [deadline] . [message-list]))
+(list CREATE_COIN
+  [bridge_specific_puzzle_hash]
+  [amount]
+  ([source_type] [destination_chain] [destination_type] [destination_info] [deadline] . [content])
+)
 ```
 
 Special thanks to acevail for the idea above, which greatly simplified the design :)
