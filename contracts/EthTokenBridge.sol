@@ -108,9 +108,21 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         );
     }
 
-    function withdrawFees(address _assetContract) public onlyOwner {
-        uint256 amount = fees[_assetContract];
-        fees[_assetContract] = 0;
-        SafeERC20.safeTransfer(IERC20(_assetContract), msg.sender, amount);
+    function withdrawFees(
+        address _assetContract,
+        address[] _receivers,
+        uint256[] _amounts
+    ) public onlyOwner {
+        require(_receivers.length == _amounts.length, "!length");
+
+        for (uint256 i = 0; i < _receivers.length; i++) {
+            fees[_assetContract] -= _amounts[i];
+
+            SafeERC20.safeTransfer(
+                IERC20(_assetContract),
+                _receivers[i],
+                _amounts[i]
+            );
+        }
     }
 }
