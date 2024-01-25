@@ -9,7 +9,9 @@
     lineage_proof
     delta
     inner_conditions
-    tail_solution ; = parent_parent_info if minting ; receiver_hash  = (sha256 1 receiver) if burning
+    tail_solution ; if minting: parent_parent_info 
+    ; if burning: (destination_chain_hash . receiver_hash) 
+    ;    = (c (sha256 1 destination_chain) (sha256 1 receiver))
   )
 
   (include "cat_truths.clib")
@@ -31,7 +33,7 @@
       (= (- 0 delta) (my_amount_cat_truth Truths))
       (=
         (my_inner_puzzle_hash_cat_truth Truths)
-        (curry_hashes_inline CAT_BURN_INNER_PUZZLE_FIRST_HASH tail_solution)
+        (curry_hashes_inline CAT_BURN_INNER_PUZZLE_FIRST_HASH (f tail_solution) (r tail_solution))
       )
     )
       () ; burn
