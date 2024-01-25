@@ -11,7 +11,7 @@
   cat_parent_info
   tail_hash_hash ; (sha256 1 tail_hash)
   cat_amount
-  destination_token_contract_address
+  source_chain_token_contract_address
   destination_receiver_address
   time_now_ish
   my_amount
@@ -42,7 +42,7 @@
           DESTINATION_INFO ; who receives this message
           (+ time_now_ish 315360000) ; deadline - 10 years
           ; begin message
-          destination_token_contract_address
+          source_chain_token_contract_address
           destination_receiver_address
           cat_amount
           ; end message
@@ -59,9 +59,8 @@
         tail_hash_hash ; TAIL_HASH
         (curry_hashes_inline (curry_hashes_inline BURN_INNER_PUZZZLE_MOD_HASH
             (sha256 1 my_puzzle_hash)
-            (sha256 1 destination_token_contract_address)
+            (sha256 1 source_chain_token_contract_address)
           ) ; 1st curry
-          (sha256 1 DESTINATION_CHAIN) ; DESTINATION_CHAIN
           (sha256 1 destination_receiver_address) ; RECEIVER
         ) ; INNER_PUZZLE
       )

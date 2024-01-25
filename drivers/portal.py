@@ -17,16 +17,19 @@ def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> P
 
 def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,
-    sender: bytes,
-    target: bytes32,
-    target_is_puzzle_hash: bool,
+    source_info: bytes,
+    nonce: int,
+    destination_info: bytes32,
     deadline: int,
-    message_hash: bytes32
+    message_hash: bytes32,
+    source_chain: bytes = b'e', # ethereum
+    source_type: bytes = b'c', # contract
+    destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
   return get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).curry(
-    sender,
-    target,
-    target_is_puzzle_hash,
+    nonce,
+    (source_info, (source_chain, source_type)),
+    (destination_info, destination_type),
     deadline,
     message_hash
   )
@@ -58,19 +61,23 @@ def get_portal_receiver_inner_solution(
     validator_sig_switches: List[bool],
     new_inner_puzzle_hash: bytes32,
     nonce: int,
-    sender: bytes,
-    target: bytes32,
-    target_is_puzzle_hash: bool,
+    source_info: bytes,
+    destination_info: bytes32,
     deadline: int,
     message: Program,
+    source_chain: bytes = b'e', # ethereum
+    source_type: bytes = b'c', # contract
+    destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
     return Program.to([
        validator_sig_switches,
        new_inner_puzzle_hash,
        nonce,
-       sender,
-       target,
-       1 if target_is_puzzle_hash else 0,
+       source_chain,
+       source_type,
+       source_info,
+       destination_type,
+       destination_info,
        deadline,
        message
     ])

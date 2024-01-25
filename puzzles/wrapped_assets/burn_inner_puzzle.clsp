@@ -7,7 +7,6 @@
   SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
   ; CAT_BURN_INNER_PUZZLE_FIRST_HASH until here
   ; 2nd curry
-  DESTINATION_CHAIN
   RECEIVER ; receiver address
   cat_burner_parent_id
   cat_burner_amount
@@ -23,7 +22,7 @@
       (list ASSERT_MY_COIN_ID my_coin_id)
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 cat_bruner_coin_id my_coin_id))
       (list CREATE_COIN_ANNOUNCEMENT cat_bruner_coin_id)
-      (list CREATE_COIN 0 -113 tail_reveal (c (sha256 1 DESTINATION_CHAIN) (sha256 1 RECEIVER)))
+      (list CREATE_COIN 0 -113 tail_reveal (sha256 1 RECEIVER))
     )
   )
 
