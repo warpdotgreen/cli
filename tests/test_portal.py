@@ -213,8 +213,8 @@ class TestPortal:
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
             SOURCE_INFO,
+            NONCE,
             target,
-            with_ph,
             DEADLINE,
             Program(MESSAGE).get_tree_hash()
         )
