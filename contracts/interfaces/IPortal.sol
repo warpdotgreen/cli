@@ -6,9 +6,9 @@ pragma solidity ^0.8.20;
 interface IPortal {
     event MessageSent(
         bytes32 indexed nonce,
-        bytes destination_chain,
-        bytes destination_type,
-        bytes destination_info,
+        bytes3 destination_chain,
+        bytes1 destination_type,
+        bytes32 destination_info,
         uint256 deadline,
         bytes[] contents
     );
@@ -18,21 +18,19 @@ interface IPortal {
     function messageFee() external returns (uint256);
 
     function sendMessage(
-        bytes memory _destination_chain,
-        bytes memory _destination_type,
-        bytes memory _destination_info,
+        bytes3 _destination_chain,
+        bytes1 _destination_type,
+        bytes32 _destination_info,
         uint256 _deadline,
         bytes[] memory _contents
-    ) external;
+    ) external payable;
 
     function receiveMessage(
         bytes32 _nonce,
-        bytes memory _source_chain,
-        bytes memory _source_type,
-        bytes memory _source_info,
-        bytes memory _destination_chain,
-        bytes memory _destination_type,
-        bytes memory _destination_info,
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
+        address _destination_info,
         uint256 _deadline,
         bytes memory _contents
     ) external;

@@ -22,7 +22,7 @@ def get_message_coin_puzzle(
     destination_info: bytes32,
     deadline: int,
     message_hash: bytes32,
-    source_chain: bytes = b'e', # ethereum
+    source_chain: bytes = b'eth', # ethereum
     source_type: bytes = b'c', # contract
     destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
@@ -65,7 +65,7 @@ def get_portal_receiver_inner_solution(
     destination_info: bytes32,
     deadline: int,
     message: Program,
-    source_chain: bytes = b'e', # ethereum
+    source_chain: bytes = b'eth', # ethereum
     source_type: bytes = b'c', # contract
     destination_type: bytes = b'p', # puzzle hash
 ) -> Program:

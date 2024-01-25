@@ -14,9 +14,9 @@ contract Portal is Ownable {
 
     event MessageSent(
         bytes32 indexed nonce,
-        bytes destination_chain,
-        bytes destination_type,
-        bytes destination_info,
+        bytes3 destination_chain,
+        bytes1 destination_type,
+        bytes32 destination_info,
         uint256 deadline,
         bytes[] contents
     );
@@ -33,9 +33,9 @@ contract Portal is Ownable {
     receive() external payable {}
 
     function sendMessage(
-        bytes memory _destination_chain,
-        bytes memory _destination_type,
-        bytes memory _destination_info,
+        bytes3 _destination_chain,
+        bytes1 _destination_type,
+        bytes32 _destination_info,
         uint256 _deadline,
         bytes[] memory _contents
     ) public payable {
@@ -54,12 +54,10 @@ contract Portal is Ownable {
 
     function receiveMessage(
         bytes32 _nonce,
-        bytes memory _source_chain,
-        bytes memory _source_type,
-        bytes memory _source_info,
-        bytes memory _destination_chain,
-        bytes memory _destination_type,
-        bytes memory _destination_info,
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
+        address _destination_info,
         uint256 _deadline,
         bytes memory _contents
     ) public onlyOwner {
@@ -68,17 +66,19 @@ contract Portal is Ownable {
 
         nonceUsed[_nonce] = true;
 
-        IPortalMessageReceiver(_target).receiveMessage(
+        IPortalMessageReceiver(address(_destination_info)).receiveMessage(
             _nonce,
             _source_chain,
             _source_type,
             _source_info,
-            _deadline,
             _contents
         );
     }
 
-    function withdrawFees(address[] _receivers, uint256[] _amounts) public {
+    function withdrawFees(
+        address[] memory _receivers,
+        uint256[] memory _amounts
+    ) public {
         require(msg.sender == feeOwner, "!feeOwner");
 
         for (uint256 i = 0; i < _receivers.length; i++) {

@@ -26,7 +26,7 @@ from drivers.wrapped_assets import *
 from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
-SOURCE_CHAIN = b'e'
+SOURCE_CHAIN = b'eth'
 SOURCE_TYPE = b'c'
 SOURCE_INFO = to_eth_address("eth_token_master")
 DEADLINE = int(time.time()) + 24 * 60 * 60

@@ -8,19 +8,27 @@ contract PortalMessageReceiverMock is IPortalMessageReceiver {
     // Event for logging
     event MessageReceived(
         bytes32 nonce,
-        bytes32 sender,
-        bool isPuzzleHash,
-        bytes message
+        bytes3 source_chain,
+        bytes1 source_type,
+        bytes32 source_info,
+        bytes contents
     );
 
     function receiveMessage(
         bytes32 _nonce,
-        bytes32 _sender,
-        bool _isPuzzleHash,
-        bytes memory _message
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
+        bytes memory _contents
     ) public override {
         // Emit an event for testing purposes
-        emit MessageReceived(_nonce, _sender, _isPuzzleHash, _message);
+        emit MessageReceived(
+            _nonce,
+            _source_chain,
+            _source_type,
+            _source_info,
+            _contents
+        );
 
         // Additional logic can be added here if needed for more complex tests
     }

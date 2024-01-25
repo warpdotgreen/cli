@@ -21,7 +21,7 @@ from drivers.portal import *
 VALIDATOR_TRESHOLD = 7
 VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]
 NONCE = 1337
-SOURCE_CHAIN = 'e'
+SOURCE_CHAIN = 'eth'
 SOURCE_TYPE  = 'c'
 SOURCE_INFO = to_eth_address("sender")
 DEADLINE = int(time.time()) + 24 * 60 * 60

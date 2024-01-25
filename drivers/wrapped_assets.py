@@ -21,7 +21,7 @@ BURN_INNER_PUZZLE_MOD_HASH = BURN_INNER_PUZZLE_MOD.get_tree_hash()
 def get_cat_burner_puzzle(
     bridging_puzzle_hash: bytes32,
     destination_info: bytes, # address of contract that receives message
-    destination_chain: bytes = b'e', # ethereum
+    destination_chain: bytes = b'eth', # ethereum
     destination_type: bytes = b'c', # contract
 ) -> Program:
   return CAT_BURNER_MOD.curry(
@@ -37,7 +37,7 @@ def get_cat_minter_puzzle(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
     source_info: bytes, # address of contract that receives message
-    source_chain: bytes = b'e', # ethereum
+    source_chain: bytes = b'eth', # ethereum
     source_type: bytes = b'c', # contract
 ) -> Program:
   return CAT_MINTER_MOD.curry(
@@ -97,7 +97,7 @@ def get_wrapped_tail(
     bridging_puzzle_hash: bytes32,
     source_info: bytes,
     source_chain_token_contract_address: bytes,
-    destination_chain: bytes = b'e', # ethereum
+    destination_chain: bytes = b'eth', # ethereum
     destination_type: bytes = b'c', # contract
 ) -> Program:
   return WRAPPED_TAIL_MOD.curry(

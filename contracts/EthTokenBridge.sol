@@ -44,21 +44,21 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     function receiveMessage(
         bytes32 /* _nonce */,
-        bytes memory _source_chain,
-        bytes memory _source_type,
-        bytes memory _source_info,
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
         bytes memory _contents
     ) public {
         require(msg.sender == portal, "!portal");
         require(
             _source_info == chiaSideBurnPuzzle &&
-                _source_type == "p" && // puzzle hash
-                _source_chain == "c", // chia
+                _source_chain == bytes3("xch") &&
+                _source_type == bytes1("p"),
             "!source"
         );
 
         AssetReturnMessage memory message = abi.decode(
-            _message,
+            _contents,
             (AssetReturnMessage)
         );
 
@@ -104,8 +104,8 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         );
 
         IPortal(portal).sendMessage{value: msg.value}(
-            "c", // chia
-            "p", // puzzle hash
+            bytes3("xch"), // chia
+            bytes1("p"), // puzzle hash
             chiaSideMintPuzzle,
             block.timestamp + 10 * 12 * 365 days,
             message
@@ -114,8 +114,8 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     function withdrawFees(
         address _assetContract,
-        address[] _receivers,
-        uint256[] _amounts
+        address[] memory _receivers,
+        uint256[] memory _amounts
     ) public onlyOwner {
         require(_receivers.length == _amounts.length, "!length");
 
