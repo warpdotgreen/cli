@@ -8,7 +8,7 @@
     VALIDATOR_INFO
     MESSAGE_COIN_MOD_HASH ; after 1st curry
     LAST_NONCE
-    validator_sig_switches
+    validator_sigs_switch
     new_puzzle_hash ; inner puzzle hash
     ; msg info
     nonce
@@ -28,7 +28,7 @@
 
   (verify_validator_sigs
     VALIDATOR_INFO
-    validator_sig_switches
+    validator_sigs_switch
     (sha256tree (list
       new_puzzle_hash nonce source_chain source_type source_info destination_type destination_info deadline message
     ))

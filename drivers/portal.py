@@ -69,8 +69,13 @@ def get_portal_receiver_inner_solution(
     source_type: bytes = b'c', # contract
     destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
+    validator_sigs_switch: int = int(
+       "".join(["1" if x else "0" for x in validator_sig_switches])[::-1],
+       2
+    )
+
     return Program.to([
-       validator_sig_switches,
+       validator_sigs_switch,
        new_inner_puzzle_hash,
        nonce,
        source_chain,
