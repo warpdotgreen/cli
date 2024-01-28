@@ -1,94 +1,137 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Portal, PortalMessageReceiverMock } from "../typechain-types";
+import { BigNumberish } from "ethers";
 
 describe("Portal", function () {
     let portal: Portal;
     let mockReceiver: PortalMessageReceiverMock;
-    let owner: any;
-    let otherAccount: any;
+    let owner: any,
+        otherAccount: any,
+        feeCollector: any,
+        messageFee: BigNumberish;
     const deadlineOffset = 3600; // 1 hour
     const nonce1 = ethers.encodeBytes32String("nonce1")
 
     beforeEach(async function () {
-        [owner, otherAccount] = await ethers.getSigners();
+        [owner, otherAccount, feeCollector] = await ethers.getSigners();
+        messageFee = ethers.parseEther("0.01");
         const PortalFactory = await ethers.getContractFactory("Portal");
-        portal = await PortalFactory.deploy();
+        portal = await PortalFactory.deploy(owner.address, feeCollector.address, messageFee);
         const MockReceiverFactory = await ethers.getContractFactory("PortalMessageReceiverMock");
         mockReceiver = await MockReceiverFactory.deploy();
     });
 
     describe("Deployment", function () {
-        it("Should set the right owner", async function () {
+        it("Should set the right parameters", async function () {
             expect(await portal.owner()).to.equal(owner.address);
+            expect(await portal.messageFee()).to.equal(messageFee);
+            expect(await portal.feeCollector()).to.equal(feeCollector.address);
         });
     });
 
     describe("sendMessage", function () {
-        it("Should emit a MessageSent event and increment nonce", async function () {
-            const target = ethers.encodeBytes32String("target");
+        it("should emit MessageSent and increment nonce", async function () {
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(portal.sendMessage(target, true, deadline, ["0x1234"]))
+            await expect(
+                    portal.sendMessage(
+                        "0x000001",
+                        "0x01",
+                        "0x0000000000000000000000000000000000000000000000000000000000000002",
+                        deadline,
+                        ["0x1234"],
+                        { value: messageFee }
+                    ))
                 .to.emit(portal, "MessageSent")
-                .withArgs(1, target, true, deadline, ["0x1234"]);
+                .withArgs(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "0x000001",
+                    "0x01",
+                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    deadline,
+                    ["0x1234"]
+                );
             expect(await portal.ethNonce()).to.equal(1);
         });
 
-        it("Should fail if deadline is in the past", async function () {
-            const target = ethers.encodeBytes32String("target");
+        it("should fail if deadline is past", async function () {
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            await expect(portal.sendMessage(target, true, deadline, ["0x1234"]))
+            await expect(portal.sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", deadline, ["0x1234"]))
                 .to.be.revertedWith("!deadline");
+        });
+
+        it("should fail if message fee is incorrect", async function () {
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+            await expect(portal.sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", deadline, ["0x1234"]))
+                .to.be.revertedWith("!fee");
         });
     });
 
     describe("receiveMessage", function () {
-        it("Should correctly receive and process a message", async function () {
-            const sender = ethers.encodeBytes32String("sender");
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
-            await expect(portal.receiveMessage(nonce1, sender, true, mockReceiver.target, deadline, "0x1234"))
-                .to.not.be.reverted;
+        let nonce: any;
+
+        beforeEach(async function () {
+            nonce = ethers.keccak256(ethers.toUtf8Bytes("nonce"));
         });
 
-        it("Should fail if nonce is already used", async function () {
-            const sender = ethers.encodeBytes32String("sender");
+        it("should process valid message", async function () {
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
-            await portal.receiveMessage(nonce1, sender, true, mockReceiver.target, deadline, "0x1234");
-            await expect(portal.receiveMessage(nonce1, sender, true, mockReceiver.target, deadline, "0x1234"))
+            await expect(
+                await portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234")
+            ).to.emit(mockReceiver, "MessageReceived").withArgs(
+                nonce,
+                "0x000001",
+                "0x01",
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+                "0x1234"
+            )
+        });
+
+        it("should fail is same nonce is used twice", async function () {
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+            await portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234");
+            await expect(portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
                 .to.be.revertedWith("!nonce");
         });
 
-        it("Should fail if deadline has been reached", async function () {
-            const sender = ethers.encodeBytes32String("sender");
-            const futureDeadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            // await portal.sendMessage(sender, true, futureDeadline, ["0x1234"]);
-            await expect(portal.receiveMessage(nonce1, sender, true, mockReceiver.target, futureDeadline, "0x1234"))
+        it("should fail if deadline is in the past", async function () {
+            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
+            await expect(portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
                 .to.be.revertedWith("!deadline");
         });
 
-        it("Should fail if called by non-owner", async function () {
-            const sender = ethers.encodeBytes32String("sender");
+        it("should fail if not called by owner", async function () {
             const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            // await portal.sendMessage(sender, true, deadline, ["0x1234"]);
-            await expect(portal.connect(otherAccount).receiveMessage(nonce1, sender, true, mockReceiver.target, deadline, "0x1234"))
+            await expect(portal.connect(otherAccount).receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
                 .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
+    });
 
-        it("Should call receiveMessage on PortalMessageReceiverMock and emit MessageReceived event", async function () {
-            const sender = ethers.encodeBytes32String("sender");
-            const isPuzzleHash = true;
-            const message = "0x1234";
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+    describe("withdrawFees", function () {
+        it("should allow feeCollector to withdraw", async function () {
+            const amount = ethers.parseEther("0.01");
+            await portal.connect(otherAccount).sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset, ["0x1234"], { value: messageFee });
+            await expect(portal.connect(feeCollector).withdrawFees([otherAccount.address], [amount]))
+                .to.changeEtherBalances([portal, otherAccount], [-amount, amount]);
+        });
 
-            // await portal.sendMessage(sender, isPuzzleHash, deadline, [message]);
+        it("should allow withdrawal to multiple addresses", async function () {
+            const amount1 = ethers.parseEther("0.003");
+            const amount2 = ethers.parseEther("0.007");
+            await portal.connect(otherAccount).sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset, ["0x1234"], { value: messageFee });
+            await expect(portal.connect(feeCollector).withdrawFees(
+                [otherAccount.address, feeCollector.address],
+                [amount1, amount2])
+            ).to.changeEtherBalances(
+                [portal, otherAccount, feeCollector],
+                [-messageFee, amount1, amount2]
+            );
+        });
 
-            await expect(portal.receiveMessage(nonce1, sender, isPuzzleHash, mockReceiver.target, deadline, message))
-                .to.not.be.reverted;
-            await expect(mockReceiver.receiveMessage(nonce1, sender, isPuzzleHash, message))
-                .to.emit(mockReceiver, "MessageReceived")
-                .withArgs(nonce1, sender, isPuzzleHash, message);
+        it("should fail if non-feeCollector tries to withdraw", async function () {
+            const amount = ethers.parseEther("0.01");
+            await expect(portal.withdrawFees([otherAccount.address], [amount]))
+                .to.be.revertedWith("!feeCollector");
         });
     });
 });

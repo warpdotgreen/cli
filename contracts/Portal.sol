@@ -9,7 +9,7 @@ import "./interfaces/IPortalMessageReceiver.sol";
 contract Portal is Ownable {
     uint256 public ethNonce = 0;
     mapping(bytes32 => bool) private nonceUsed;
-    address private feeOwner;
+    address public feeCollector;
     uint256 public messageFee;
 
     event MessageSent(
@@ -23,10 +23,10 @@ contract Portal is Ownable {
 
     constructor(
         address _messageMultisig,
-        address _feeOwner,
+        address _feeCollector,
         uint256 _messageFee
     ) Ownable(_messageMultisig) {
-        feeOwner = _feeOwner;
+        feeCollector = _feeCollector;
         messageFee = _messageFee;
     }
 
@@ -66,7 +66,7 @@ contract Portal is Ownable {
 
         nonceUsed[_nonce] = true;
 
-        IPortalMessageReceiver(address(_destination_info)).receiveMessage(
+        IPortalMessageReceiver(_destination_info).receiveMessage(
             _nonce,
             _source_chain,
             _source_type,
@@ -79,7 +79,7 @@ contract Portal is Ownable {
         address[] memory _receivers,
         uint256[] memory _amounts
     ) public {
-        require(msg.sender == feeOwner, "!feeOwner");
+        require(msg.sender == feeCollector, "!feeCollector");
 
         for (uint256 i = 0; i < _receivers.length; i++) {
             payable(_receivers[i]).transfer(_amounts[i]);
