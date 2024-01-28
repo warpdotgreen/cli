@@ -8,6 +8,7 @@ from chia_rs import G1Element
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
 from chia.types.blockchain_format.coin import Coin
+import dataclasses
 
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
@@ -38,12 +39,17 @@ def get_portal_receiver_inner_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: list[G1Element],
-      last_nonce: int = 0,
+      update_puzzle_hash: bytes32,
+      last_nonces: List[int] = [],
 ) -> Program:
-    return PORTAL_RECEIVER_MOD.curry(
+    first_curry = PORTAL_RECEIVER_MOD.curry(
        (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
        get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash(),
-       last_nonce
+       update_puzzle_hash
+    )
+    return first_curry.curry(
+       first_curry.get_tree_hash(), # SELF_HASH
+       last_nonces
     )
 
 def get_portal_receiver_full_puzzle(
@@ -57,34 +63,44 @@ def get_portal_receiver_full_puzzle(
      get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
   )
 
-def get_portal_receiver_inner_solution(
-    validator_sig_switches: List[bool],
-    new_inner_puzzle_hash: bytes32,
-    nonce: int,
-    source_info: bytes,
-    destination_info: bytes32,
-    deadline: int,
-    message: Program,
-    source_chain: bytes = b'eth', # ethereum
-    source_type: bytes = b'c', # contract
-    destination_type: bytes = b'p', # puzzle hash
-) -> Program:
-    validator_sigs_switch: int = int(
-       "".join(["1" if x else "0" for x in validator_sig_switches])[::-1],
+@dataclasses.dataclass(frozen=True)
+class PortalMessage:
+    nonce: int
+    validator_sig_switches: List[bool]
+    source_chain: bytes = b'eth'
+    source_type: bytes = b'c'
+    source_info: bytes
+    destination_info: bytes32
+    destination_type: bytes = b'p'
+    deadline: int
+    message: Program
+
+def get_sigs_switch(sig_switches: List[bool]) -> int:
+   return int(
+       "".join(["1" if x else "0" for x in sig_switches])[::-1],
        2
     )
 
+def get_portal_receiver_inner_solution(
+    messages: List[PortalMessage],
+    update_puzzle_reveal: Program | None = None,
+    update_puzzle_solution: Program | None = None
+) -> Program:
     return Program.to([
-       validator_sigs_switch,
-       new_inner_puzzle_hash,
-       nonce,
-       source_chain,
-       source_type,
-       source_info,
-       destination_type,
-       destination_info,
-       deadline,
-       message
+       0 if update_puzzle_reveal is None or update_puzzle_solution is None else (update_puzzle_reveal, update_puzzle_solution),
+       [messages.nonce for messages in messages],
+       [
+          [
+            get_sigs_switch(msg.validator_sig_switches),
+            msg.source_chain,
+            msg.source_type,
+            msg.source_info,
+            msg.destination_type,
+            msg.destination_info,
+            msg.deadline,
+            msg.message
+          ] for msg in messages
+       ]
     ])
 
 def get_message_coin_solution(

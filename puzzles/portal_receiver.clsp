@@ -1,7 +1,7 @@
 ; portal_receiver.clsp by yakuhito
 ;; used to receive messages via the portal
 
-;; LAST_NONCE is here to make sure validator sigs for a 'chain' of nonce confirmations
+;; LAST_NONCES is here to make sure validator sigs for a 'chain' of nonce confirmations
 ;; are invalidated because the coin ids will be different (caused by different puzzle hashes)
 
 (mod (
