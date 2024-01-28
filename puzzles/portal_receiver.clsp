@@ -7,18 +7,13 @@
 (mod (
     VALIDATOR_INFO
     MESSAGE_COIN_MOD_HASH ; after 1st curry
-    LAST_NONCE
-    validator_sigs_switch
-    new_puzzle_hash ; inner puzzle hash
+    UPDATE_PUZZLE_HASH ; m of n
+    SELF_HASH
+    LAST_NONCES
+    update_package ; () of (update_puzzle . update_solution)
     ; msg info
-    nonce
-    source_chain
-    source_type
-    source_info
-    destination_type
-    destination_info
-    deadline
-    message
+    nonces ; (list nonce1 nonce2 ...)
+    msg_infos ; (list (list validator_sigs_switch source_chain source_type source_info destination_type destination_info deadline message) ... )
   )
 
   (include condition_codes.clib)
@@ -26,30 +21,64 @@
   (include validator_sigs.clib)
   (include curry.clib)
 
-  (verify_validator_sigs
-    VALIDATOR_INFO
-    validator_sigs_switch
-    (sha256tree (list
-      new_puzzle_hash nonce source_chain source_type source_info destination_type destination_info deadline message
-    ))
-    (list
-      (list CREATE_COIN new_puzzle_hash 1) ; upgrade mechanism
-      (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
-        (sha256 1 nonce)
-        (sha256 2
-          (sha256 1 source_info)
+  (defun process_messages (
+      VALIDATOR_INFO
+      MESSAGE_COIN_MOD_HASH
+      (nonce . remaining_nonces)
+      ((
+        validator_sigs_switch source_chain source_type source_info destination_type destination_info deadline message
+      ). remaining_msg_infos)
+    )
+    (verify_validator_sigs
+      VALIDATOR_INFO
+      validator_sigs_switch
+      (sha256tree (list
+        nonce source_chain source_type source_info destination_type destination_info deadline message
+      ))
+      (c
+        (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
+          (sha256 1 nonce)
           (sha256 2
-            (sha256 1 source_chain)
-            (sha256 1 source_type)
+            (sha256 1 source_info)
+            (sha256 2
+              (sha256 1 source_chain)
+              (sha256 1 source_type)
+            )
           )
+          (sha256 2
+            (sha256 1 destination_info)
+            (sha256 1 destination_type)
+          )
+          (sha256 1 deadline)
+          (sha256 1 (sha256tree message)) ; message was revealed on-chain
+        ) 0)
+        (if remaining_msg_infos
+          (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH remaining_nonces remaining_msg_infos)
+          ; else
+          ()
         )
-        (sha256 2
-          (sha256 1 destination_info)
-          (sha256 1 destination_type)
+      )
+    )
+  )
+  
+
+  (if (= update_package ())
+    (c
+      (list
+        CREATE_COIN
+        (curry_hashes_inline SELF_HASH
+          (sha256 1 SELF_HASH)
+          (sha256tree nonces)
         )
-        (sha256 1 deadline)
-        (sha256 1 (sha256tree message)) ; message was revealed on-chain
-      ) 0)
+        1
+      )
+      (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH nonces msg_infos)
+    )
+    ; else
+    (if (= (sha256tree (f update_package)) UPDATE_PUZZLE_HASH)
+      (a (f update_package) (r update_package))
+      ; else
+      (x)
     )
   )
 )
