@@ -67,13 +67,13 @@ def get_portal_receiver_full_puzzle(
 class PortalMessage:
     nonce: int
     validator_sig_switches: List[bool]
-    source_chain: bytes = b'eth'
-    source_type: bytes = b'c'
     source_info: bytes
     destination_info: bytes32
-    destination_type: bytes = b'p'
     deadline: int
     message: Program
+    source_chain: bytes = b'eth'
+    source_type: bytes = b'c'
+    destination_type: bytes = b'p'
 
 def get_sigs_switch(sig_switches: List[bool]) -> int:
    return int(

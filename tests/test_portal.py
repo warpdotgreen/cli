@@ -93,6 +93,7 @@ class TestPortal:
             portal_launcher_id,
             VALIDATOR_TRESHOLD,
             validator_pks,
+            one_puzzle_hash
         )
         portal_full_puzzle = puzzle_for_singleton(
             portal_launcher_id,
@@ -161,20 +162,25 @@ class TestPortal:
             portal_launcher_id,
             VALIDATOR_TRESHOLD,
             validator_pks,
-            last_nonce=NONCE
+            one_puzzle_hash,
+            last_nonces=[NONCE]
         )
         new_portal_inner_puzzle_hash: bytes32 = Program(new_portal_inner_puzzle).get_tree_hash()
         
         target = one_puzzle_hash if with_ph else message_claimer_launcher_id
-        portal_inner_solution = get_portal_receiver_inner_solution(
-            VALIDATOR_SIG_SWITCHES,
-            new_portal_inner_puzzle_hash,
-            NONCE,
-            SOURCE_INFO,
-            target,
-            DEADLINE,
-            MESSAGE,
+        msg = PortalMessage(
+            nonce=NONCE,
+            validator_sig_switches=VALIDATOR_SIG_SWITCHES,
+            source_chain=SOURCE_CHAIN,
+            source_type=SOURCE_TYPE,
+            source_info=SOURCE_INFO,
             destination_type='p' if with_ph else 's',
+            destination_info=target,
+            deadline=DEADLINE,
+            message=MESSAGE
+        )
+        portal_inner_solution = get_portal_receiver_inner_solution(
+            [msg]
         )
         portal_solution = solution_for_singleton(
             lineage_proof_for_coinsol(portal_launcher_spend),
@@ -182,9 +188,8 @@ class TestPortal:
             portal_inner_solution
         )
 
-        # new_puzzle_hash nonce source_chain source_type source_info destination_type destination_info deadline message
+        # nonce source_chain source_type source_info destination_type destination_info deadline message
         message_to_sign: bytes = Program(Program.to([
-            new_portal_inner_puzzle_hash,
             NONCE,
             SOURCE_CHAIN,
             SOURCE_TYPE,
@@ -210,6 +215,9 @@ class TestPortal:
 
         await node.push_tx(portal_spend_bundle)
         await wait_for_coin(node, portal, also_wait_for_spent=True)
+
+        new_portal = Coin(portal.name(), new_portal_inner_puzzle_hash, 1)
+        await wait_for_coin(node, new_portal)
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
