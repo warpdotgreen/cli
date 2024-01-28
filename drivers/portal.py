@@ -56,11 +56,12 @@ def get_portal_receiver_full_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: List[G1Element],
-      last_nonce: int = 0,
+      update_puzzle_hash: bytes32,
+      last_nonces: List[int] = [],
 ) -> Program:
   return puzzle_for_singleton(
      launcher_id,
-     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
+     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, update_puzzle_hash, last_nonces),
   )
 
 @dataclasses.dataclass(frozen=True)

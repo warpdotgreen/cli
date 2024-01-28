@@ -62,7 +62,13 @@
   )
   
 
-  (if (= update_package ())
+  (if update_package
+    (if (= (sha256tree (f update_package)) UPDATE_PUZZLE_HASH)
+      (a (f update_package) (r update_package))
+      ; else
+      (x)
+    )
+    ; else
     (c
       (list
         CREATE_COIN
@@ -73,12 +79,6 @@
         1
       )
       (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH nonces msg_infos)
-    )
-    ; else
-    (if (= (sha256tree (f update_package)) UPDATE_PUZZLE_HASH)
-      (a (f update_package) (r update_package))
-      ; else
-      (x)
     )
   )
 )

@@ -165,8 +165,11 @@ class TestPortal:
             one_puzzle_hash,
             last_nonces=[NONCE]
         )
-        new_portal_inner_puzzle_hash: bytes32 = Program(new_portal_inner_puzzle).get_tree_hash()
-        
+        new_portal_puzzle_hash: bytes32 = puzzle_for_singleton(
+            portal_launcher_id,
+            new_portal_inner_puzzle
+        ).get_tree_hash()
+
         target = one_puzzle_hash if with_ph else message_claimer_launcher_id
         msg = PortalMessage(
             nonce=NONCE,
@@ -216,7 +219,7 @@ class TestPortal:
         await node.push_tx(portal_spend_bundle)
         await wait_for_coin(node, portal, also_wait_for_spent=True)
 
-        new_portal = Coin(portal.name(), new_portal_inner_puzzle_hash, 1)
+        new_portal = Coin(portal.name(), new_portal_puzzle_hash, 1)
         await wait_for_coin(node, new_portal)
 
         message_coin_puzzle = get_message_coin_puzzle(
@@ -287,6 +290,34 @@ class TestPortal:
 
         await node.push_tx(message_claim_bundle)
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
+
+        # 4. Close down portal via updater
+        update_puzzle = one_puzzle
+        update_solution = Program.to([
+            [ConditionOpcode.CREATE_COIN, 0, -113], # melt singleton
+            [ConditionOpcode.RESERVE_FEE, 1]
+        ])
+
+        portal_inner_solution = get_portal_receiver_inner_solution(
+            [],
+            update_puzzle_reveal=update_puzzle,
+            update_puzzle_solution=update_solution
+        )
+        portal_solution = solution_for_singleton(
+            lineage_proof_for_coinsol(portal_spend_bundle.coin_spends[0]),
+            1,
+            portal_inner_solution
+        )
+
+        portal_puzzle = puzzle_for_singleton(
+            portal_launcher_id,
+            new_portal_inner_puzzle,
+        )
+        portal_melt_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
+        portal_melt_spend_bundle = SpendBundle([portal_melt_spend], AugSchemeMPL.aggregate([]))
+
+        await node.push_tx(portal_melt_spend_bundle)
+        await wait_for_coin(node, new_portal, also_wait_for_spent=True)
 
     @pytest.mark.asyncio
     async def test_receive_message_ph(self, setup, validator_set):

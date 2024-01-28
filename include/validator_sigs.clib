@@ -3,18 +3,18 @@
     treshold
     sigs_until_now
     validator_pks
-    validator_sigs_switche
+    validator_sigs_switch
     sig_data
     conditions_until_now
   )
     (if (r validator_pks)
       (verify_validator_sigs_step
         treshold
-        (+ sigs_until_now (r (divmod validator_sigs_switche 2)))
+        (+ sigs_until_now (r (divmod validator_sigs_switch 2)))
         (r validator_pks)
-        (f (divmod validator_sigs_switche 2))
+        (f (divmod validator_sigs_switch 2))
         sig_data
-        (if (= (r (divmod validator_sigs_switche 2)) ()) conditions_until_now
+        (if (= (r (divmod validator_sigs_switch 2)) ()) conditions_until_now
           (c
             (list 50 (f validator_pks) sig_data) ; AGG_SIG_ME
             conditions_until_now
