@@ -26,10 +26,12 @@ from drivers.wrapped_assets import *
 from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
-SENDER = to_eth_address("eth_token_master")
+SOURCE_CHAIN = b'eth'
+SOURCE_TYPE = b'c'
+SOURCE_INFO = to_eth_address("eth_token_master")
 DEADLINE = int(time.time()) + 24 * 60 * 60
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
-ERC20_ASSET_CONTRACT = to_eth_address("erc20")
+SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
 class TestPortal:
@@ -75,23 +77,23 @@ class TestPortal:
         await wait_for_coin(node, portal)
 
         # 2. Create message coin
-        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SENDER)
+        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_INFO, SOURCE_CHAIN, SOURCE_TYPE)
         minter_puzzle_hash = minter_puzzle.get_tree_hash()
 
         receiver_puzzle: Program = one_puzzle
         receiver_puzzle_hash = one_puzzle_hash
 
         message: Program = Program.to([
-            ERC20_ASSET_CONTRACT,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             receiver_puzzle_hash,
             10000 # 10.000 CATs
         ])
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
-            SENDER,
+            SOURCE_INFO,
+            NONCE,
             minter_puzzle_hash,
-            True,
             DEADLINE,
             message.get_tree_hash()
         )
@@ -146,6 +148,7 @@ class TestPortal:
         )
 
         minter_puzzle_solution = get_cat_minter_puzzle_solution(
+            NONCE,
             DEADLINE,
             message,
             minter_puzzle_hash,
@@ -163,14 +166,15 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
 
+        open("/tmp/sb.json", "w").write(json.dumps(mint_bundle.to_json_dict(), indent=4))
         await node.push_tx(mint_bundle)
 
         # 4. Spend freshly-minted CAT coin
         wrapped_asset_tail = get_wrapped_tail(
             portal_launcher_id,
             BRIDGING_PUZZLE_HASH,
-            SENDER,
-            ERC20_ASSET_CONTRACT
+            SOURCE_INFO,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
         )
         wrapped_asset_tail_hash = wrapped_asset_tail.get_tree_hash()
 
@@ -226,7 +230,9 @@ class TestPortal:
         # 5. Burn CAT coin
         burner_puzzle = get_cat_burner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SENDER,
+            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE_TYPE
         )
         burner_puzzle_hash = burner_puzzle.get_tree_hash()
 
@@ -235,10 +241,10 @@ class TestPortal:
         burner_coin: Coin = tx_record.additions[0]
         await wait_for_coin(node, burner_coin)
 
-        cat_burn_inner_puzzle = get_cat_brun_inner_puzzle(
+        cat_burn_inner_puzzle = get_cat_burn_inner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SENDER,
-            ERC20_ASSET_CONTRACT,
+            SOURCE_INFO,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             ETH_RECEIVER
         )
         cat_burn_inner_puzzle_hash = cat_burn_inner_puzzle.get_tree_hash()
@@ -302,7 +308,7 @@ class TestPortal:
             last_cat_coin.parent_coin_info,
             wrapped_asset_tail_hash,
             10000,
-            ERC20_ASSET_CONTRACT,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             ETH_RECEIVER,
             int(time.time()) - 24 * 60 * 60,
             burner_coin

@@ -8,9 +8,9 @@
     PORTAL_RECEIVER_LAUNCHER_ID
 
     ; second curry
-    SENDER
-    TARGET
-    TARGET_IS_PUZZLE_HASH
+    NONCE
+    (SOURCE_INFO . (SOURCE_CHAIN . SOURCE_TYPE)) ; source
+    (DESTINATION_INFO . DESTINATION_TYPE) ; destination
     DEADLINE
     MESSAGE_HASH
 
@@ -25,10 +25,10 @@
   (include sha256tree.clib)
 
   (defun-inline verify_target () 
-    (if TARGET_IS_PUZZLE_HASH
-      (= receiver_puzzle_hash TARGET)
+    (if (= DESTINATION_TYPE 'p') ; puzzle hash
+      (= receiver_puzzle_hash DESTINATION_INFO)
       (all
-        (= TARGET (f receiver_singleton_proof))
+        (= DESTINATION_INFO (f receiver_singleton_proof)) ; singleton if
         (= receiver_puzzle_hash (curry_hashes SINGLETON_MOD_HASH
           (sha256tree (c SINGLETON_MOD_HASH (c (f receiver_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
           (r receiver_singleton_proof)

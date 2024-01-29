@@ -15,7 +15,7 @@ interface ERC20Decimals {
 
 contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     mapping(address => uint256) public fees;
-    uint256 public fee = 100; // initial fee - 1%
+    uint256 public fee = 30; // initial fee - 0.3%
     address public portal;
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
@@ -44,15 +44,21 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     function receiveMessage(
         bytes32 /* _nonce */,
-        bytes32 _sender,
-        bool _isPuzzleHash,
-        bytes memory _message
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
+        bytes memory _contents
     ) public {
         require(msg.sender == portal, "!portal");
-        require(_sender == chiaSideBurnPuzzle && _isPuzzleHash, "!sender");
+        require(
+            _source_info == chiaSideBurnPuzzle &&
+                _source_chain == bytes3("xch") &&
+                _source_type == bytes1("p"),
+            "!source"
+        );
 
         AssetReturnMessage memory message = abi.decode(
-            _message,
+            _contents,
             (AssetReturnMessage)
         );
 
@@ -70,11 +76,15 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         );
     }
 
+    receive() external payable {}
+
     function bridgeToChia(
         address _assetContract,
         bytes32 _receiver,
         uint256 _amount // on Chia
-    ) public {
+    ) public payable {
+        require(msg.value == IPortal(portal).messageFee(), "!fee");
+
         uint256 transferFee = (_amount * fee) / 10000;
 
         bytes[] memory message = new bytes[](3);
@@ -93,17 +103,30 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             _amount * chiaToEthFactor
         );
 
-        IPortal(portal).sendMessage(
+        IPortal(portal).sendMessage{value: msg.value}(
+            bytes3("xch"), // chia
+            bytes1("p"), // puzzle hash
             chiaSideMintPuzzle,
-            true,
             block.timestamp + 10 * 12 * 365 days,
             message
         );
     }
 
-    function withdrawFee(address _assetContract) public onlyOwner {
-        uint256 amount = fees[_assetContract];
-        fees[_assetContract] = 0;
-        SafeERC20.safeTransfer(IERC20(_assetContract), msg.sender, amount);
+    function withdrawFees(
+        address _assetContract,
+        address[] memory _receivers,
+        uint256[] memory _amounts
+    ) public onlyOwner {
+        require(_receivers.length == _amounts.length, "!length");
+
+        for (uint256 i = 0; i < _receivers.length; i++) {
+            fees[_assetContract] -= _amounts[i];
+
+            SafeERC20.safeTransfer(
+                IERC20(_assetContract),
+                _receivers[i],
+                _amounts[i]
+            );
+        }
     }
 }

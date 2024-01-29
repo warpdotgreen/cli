@@ -5,12 +5,14 @@
   CAT_MOD_HASH
   BURN_INNER_PUZZZLE_MOD_HASH
   BRIDGING_PUZZLE_HASH
-  ETH_TOKEN_BRIDGE_ADDRESS
+  DESTINATION_CHAIN
+  DESTINATION_TYPE
+  DESTINATION_INFO ; token bridg address @ destination
   cat_parent_info
   tail_hash_hash ; (sha256 1 tail_hash)
   cat_amount
-  eth_erc20_address
-  eth_receiver_address
+  source_chain_token_contract_address
+  destination_receiver_address
   time_now_ish
   my_amount
   my_puzzle_hash
@@ -33,12 +35,15 @@
         BRIDGING_PUZZLE_HASH ; static
         my_amount ; allows changing min fee without changing puzzle hash
         (list
-          1 ; sender_as_puzzle_hash
-          ETH_TOKEN_BRIDGE_ADDRESS ; target on Eth
+          ; ([source_type] [destination_chain] [destination_type] [destination_info] [deadline] . [content])
+          'p' ; source type = 'puzzle hash'
+          DESTINATION_CHAIN
+          DESTINATION_TYPE
+          DESTINATION_INFO ; who receives this message
           (+ time_now_ish 315360000) ; deadline - 10 years
           ; begin message
-          eth_erc20_address
-          eth_receiver_address
+          source_chain_token_contract_address
+          destination_receiver_address
           cat_amount
           ; end message
         )
@@ -54,9 +59,9 @@
         tail_hash_hash ; TAIL_HASH
         (curry_hashes_inline (curry_hashes_inline BURN_INNER_PUZZZLE_MOD_HASH
             (sha256 1 my_puzzle_hash)
-            (sha256 1 eth_erc20_address)
+            (sha256 1 source_chain_token_contract_address)
           ) ; 1st curry
-          (sha256 1 eth_receiver_address) ; TARGET_RECEIVER
+          (sha256 1 destination_receiver_address) ; RECEIVER
         ) ; INNER_PUZZLE
       )
       cat_amount

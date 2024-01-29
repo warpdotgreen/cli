@@ -8,6 +8,7 @@ from chia_rs import G1Element
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
 from chia.types.blockchain_format.coin import Coin
+import dataclasses
 
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
@@ -17,16 +18,19 @@ def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> P
 
 def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,
-    sender: bytes,
-    target: bytes32,
-    target_is_puzzle_hash: bool,
+    source_info: bytes,
+    nonce: int,
+    destination_info: bytes32,
     deadline: int,
-    message_hash: bytes32
+    message_hash: bytes32,
+    source_chain: bytes = b'eth', # ethereum
+    source_type: bytes = b'c', # contract
+    destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
   return get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).curry(
-    sender,
-    target,
-    target_is_puzzle_hash,
+    nonce,
+    (source_info, (source_chain, source_type)),
+    (destination_info, destination_type),
     deadline,
     message_hash
   )
@@ -35,44 +39,69 @@ def get_portal_receiver_inner_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: list[G1Element],
-      last_nonce: int = 0,
+      update_puzzle_hash: bytes32,
+      last_nonces: List[int] = [],
 ) -> Program:
-    return PORTAL_RECEIVER_MOD.curry(
+    first_curry = PORTAL_RECEIVER_MOD.curry(
        (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
        get_message_coin_puzzle_1st_curry(launcher_id).get_tree_hash(),
-       last_nonce
+       update_puzzle_hash
+    )
+    return first_curry.curry(
+       first_curry.get_tree_hash(), # SELF_HASH
+       last_nonces
     )
 
 def get_portal_receiver_full_puzzle(
       launcher_id: bytes32,
       signature_treshold: int,
       signature_pubkeys: List[G1Element],
-      last_nonce: int = 0,
+      update_puzzle_hash: bytes32,
+      last_nonces: List[int] = [],
 ) -> Program:
   return puzzle_for_singleton(
      launcher_id,
-     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, last_nonce),
+     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, update_puzzle_hash, last_nonces),
   )
 
+@dataclasses.dataclass(frozen=True)
+class PortalMessage:
+    nonce: int
+    validator_sig_switches: List[bool]
+    source_info: bytes
+    destination_info: bytes32
+    deadline: int
+    message: Program
+    source_chain: bytes = b'eth'
+    source_type: bytes = b'c'
+    destination_type: bytes = b'p'
+
+def get_sigs_switch(sig_switches: List[bool]) -> int:
+   return int(
+       "".join(["1" if x else "0" for x in sig_switches])[::-1],
+       2
+    )
+
 def get_portal_receiver_inner_solution(
-    validator_sig_switches: List[bool],
-    new_inner_puzzle_hash: bytes32,
-    nonce: int,
-    sender: bytes,
-    target: bytes32,
-    target_is_puzzle_hash: bool,
-    deadline: int,
-    message: Program,
+    messages: List[PortalMessage],
+    update_puzzle_reveal: Program | None = None,
+    update_puzzle_solution: Program | None = None
 ) -> Program:
     return Program.to([
-       validator_sig_switches,
-       new_inner_puzzle_hash,
-       nonce,
-       sender,
-       target,
-       1 if target_is_puzzle_hash else 0,
-       deadline,
-       message
+       0 if update_puzzle_reveal is None or update_puzzle_solution is None else (update_puzzle_reveal, update_puzzle_solution),
+       [messages.nonce for messages in messages],
+       [
+          [
+            get_sigs_switch(msg.validator_sig_switches),
+            msg.source_chain,
+            msg.source_type,
+            msg.source_info,
+            msg.destination_type,
+            msg.destination_info,
+            msg.deadline,
+            msg.message
+          ] for msg in messages
+       ]
     ])
 
 def get_message_coin_solution(

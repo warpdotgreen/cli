@@ -20,19 +20,25 @@ BURN_INNER_PUZZLE_MOD_HASH = BURN_INNER_PUZZLE_MOD.get_tree_hash()
 
 def get_cat_burner_puzzle(
     bridging_puzzle_hash: bytes32,
-    eth_token_bridge_address: bytes,
+    destination_info: bytes, # address of contract that receives message
+    destination_chain: bytes = b'eth', # ethereum
+    destination_type: bytes = b'c', # contract
 ) -> Program:
   return CAT_BURNER_MOD.curry(
     CAT_MOD_HASH,
     BURN_INNER_PUZZLE_MOD_HASH,
     bridging_puzzle_hash,
-    eth_token_bridge_address
+    destination_chain,
+    destination_type,
+    destination_info
   )
 
 def get_cat_minter_puzzle(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
-    eth_token_bridge_address: bytes,
+    source_info: bytes, # address of contract that receives message
+    source_chain: bytes = b'eth', # ethereum
+    source_type: bytes = b'c', # contract
 ) -> Program:
   return CAT_MINTER_MOD.curry(
     get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash(),
@@ -41,10 +47,18 @@ def get_cat_minter_puzzle(
     CAT_MINT_AND_PAYOUT_MOD_HASH,
     raw_hash([
       b'\x01',
-      get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash()
+      get_cat_burner_puzzle(bridging_puzzle_hash, source_info).get_tree_hash()
     ]), # CAT_BURNER_PUZZLE_HASH_HASH = (sha256 1 CAT_BURNER_PUZZLE_HASH_HASH)
     BURN_INNER_PUZZLE_MOD_HASH,
-    eth_token_bridge_address
+    raw_hash([
+      b'\x02',
+      raw_hash([b'\x01', source_info]),
+      raw_hash([
+        b'\x02',
+        raw_hash([b'\x01', source_chain]),
+        raw_hash([b'\x01', source_type]),
+      ]),
+    ]), # SOURCE_STUFF_HASH
   )
 
 def get_cat_mint_and_payout_inner_puzzle(
@@ -56,24 +70,24 @@ def get_cat_mint_and_payout_inner_puzzle(
 
 def get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash: bytes32,
-    eth_token_bridge_address: bytes,
-    eth_erc20_address: bytes,
+    destination_info: bytes,
+    source_chain_token_contract_address: bytes,
 ) -> Program:
   return BURN_INNER_PUZZLE_MOD.curry(
-    get_cat_burner_puzzle(bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
-    eth_erc20_address
+    get_cat_burner_puzzle(bridging_puzzle_hash, destination_info).get_tree_hash(),
+    source_chain_token_contract_address
   )
 
-def get_cat_brun_inner_puzzle(
+def get_cat_burn_inner_puzzle(
     bridging_puzzle_hash: bytes32,
-    eth_token_bridge_address: bytes,
-    eth_erc20_address: bytes,
+    destination_info: bytes, # e.g., ETH token bridge
+    source_chain_token_contract_address: bytes,
     target_receiver: bytes,
 ) -> Program:
   return get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash,
-    eth_token_bridge_address,
-    eth_erc20_address
+    destination_info,
+    source_chain_token_contract_address
   ).curry(
     target_receiver
   )
@@ -81,12 +95,17 @@ def get_cat_brun_inner_puzzle(
 def get_wrapped_tail(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
-    eth_token_bridge_address: bytes,
-    eth_erc20_address: bytes,
+    source_info: bytes,
+    source_chain_token_contract_address: bytes,
+    destination_chain: bytes = b'eth', # ethereum
+    destination_type: bytes = b'c', # contract
 ) -> Program:
   return WRAPPED_TAIL_MOD.curry(
-    get_cat_minter_puzzle(portal_receiver_launcher_id, bridging_puzzle_hash, eth_token_bridge_address).get_tree_hash(),
-    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, eth_token_bridge_address, eth_erc20_address).get_tree_hash(),
+    get_cat_minter_puzzle(
+      portal_receiver_launcher_id, bridging_puzzle_hash, source_info,
+      destination_chain, destination_type
+    ).get_tree_hash(),
+    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, source_info, source_chain_token_contract_address).get_tree_hash(),
   )
 
 def get_burn_inner_puzzle_solution(
@@ -114,6 +133,7 @@ def get_cat_mint_and_payout_inner_puzzle_solution(
   ])
 
 def get_cat_minter_puzzle_solution(
+    nonce: int,
     deadline: int,
     message: Program,
     my_puzzle_hash: bytes32,
@@ -121,6 +141,7 @@ def get_cat_minter_puzzle_solution(
     message_coin_parent_info: bytes32,
 ) -> Program:
   return Program.to([
+    nonce,
     deadline,
     message,
     my_puzzle_hash,
@@ -132,8 +153,8 @@ def get_cat_burner_puzzle_solution(
     cat_parent_info: bytes32,
     tail_hash: bytes32,
     cat_amount: int,
-    eth_erc20_address: bytes,
-    eth_receiver_address: bytes,
+    source_chain_token_contract_address: bytes,
+    destination_receiver_address: bytes,
     time_now_ish: int,
     my_coin: Coin
 ) -> Program:
@@ -141,8 +162,8 @@ def get_cat_burner_puzzle_solution(
     cat_parent_info,
     raw_hash([b'\x01', tail_hash]),
     cat_amount,
-    eth_erc20_address,
-    eth_receiver_address,
+    source_chain_token_contract_address,
+    destination_receiver_address,
     time_now_ish,
     my_coin.amount,
     my_coin.puzzle_hash,

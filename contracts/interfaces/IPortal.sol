@@ -5,28 +5,33 @@ pragma solidity ^0.8.20;
 
 interface IPortal {
     event MessageSent(
-        uint256 indexed nonce,
-        bytes32 target,
-        bool isPuzzleHash, // when false, target is a singleton id
+        bytes32 indexed nonce,
+        bytes3 destination_chain,
+        bytes1 destination_type,
+        bytes32 destination_info,
         uint256 deadline,
-        bytes[] message
+        bytes[] contents
     );
 
     function ethNonce() external returns (uint256);
 
+    function messageFee() external returns (uint256);
+
     function sendMessage(
-        bytes32 _target,
-        bool _isPuzzleHash,
+        bytes3 _destination_chain,
+        bytes1 _destination_type,
+        bytes32 _destination_info,
         uint256 _deadline,
-        bytes[] memory message
-    ) external;
+        bytes[] memory _contents
+    ) external payable;
 
     function receiveMessage(
-        uint256 _nonce,
-        bytes32 _sender,
-        bool _isPuzzleHash,
-        address _target,
+        bytes32 _nonce,
+        bytes3 _source_chain,
+        bytes1 _source_type,
+        bytes32 _source_info,
+        address _destination_info,
         uint256 _deadline,
-        bytes memory _message
+        bytes memory _contents
     ) external;
 }

@@ -8,7 +8,8 @@
     CAT_MINT_AND_PAYOUT_MOD_HASH
     CAT_BURNER_PUZZLE_HASH_HASH ; (sha256 1 CAT_BURNER_PUZZLE_HASH)
     CAT_BURN_INNER_MOD_HASH
-    ETH_TOKEN_BRIDGE_ADDRESS
+    SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_INFO (c SOURCE_CHAIN SOURCE_TYPE)))
+    nonce
     deadline
     message
     my_puzzle_hash
@@ -49,9 +50,12 @@
     (sha256
       (if (= (strlen message_coin_parent_info) 32) message_coin_parent_info (x))
       (curry_hashes_inline MESSAGE_COIN_MOD_HASH
-        (sha256 1 ETH_TOKEN_BRIDGE_ADDRESS)
-        (sha256 1 my_puzzle_hash) ; target
-        (sha256 1 1) ; target_is_puzzle_hash
+        (sha256 1 nonce)
+        SOURCE_STUFF_HASH
+        (sha256 2
+          (sha256 1 my_puzzle_hash)
+          (sha256 1 'p')
+        ) ; receiver stuff
         (sha256 1 deadline)
         (sha256 1 (sha256tree message)); MESSAGE_HASH
       )
