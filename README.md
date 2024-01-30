@@ -3,6 +3,17 @@
 
 A Proof-of-Authority based cross-chain messaging protocol - a portal.
 
+## Install
+```
+python3 -m venv venv
+. ./venv/bin/activate
+pip install -r requirements.txt
+npm install .
+```
+To run the tests:
+```
+sh test.sh
+```
 ## Architecture
 
 To connect the Chia and Ethereum blockchains, a trusted set of parties (validators) is needed. These parties each observe messages on one chain and relay it to the other. This repository also contains the code required to enable bridging tokens and native assets from Ethereum to Chia - the contracts are immutable, and rely on the bridge as an oracle. A fee is also given to the owner of the immutable contracts, presumably the bridge owners.
