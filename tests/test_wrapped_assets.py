@@ -20,6 +20,7 @@ from chia.wallet.cat_wallet.cat_utils import \
 import pytest
 import time
 import json
+import os
 
 from tests.utils import *
 from drivers.wrapped_assets import *
@@ -166,7 +167,10 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
 
-        open("/tmp/sb.json", "w").write(json.dumps(mint_bundle.to_json_dict(), indent=4))
+        filename = "/tmp/sb.json"
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        open(filename, "w").write(json.dumps(mint_bundle.to_json_dict(), indent=4))
+
         await node.push_tx(mint_bundle)
 
         # 4. Spend freshly-minted CAT coin
