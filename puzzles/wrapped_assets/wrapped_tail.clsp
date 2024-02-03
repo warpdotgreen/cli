@@ -9,34 +9,37 @@
     lineage_proof
     delta
     inner_conditions
-    tail_solution ; if minting: parent_parent_info; if burning: receiver_hash = (sha256 1 receiver)
+    tail_solution
+      ; if minting: parent_parent_info
+      ; if burning: (receiver_hash . bridge_fee_hash) = (sha256 1 receiver) . (sha256 1 bridge_fee)
   )
 
   (include "cat_truths.clib")
   (include "curry.clib")
 
-  (if (all
-    (not parent_is_cat)
-    (= delta 0)
-    (= (strlen tail_solution) 32)
-    (=
-      (my_parent_cat_truth Truths)
-      (sha256 tail_solution CAT_MINTER_PUZZLE_HASH (my_amount_cat_truth Truths))
-    )
-  )
-    () ; mint
-    ; else
+
+  (if parent_is_cat
+    ; burn
     (if (all
-      parent_is_cat
-      (= (- 0 delta) (my_amount_cat_truth Truths))
-      (=
-        (my_inner_puzzle_hash_cat_truth Truths)
-        (curry_hashes_inline CAT_BURN_INNER_PUZZLE_FIRST_HASH tail_solution)
+        (= (- 0 delta) (my_amount_cat_truth Truths))
+        (=
+          (my_inner_puzzle_hash_cat_truth Truths)
+          (curry_hashes_inline CAT_BURN_INNER_PUZZLE_FIRST_HASH (f tail_solution) (r tail_solution))
+        )
       )
+      () (x)
     )
-      () ; burn
-      ; else
-      (x)
+    ; else - mint
+    (if
+      (all
+        (= delta 0)
+        (= (strlen tail_solution) 32)
+        (=
+          (my_parent_cat_truth Truths)
+          (sha256 tail_solution CAT_MINTER_PUZZLE_HASH (my_amount_cat_truth Truths))
+        )
+      )
+      () (x)
     )
   )
 )

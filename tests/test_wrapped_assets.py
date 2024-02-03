@@ -18,7 +18,6 @@ from chia.types.blockchain_format.program import INFINITE_COST
 from chia.wallet.cat_wallet.cat_utils import \
     unsigned_spend_bundle_for_spendable_cats
 import pytest
-import time
 import json
 
 from tests.utils import *
@@ -27,9 +26,7 @@ from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
 SOURCE_CHAIN = b'eth'
-SOURCE_TYPE = b'c'
-SOURCE_INFO = to_eth_address("eth_token_master")
-DEADLINE = int(time.time()) + 24 * 60 * 60
+SOURCE = to_eth_address("eth_token_master")
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
@@ -77,7 +74,7 @@ class TestPortal:
         await wait_for_coin(node, portal)
 
         # 2. Create message coin
-        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_INFO, SOURCE_CHAIN, SOURCE_TYPE)
+        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_CHAIN, SOURCE)
         minter_puzzle_hash = minter_puzzle.get_tree_hash()
 
         receiver_puzzle: Program = one_puzzle
@@ -91,10 +88,10 @@ class TestPortal:
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
-            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE,
             NONCE,
             minter_puzzle_hash,
-            DEADLINE,
             message.get_tree_hash()
         )
         message_coin_puzzle_hash = message_coin_puzzle.get_tree_hash()
@@ -149,7 +146,6 @@ class TestPortal:
 
         minter_puzzle_solution = get_cat_minter_puzzle_solution(
             NONCE,
-            DEADLINE,
             message,
             minter_puzzle_hash,
             minter_coin.name(),
@@ -166,15 +162,15 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
 
-        open("/tmp/sb.json", "w").write(json.dumps(mint_bundle.to_json_dict(), indent=4))
         await node.push_tx(mint_bundle)
 
         # 4. Spend freshly-minted CAT coin
         wrapped_asset_tail = get_wrapped_tail(
             portal_launcher_id,
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
+            SOURCE_CHAIN,
+            SOURCE,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
         )
         wrapped_asset_tail_hash = wrapped_asset_tail.get_tree_hash()
 
@@ -230,9 +226,8 @@ class TestPortal:
         # 5. Burn CAT coin
         burner_puzzle = get_cat_burner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
             SOURCE_CHAIN,
-            SOURCE_TYPE
+            SOURCE
         )
         burner_puzzle_hash = burner_puzzle.get_tree_hash()
 
@@ -243,9 +238,11 @@ class TestPortal:
 
         cat_burn_inner_puzzle = get_cat_burn_inner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
-            ETH_RECEIVER
+            ETH_RECEIVER,
+            1
         )
         cat_burn_inner_puzzle_hash = cat_burn_inner_puzzle.get_tree_hash()
 
@@ -282,7 +279,6 @@ class TestPortal:
 
         cat_burn_inner_solution = get_burn_inner_puzzle_solution(
             burner_coin.parent_coin_info,
-            1,
             last_cat_coin.name(),
             wrapped_asset_tail
         )
@@ -298,7 +294,7 @@ class TestPortal:
             ),
             extra_delta=-last_cat_coin.amount,
             limitations_program_reveal=wrapped_asset_tail,
-            limitations_solution=raw_hash([b'\x01', ETH_RECEIVER])
+            limitations_solution=Program.to((raw_hash([b'\x01', ETH_RECEIVER]), raw_hash([b'\x01', b'\x01'])))
         )
         last_cat_spend = unsigned_spend_bundle_for_spendable_cats(
             CAT_MOD, [last_cat]
@@ -310,7 +306,6 @@ class TestPortal:
             10000,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             ETH_RECEIVER,
-            int(time.time()) - 24 * 60 * 60,
             burner_coin
         )
         burner_spend = CoinSpend(
@@ -323,6 +318,7 @@ class TestPortal:
             [one_cat_spend, last_cat_spend, burner_spend],
             AugSchemeMPL.aggregate([])
         )
+
         await node.push_tx(burn_spend_bundle)
         await wait_for_coin(node, burner_coin, also_wait_for_spent=True)
 

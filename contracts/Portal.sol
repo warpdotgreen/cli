@@ -15,10 +15,8 @@ contract Portal is Ownable {
     event MessageSent(
         bytes32 indexed nonce,
         bytes3 destination_chain,
-        bytes1 destination_type,
-        bytes32 destination_info,
-        uint256 deadline,
-        bytes[] contents
+        bytes32 destination,
+        bytes32[] contents
     );
 
     constructor(
@@ -34,20 +32,15 @@ contract Portal is Ownable {
 
     function sendMessage(
         bytes3 _destination_chain,
-        bytes1 _destination_type,
-        bytes32 _destination_info,
-        uint256 _deadline,
-        bytes[] memory _contents
+        bytes32 _destination,
+        bytes32[] memory _contents
     ) public payable {
-        require(_deadline >= block.timestamp, "!deadline");
         require(msg.value == messageFee, "!fee");
         ethNonce += 1;
         emit MessageSent(
             bytes32(ethNonce),
             _destination_chain,
-            _destination_type,
-            _destination_info,
-            _deadline,
+            _destination,
             _contents
         );
     }
@@ -55,22 +48,18 @@ contract Portal is Ownable {
     function receiveMessage(
         bytes32 _nonce,
         bytes3 _source_chain,
-        bytes1 _source_type,
-        bytes32 _source_info,
-        address _destination_info,
-        uint256 _deadline,
-        bytes memory _contents
+        bytes32 _source,
+        address _destination,
+        bytes32[] memory _contents
     ) public onlyOwner {
         require(!nonceUsed[_nonce], "!nonce");
-        require(_deadline >= block.timestamp, "!deadline");
 
         nonceUsed[_nonce] = true;
 
-        IPortalMessageReceiver(_destination_info).receiveMessage(
+        IPortalMessageReceiver(_destination).receiveMessage(
             _nonce,
             _source_chain,
-            _source_type,
-            _source_info,
+            _source,
             _contents
         );
     }

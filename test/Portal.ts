@@ -10,8 +10,14 @@ describe("Portal", function () {
         otherAccount: any,
         feeCollector: any,
         messageFee: BigNumberish;
-    const deadlineOffset = 3600; // 1 hour
-    const nonce1 = ethers.encodeBytes32String("nonce1")
+
+    const nonce = ethers.encodeBytes32String("nonce1");
+    const puzzleHash = ethers.encodeBytes32String("puzzleHash");
+    const xchChain = "0x786368";
+    const message = [
+        ethers.encodeBytes32String("message-part-1"),
+        ethers.encodeBytes32String("message-part-2")
+    ]
 
     beforeEach(async function () {
         [owner, otherAccount, feeCollector] = await ethers.getSigners();
@@ -31,94 +37,66 @@ describe("Portal", function () {
     });
 
     describe("sendMessage", function () {
-        it("should emit MessageSent and increment nonce", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+        it("Should emit MessageSent and increment nonce", async function () {
             await expect(
                     portal.sendMessage(
-                        "0x000001",
-                        "0x01",
-                        "0x0000000000000000000000000000000000000000000000000000000000000002",
-                        deadline,
-                        ["0x1234"],
+                        xchChain,
+                        puzzleHash,
+                        message,
                         { value: messageFee }
                     ))
                 .to.emit(portal, "MessageSent")
                 .withArgs(
                     "0x0000000000000000000000000000000000000000000000000000000000000001",
-                    "0x000001",
-                    "0x01",
-                    "0x0000000000000000000000000000000000000000000000000000000000000002",
-                    deadline,
-                    ["0x1234"]
+                    xchChain,
+                    puzzleHash,
+                    message
                 );
             expect(await portal.ethNonce()).to.equal(1);
         });
 
-        it("should fail if deadline is past", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            await expect(portal.sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", deadline, ["0x1234"]))
-                .to.be.revertedWith("!deadline");
-        });
-
-        it("should fail if message fee is incorrect", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(portal.sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", deadline, ["0x1234"]))
+        it("Should fail if message fee is incorrect", async function () {
+            await expect(portal.sendMessage(xchChain, puzzleHash, message))
                 .to.be.revertedWith("!fee");
         });
     });
 
     describe("receiveMessage", function () {
-        let nonce: any;
-
-        beforeEach(async function () {
-            nonce = ethers.keccak256(ethers.toUtf8Bytes("nonce"));
-        });
-
-        it("should process valid message", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
+        it("Should process valid message", async function () {
             await expect(
-                await portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234")
+                await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message)
             ).to.emit(mockReceiver, "MessageReceived").withArgs(
                 nonce,
-                "0x000001",
-                "0x01",
-                "0x0000000000000000000000000000000000000000000000000000000000000001",
-                "0x1234"
+                xchChain,
+                puzzleHash,
+                message
             )
         });
 
-        it("should fail is same nonce is used twice", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234");
-            await expect(portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
+        it("Should fail is same nonce is used twice", async function () {
+            await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message);
+            await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
                 .to.be.revertedWith("!nonce");
         });
 
-        it("should fail if deadline is in the past", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp - deadlineOffset;
-            await expect(portal.receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
-                .to.be.revertedWith("!deadline");
-        });
-
-        it("should fail if not called by owner", async function () {
-            const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset;
-            await expect(portal.connect(otherAccount).receiveMessage(nonce, "0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", mockReceiver.target, deadline, "0x1234"))
+        it("Should fail if not called by owner", async function () {
+            await expect(portal.connect(otherAccount).receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
                 .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
     });
 
     describe("withdrawFees", function () {
-        it("should allow feeCollector to withdraw", async function () {
+        it("Should allow feeCollector to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
-            await portal.connect(otherAccount).sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset, ["0x1234"], { value: messageFee });
+            await portal.connect(otherAccount).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
             await expect(portal.connect(feeCollector).withdrawFees([otherAccount.address], [amount]))
                 .to.changeEtherBalances([portal, otherAccount], [-amount, amount]);
         });
 
-        it("should allow withdrawal to multiple addresses", async function () {
+        it("Should allow withdrawal to multiple addresses", async function () {
             const amount1 = ethers.parseEther("0.003");
             const amount2 = ethers.parseEther("0.007");
-            await portal.connect(otherAccount).sendMessage("0x000001", "0x01", "0x0000000000000000000000000000000000000000000000000000000000000001", (await ethers.provider.getBlock("latest"))!.timestamp + deadlineOffset, ["0x1234"], { value: messageFee });
+            await portal.connect(otherAccount).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
             await expect(portal.connect(feeCollector).withdrawFees(
                 [otherAccount.address, feeCollector.address],
                 [amount1, amount2])
@@ -128,7 +106,7 @@ describe("Portal", function () {
             );
         });
 
-        it("should fail if non-feeCollector tries to withdraw", async function () {
+        it("Should fail if non-feeCollector tries to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
             await expect(portal.withdrawFees([otherAccount.address], [amount]))
                 .to.be.revertedWith("!feeCollector");

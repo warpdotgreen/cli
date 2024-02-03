@@ -5,8 +5,10 @@ pragma solidity ^0.8.20;
 
 import "./interfaces/IPortalMessageReceiver.sol";
 import "./interfaces/IPortal.sol";
+import "./interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface ERC20Decimals {
@@ -17,21 +19,18 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     mapping(address => uint256) public fees;
     uint256 public fee = 30; // initial fee - 0.3%
     address public portal;
+    address public iweth;
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
 
-    struct AssetReturnMessage {
-        address assetContract;
-        address receiver;
-        uint256 amount;
-    }
-
     constructor(
         address _portal,
+        address _iweth,
         bytes32 _chiaSideBurnPuzzle,
         bytes32 _chiaSideMintPuzzle
     ) Ownable(msg.sender) {
         portal = _portal;
+        iweth = _iweth;
         chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
@@ -45,35 +44,34 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     function receiveMessage(
         bytes32 /* _nonce */,
         bytes3 _source_chain,
-        bytes1 _source_type,
-        bytes32 _source_info,
-        bytes memory _contents
+        bytes32 _source,
+        bytes32[] memory _contents
     ) public {
         require(msg.sender == portal, "!portal");
         require(
-            _source_info == chiaSideBurnPuzzle &&
-                _source_chain == bytes3("xch") &&
-                _source_type == bytes1("p"),
+            _source == chiaSideBurnPuzzle && _source_chain == bytes3("xch"),
             "!source"
         );
 
-        AssetReturnMessage memory message = abi.decode(
-            _contents,
-            (AssetReturnMessage)
-        );
+        address assetContract = address(uint160(uint256(_contents[0])));
+        address receiver = address(uint160(uint256(_contents[1])));
+        uint256 amount = uint256(_contents[2]);
 
         uint256 chiaToEthFactor = 10 **
-            ERC20Decimals(message.assetContract).decimals() /
+            ERC20Decimals(assetContract).decimals() /
             1000;
-        message.amount = message.amount * chiaToEthFactor;
-        uint256 transferFee = (message.amount * fee) / 10000;
+        amount = amount * chiaToEthFactor;
+        uint256 transferFee = (amount * fee) / 10000;
 
-        fees[message.assetContract] += transferFee;
-        SafeERC20.safeTransfer(
-            IERC20(message.assetContract),
-            message.receiver,
-            message.amount - transferFee
-        );
+        fees[assetContract] += transferFee;
+        amount -= transferFee;
+
+        if (assetContract != iweth) {
+            SafeERC20.safeTransfer(IERC20(assetContract), receiver, amount);
+        } else {
+            IWETH(iweth).withdraw(amount);
+            payable(receiver).transfer(amount);
+        }
     }
 
     receive() external payable {}
@@ -85,29 +83,94 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     ) public payable {
         require(msg.value == IPortal(portal).messageFee(), "!fee");
 
-        uint256 transferFee = (_amount * fee) / 10000;
+        _handleBridging(
+            _assetContract,
+            true,
+            _receiver,
+            _amount,
+            msg.value,
+            10 ** (ERC20Decimals(_assetContract).decimals() - 3)
+        );
+    }
 
-        bytes[] memory message = new bytes[](3);
-        message[0] = abi.encode(_assetContract);
-        message[1] = abi.encode(_receiver);
-        message[2] = abi.encode(_amount - transferFee);
+    function bridgeEtherToChia(bytes32 _receiver) public payable {
+        uint256 factor = 1 ether / 1000;
+        uint256 messageFee = IPortal(portal).messageFee();
+        require(msg.value - messageFee > factor, "!fee");
 
-        uint256 chiaToEthFactor = 10 **
-            ERC20Decimals(_assetContract).decimals() /
-            1000;
-        fees[_assetContract] += transferFee * chiaToEthFactor;
-        SafeERC20.safeTransferFrom(
-            IERC20(_assetContract),
+        IWETH(iweth).deposit{value: msg.value - messageFee}();
+
+        _handleBridging(
+            iweth,
+            false,
+            _receiver,
+            (msg.value - messageFee) / factor,
+            messageFee,
+            factor
+        );
+    }
+
+    function bridgeToChiaWithPermit(
+        address _assetContract,
+        bytes32 _receiver,
+        uint256 _amount, // on Chia
+        uint256 _deadline,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) public payable {
+        require(msg.value == IPortal(portal).messageFee(), "!fee");
+        uint256 factor = 10 ** (ERC20Decimals(_assetContract).decimals() - 3);
+
+        IERC20Permit(_assetContract).permit(
             msg.sender,
             address(this),
-            _amount * chiaToEthFactor
+            _amount * factor,
+            _deadline,
+            _v,
+            _r,
+            _s
         );
 
-        IPortal(portal).sendMessage{value: msg.value}(
+        _handleBridging(
+            _assetContract,
+            true,
+            _receiver,
+            _amount,
+            msg.value,
+            factor
+        );
+    }
+
+    function _handleBridging(
+        address _assetContract,
+        bool _transferAsset,
+        bytes32 _receiver,
+        uint256 _amount, // WARNING: in CAT mojos
+        uint256 _messageFee,
+        uint256 _mojoToTokenFactor
+    ) internal {
+        uint256 transferFee = (_amount * fee) / 10000;
+
+        bytes32[] memory message = new bytes32[](3);
+        message[0] = bytes32(uint256(uint160(_assetContract)));
+        message[1] = _receiver;
+        message[2] = bytes32(_amount - transferFee);
+
+        fees[_assetContract] += transferFee * _mojoToTokenFactor;
+
+        if (_transferAsset) {
+            SafeERC20.safeTransferFrom(
+                IERC20(_assetContract),
+                msg.sender,
+                address(this),
+                _amount * _mojoToTokenFactor
+            );
+        }
+
+        IPortal(portal).sendMessage{value: _messageFee}(
             bytes3("xch"), // chia
-            bytes1("p"), // puzzle hash
             chiaSideMintPuzzle,
-            block.timestamp + 10 * 12 * 365 days,
             message
         );
     }
@@ -128,5 +191,12 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
                 _amounts[i]
             );
         }
+    }
+
+    function rescueEther() public onlyOwner {
+        uint256 amount = address(this).balance;
+        fees[iweth] += amount;
+
+        IWETH(iweth).deposit{value: amount}();
     }
 }

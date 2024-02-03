@@ -22,9 +22,7 @@ VALIDATOR_TRESHOLD = 7
 VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]
 NONCE = 1337
 SOURCE_CHAIN = 'eth'
-SOURCE_TYPE  = 'c'
-SOURCE_INFO = to_eth_address("sender")
-DEADLINE = int(time.time()) + 24 * 60 * 60
+SOURCE = to_eth_address("sender")
 MESSAGE = Program.to(["yaku", "hito", 1337])
 
 assert len(VALIDATOR_SIG_SWITCHES) == 11
@@ -69,7 +67,8 @@ class TestPortal:
         wallet_resp = await wallet_client.healthz()
         assert wallet_resp['success']
 
-    async def do_ckeck(self, setup, validator_set, with_ph):
+    @pytest.mark.asyncio
+    async def test_receive_message(self, setup, validator_set):
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
@@ -122,41 +121,6 @@ class TestPortal:
         message_claimer: Coin = tx_record.additions[0]
         await wait_for_coin(node, message_claimer)
         
-        message_claimer_launcher_id: bytes32
-        message_claimer_creation_bundle: SpendBundle
-        message_claimer_full_puzzle: Program = one_puzzle
-        if not with_ph:
-            message_claimer_launcher_parent = message_claimer
-            message_claimer_launcher = generate_launcher_coin(message_claimer_launcher_parent, 1)
-            message_claimer_launcher_id = message_claimer_launcher.name()
-
-            message_claimer_inner_puzzle = one_puzzle
-            message_claimer_full_puzzle = puzzle_for_singleton(
-                message_claimer_launcher_id,
-                message_claimer_inner_puzzle,
-            )
-            message_claimer_full_puzzle_hash = message_claimer_full_puzzle.get_tree_hash()
-            message_claimer = Coin(message_claimer_launcher_id, message_claimer_full_puzzle_hash, 1)
-
-            conditions, message_claimer_launcher_spend = launch_conditions_and_coinsol(
-                message_claimer_launcher_parent,
-                message_claimer_inner_puzzle,
-                [],
-                1
-            )
-            message_claimer_launcher_parent_spend = CoinSpend(
-                message_claimer_launcher_parent,
-                one_puzzle,
-                Program.to(conditions)
-            )
-
-            message_claimer_creation_bundle = SpendBundle(
-                [message_claimer_launcher_parent_spend, message_claimer_launcher_spend],
-                AugSchemeMPL.aggregate([])
-            )
-            await node.push_tx(message_claimer_creation_bundle)
-            await wait_for_coin(node, message_claimer)
-
         # 2. Send message via portal (to the '1' puzzle)
         new_portal_inner_puzzle = get_portal_receiver_inner_puzzle(
             portal_launcher_id,
@@ -170,16 +134,13 @@ class TestPortal:
             new_portal_inner_puzzle
         ).get_tree_hash()
 
-        target = one_puzzle_hash if with_ph else message_claimer_launcher_id
+        target = one_puzzle_hash
         msg = PortalMessage(
             nonce=NONCE,
             validator_sig_switches=VALIDATOR_SIG_SWITCHES,
             source_chain=SOURCE_CHAIN,
-            source_type=SOURCE_TYPE,
-            source_info=SOURCE_INFO,
-            destination_type='p' if with_ph else 's',
-            destination_info=target,
-            deadline=DEADLINE,
+            source=SOURCE,
+            destination=target,
             message=MESSAGE
         )
         portal_inner_solution = get_portal_receiver_inner_solution(
@@ -191,15 +152,12 @@ class TestPortal:
             portal_inner_solution
         )
 
-        # nonce source_chain source_type source_info destination_type destination_info deadline message
+        # nonce source_chain source destination message
         message_to_sign: bytes = Program(Program.to([
             NONCE,
             SOURCE_CHAIN,
-            SOURCE_TYPE,
-            SOURCE_INFO,
-            'p' if with_ph else 's',
+            SOURCE,
             target,
-            DEADLINE,
             MESSAGE
         ])).get_tree_hash()
         message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
@@ -224,12 +182,11 @@ class TestPortal:
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
-            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE,
             NONCE,
             target,
-            DEADLINE,
             Program(MESSAGE).get_tree_hash(),
-            destination_type='p' if with_ph else 's',
         )
         message_coin = Coin(
             portal.name(),
@@ -241,23 +198,12 @@ class TestPortal:
 
         # 3. Receive message via message coin
 
-        message_coin_solution: Program
-        if with_ph:
-            message_coin_solution = get_message_coin_solution(
-                message_claimer,
-                portal.parent_coin_info,
-                portal_inner_puzzle.get_tree_hash(),
-                message_coin.name()
-            )
-        else:
-            message_coin_solution = get_message_coin_solution(
-                message_claimer,
-                portal.parent_coin_info,
-                portal_inner_puzzle.get_tree_hash(),
-                message_coin.name(),
-                receiver_singleton_launcher_id=message_claimer_launcher_id,
-                receiver_singleton_inner_puzzle_hash=one_puzzle_hash
-            )
+        message_coin_solution = get_message_coin_solution(
+            message_claimer,
+            portal.parent_coin_info,
+            portal_inner_puzzle.get_tree_hash(),
+            message_coin.name()
+        )
         message_coin_spend = CoinSpend(
             message_coin,
             message_coin_puzzle,
@@ -269,17 +215,10 @@ class TestPortal:
             [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, message_coin.name()],
             [ConditionOpcode.CREATE_COIN, my_puzzle_hash, 1]
         ])
-        if not with_ph:
-            message_claimer_inner_solution = message_claimer_solution
-            message_claimer_solution = solution_for_singleton(
-                lineage_proof_for_coinsol(message_claimer_launcher_spend),
-                1,
-                message_claimer_inner_solution
-            )
         
         message_claimer_spend = CoinSpend(
             message_claimer,
-            message_claimer_full_puzzle,
+            one_puzzle,
             message_claimer_solution
         )
 
@@ -318,11 +257,3 @@ class TestPortal:
 
         await node.push_tx(portal_melt_spend_bundle)
         await wait_for_coin(node, new_portal, also_wait_for_spent=True)
-
-    @pytest.mark.asyncio
-    async def test_receive_message_ph(self, setup, validator_set):
-        await self.do_ckeck(setup, validator_set, True)
-
-    @pytest.mark.asyncio
-    async def test_receive_message_singleton(self, setup, validator_set):
-        await self.do_ckeck(setup, validator_set, False)

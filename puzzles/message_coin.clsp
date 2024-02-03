@@ -3,20 +3,16 @@
 
 (mod (
     ; first curry (automated)
-    SINGLETON_MOD_HASH
-    SINGLETON_LAUNCHER_PUZZLE_HASH
-    PORTAL_RECEIVER_LAUNCHER_ID
+    PORTAL_RECEIVER_SINGLETON_STRUCT
 
     ; second curry
     NONCE
-    (SOURCE_INFO . (SOURCE_CHAIN . SOURCE_TYPE)) ; source
-    (DESTINATION_INFO . DESTINATION_TYPE) ; destination
-    DEADLINE
+    (SOURCE_CHAIN . SOURCE) ; source info
+    DESTINATION ; destination
     MESSAGE_HASH
 
     (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
-    receiver_singleton_proof ;  (launcher_id . inner_puzzle_hash) or ()
-    (parent_parent_info . parent_inner_puzzle_hash) ; parent proof
+    parent_proof ; (parent_parent_info . parent_inner_puzzle_hash)
     my_coin_id
   )
 
@@ -24,49 +20,43 @@
   (include curry.clib)
   (include sha256tree.clib)
 
-  (defun-inline verify_target () 
-    (if (= DESTINATION_TYPE 'p') ; puzzle hash
-      (= receiver_puzzle_hash DESTINATION_INFO)
-      (all
-        (= DESTINATION_INFO (f receiver_singleton_proof)) ; singleton if
-        (= receiver_puzzle_hash (curry_hashes SINGLETON_MOD_HASH
-          (sha256tree (c SINGLETON_MOD_HASH (c (f receiver_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
-          (r receiver_singleton_proof)
-        ))
-      )
-    )
+  (defun main (
+    PORTAL_RECEIVER_SINGLETON_STRUCT
+    (parent_parent_info . parent_inner_puzzle_hash)
+    my_coin_id
+    receiver_coin_id
   )
-
-  (defun-inline main (receiver_coin_id)
-    (if (verify_target)
-      (list
-        (list ASSERT_BEFORE_SECONDS_ABSOLUTE DEADLINE)
-        (list ASSERT_MY_COIN_ID my_coin_id)
-        (list ASSERT_MY_PARENT_ID (sha256
-          parent_parent_info
-          (curry_hashes_inline SINGLETON_MOD_HASH
-            (sha256tree (c SINGLETON_MOD_HASH (c PORTAL_RECEIVER_LAUNCHER_ID SINGLETON_LAUNCHER_PUZZLE_HASH)))
-            parent_inner_puzzle_hash
-          )
-          1 ; parent amount
-        ))
-        (list CREATE_COIN_ANNOUNCEMENT receiver_coin_id) ; puzzle contains message info
-        (list ASSERT_COIN_ANNOUNCEMENT (sha256 receiver_coin_id my_coin_id))
-      )
-      ; else
-      (x)
-    )
+    (list
+      (list ASSERT_MY_COIN_ID my_coin_id)
+      (list ASSERT_MY_PARENT_ID (sha256
+        parent_parent_info
+        (curry_hashes_inline (f PORTAL_RECEIVER_SINGLETON_STRUCT)
+          (sha256tree PORTAL_RECEIVER_SINGLETON_STRUCT)
+          parent_inner_puzzle_hash
+        )
+        1 ; parent amount
+      ))
+      (list CREATE_COIN_ANNOUNCEMENT receiver_coin_id) ; puzzle contains message info
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 receiver_coin_id my_coin_id))
+    ) 
   )
 
   (defun-inline value_b32_or_x (v)
     (if (= (strlen v) 32) v (x))
   )
 
-  (main
-    (sha256
-      (value_b32_or_x receiver_parent_info)
-      (value_b32_or_x receiver_puzzle_hash)
-      receiver_amount
+  (if (= receiver_puzzle_hash DESTINATION)
+    (main
+      PORTAL_RECEIVER_SINGLETON_STRUCT
+      parent_proof
+      my_coin_id
+      (sha256
+        (value_b32_or_x receiver_parent_info)
+        (value_b32_or_x receiver_puzzle_hash)
+        receiver_amount
+      ) ; receiver_coin_id
     )
+    ; else
+    (x)
   )
 )
