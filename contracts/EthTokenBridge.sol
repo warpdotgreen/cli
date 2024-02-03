@@ -107,7 +107,6 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             bytes3("xch"), // chia
             bytes1("p"), // puzzle hash
             chiaSideMintPuzzle,
-            block.timestamp + 10 * 12 * 365 days,
             message
         );
     }
