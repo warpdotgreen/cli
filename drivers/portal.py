@@ -18,18 +18,16 @@ def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> P
 
 def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,
-    source_info: bytes,
+    source_chain: bytes,
+    source: bytes32,
     nonce: int,
-    destination_info: bytes32,
+    destination: bytes32,
     message_hash: bytes32,
-    source_chain: bytes = b'eth', # ethereum
-    source_type: bytes = b'c', # contract
-    destination_type: bytes = b'p', # puzzle hash
 ) -> Program:
   return get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).curry(
     nonce,
-    (source_info, (source_chain, source_type)),
-    (destination_info, destination_type),
+    (source_chain, source),
+    destination,
     message_hash
   )
 
@@ -66,12 +64,10 @@ def get_portal_receiver_full_puzzle(
 class PortalMessage:
     nonce: int
     validator_sig_switches: List[bool]
-    source_info: bytes
-    destination_info: bytes32
+    source_chain: bytes
+    source: bytes32
+    destination: bytes32
     message: Program
-    source_chain: bytes = b'eth'
-    source_type: bytes = b'c'
-    destination_type: bytes = b'p'
 
 def get_sigs_switch(sig_switches: List[bool]) -> int:
    return int(
@@ -91,10 +87,8 @@ def get_portal_receiver_inner_solution(
           [
             get_sigs_switch(msg.validator_sig_switches),
             msg.source_chain,
-            msg.source_type,
-            msg.source_info,
-            msg.destination_type,
-            msg.destination_info,
+            msg.source,
+            msg.destination,
             msg.message
           ] for msg in messages
        ]
@@ -105,12 +99,9 @@ def get_message_coin_solution(
     parent_parent_info: bytes32,
     parent_inner_puzzle_hash: bytes32,
     message_coin_id: bytes32,
-    receiver_singleton_launcher_id: bytes32 | None = None,
-    receiver_singleton_inner_puzzle_hash: bytes32 | None = None,
 ) -> Program:
     return Program.to([
       (receiver_coin.parent_coin_info, (receiver_coin.puzzle_hash, receiver_coin.amount)),
-      0 if receiver_singleton_launcher_id is None and receiver_singleton_inner_puzzle_hash is None else (receiver_singleton_launcher_id, receiver_singleton_inner_puzzle_hash),
       (parent_parent_info, parent_inner_puzzle_hash),
       message_coin_id
     ])

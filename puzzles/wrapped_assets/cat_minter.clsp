@@ -8,7 +8,7 @@
     CAT_MINT_AND_PAYOUT_MOD_HASH
     CAT_BURNER_PUZZLE_HASH_HASH ; (sha256 1 CAT_BURNER_PUZZLE_HASH)
     CAT_BURN_INNER_MOD_HASH
-    SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_INFO (c SOURCE_CHAIN SOURCE_TYPE)))
+    SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_CHAIN SOURCE))
     nonce
     message
     my_puzzle_hash

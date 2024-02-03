@@ -6,7 +6,7 @@
   BURN_INNER_PUZZZLE_MOD_HASH
   BRIDGING_PUZZLE_HASH
   DESTINATION_CHAIN
-  DESTINATION ; token bridg address @ destination
+  DESTINATION ; token bridge address @ destination
   cat_parent_info
   tail_hash_hash ; (sha256 1 tail_hash)
   cat_amount
