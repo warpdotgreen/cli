@@ -39,7 +39,7 @@ describe("EthTokenBridge", function () {
     });
 
     describe("Deployment", function () {
-        it("correct initial values", async function () {
+        it("Should have correct initial values", async function () {
             expect(await ethTokenBridge.portal()).to.equal(portalAddress);
             expect(await ethTokenBridge.chiaSideBurnPuzzle()).to.equal(chiaSideBurnPuzzle);
             expect(await ethTokenBridge.chiaSideMintPuzzle()).to.equal(chiaSideMintPuzzle);
@@ -198,4 +198,40 @@ describe("EthTokenBridge", function () {
                 .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
         });
     });
+
+
+    describe.only("bridgeEtherToChia", function () {
+        it("Should correctly bridge ETH and deduct fees", async function () {
+            const receiver = ethers.encodeBytes32String("receiverOnChia");
+            const ethToSend = ethers.parseEther("1");
+            const expectedFee = ethToSend * initialFee / 10000n;
+
+            await expect(
+                ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee })
+            ).to.emit(portal, "MessageSent");
+
+            expect(await mockWETH.balanceOf(ethTokenBridge.target)).to.equal(ethToSend);
+
+            const bridgeFeeAmount = await ethTokenBridge.fees(mockWETH.target);
+            expect(bridgeFeeAmount).to.equal(expectedFee);
+        });
+
+        it("Should fail if msg.value is too low", async function () {
+            const receiver = ethers.encodeBytes32String("receiverOnChia");
+            const ethToSend = messageFee * 3n / 2n;
+
+            await expect(
+                ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
+            ).to.be.revertedWith("!fee");
+        });
+
+        it("Should revert if no ETH is sent", async function () {
+            const receiver = ethers.encodeBytes32String("receiverOnChia");
+
+            await expect(
+                ethTokenBridge.connect(user).bridgeEtherToChia(receiver)
+            ).to.be.reverted;
+        });
+    });
+
 });

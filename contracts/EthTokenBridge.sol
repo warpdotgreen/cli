@@ -87,22 +87,24 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             true,
             _receiver,
             _amount,
+            msg.value,
             10 ** (ERC20Decimals(_assetContract).decimals() - 3)
         );
     }
 
     function bridgeEtherToChia(bytes32 _receiver) public payable {
+        uint256 factor = 1 ether / 1000;
         uint256 messageFee = IPortal(portal).messageFee();
-        require(msg.value > messageFee, "!fee");
+        require(msg.value - messageFee > factor, "!fee");
 
         IWETH(iweth).deposit{value: msg.value - messageFee}();
 
-        uint256 factor = 1 ether / 1000;
         _handleBridging(
             iweth,
             false,
             _receiver,
             (msg.value - messageFee) / factor,
+            messageFee,
             factor
         );
     }
@@ -112,6 +114,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         bool _transferAsset,
         bytes32 _receiver,
         uint256 _amount, // WARNING: in CAT mojos
+        uint256 _messageFee,
         uint256 _mojoToTokenFactor
     ) internal {
         uint256 transferFee = (_amount * fee) / 10000;
@@ -132,7 +135,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             );
         }
 
-        IPortal(portal).sendMessage{value: msg.value}(
+        IPortal(portal).sendMessage{value: _messageFee}(
             bytes3("xch"), // chia
             chiaSideMintPuzzle,
             message

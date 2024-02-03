@@ -37,7 +37,7 @@ describe("Portal", function () {
     });
 
     describe("sendMessage", function () {
-        it("should emit MessageSent and increment nonce", async function () {
+        it("Should emit MessageSent and increment nonce", async function () {
             await expect(
                     portal.sendMessage(
                         xchChain,
@@ -55,14 +55,14 @@ describe("Portal", function () {
             expect(await portal.ethNonce()).to.equal(1);
         });
 
-        it("should fail if message fee is incorrect", async function () {
+        it("Should fail if message fee is incorrect", async function () {
             await expect(portal.sendMessage(xchChain, puzzleHash, message))
                 .to.be.revertedWith("!fee");
         });
     });
 
     describe("receiveMessage", function () {
-        it("should process valid message", async function () {
+        it("Should process valid message", async function () {
             await expect(
                 await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message)
             ).to.emit(mockReceiver, "MessageReceived").withArgs(
@@ -73,27 +73,27 @@ describe("Portal", function () {
             )
         });
 
-        it("should fail is same nonce is used twice", async function () {
+        it("Should fail is same nonce is used twice", async function () {
             await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message);
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
                 .to.be.revertedWith("!nonce");
         });
 
-        it("should fail if not called by owner", async function () {
+        it("Should fail if not called by owner", async function () {
             await expect(portal.connect(otherAccount).receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
                 .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
     });
 
     describe("withdrawFees", function () {
-        it("should allow feeCollector to withdraw", async function () {
+        it("Should allow feeCollector to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
             await portal.connect(otherAccount).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
             await expect(portal.connect(feeCollector).withdrawFees([otherAccount.address], [amount]))
                 .to.changeEtherBalances([portal, otherAccount], [-amount, amount]);
         });
 
-        it("should allow withdrawal to multiple addresses", async function () {
+        it("Should allow withdrawal to multiple addresses", async function () {
             const amount1 = ethers.parseEther("0.003");
             const amount2 = ethers.parseEther("0.007");
             await portal.connect(otherAccount).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
@@ -106,7 +106,7 @@ describe("Portal", function () {
             );
         });
 
-        it("should fail if non-feeCollector tries to withdraw", async function () {
+        it("Should fail if non-feeCollector tries to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
             await expect(portal.withdrawFees([otherAccount.address], [amount]))
                 .to.be.revertedWith("!feeCollector");
