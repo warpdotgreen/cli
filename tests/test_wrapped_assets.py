@@ -27,8 +27,7 @@ from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
 SOURCE_CHAIN = b'eth'
-SOURCE_TYPE = b'c'
-SOURCE_INFO = to_eth_address("eth_token_master")
+SOURCE = to_eth_address("eth_token_master")
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
@@ -76,7 +75,7 @@ class TestPortal:
         await wait_for_coin(node, portal)
 
         # 2. Create message coin
-        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_INFO, SOURCE_CHAIN, SOURCE_TYPE)
+        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_CHAIN, SOURCE)
         minter_puzzle_hash = minter_puzzle.get_tree_hash()
 
         receiver_puzzle: Program = one_puzzle
@@ -90,7 +89,8 @@ class TestPortal:
 
         message_coin_puzzle = get_message_coin_puzzle(
             portal_launcher_id,
-            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE,
             NONCE,
             minter_puzzle_hash,
             message.get_tree_hash()
@@ -163,15 +163,15 @@ class TestPortal:
             AugSchemeMPL.aggregate([])
         )
 
-        open("/tmp/sb.json", "w").write(json.dumps(mint_bundle.to_json_dict(), indent=4))
         await node.push_tx(mint_bundle)
 
         # 4. Spend freshly-minted CAT coin
         wrapped_asset_tail = get_wrapped_tail(
             portal_launcher_id,
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
+            SOURCE_CHAIN,
+            SOURCE,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
         )
         wrapped_asset_tail_hash = wrapped_asset_tail.get_tree_hash()
 
@@ -227,9 +227,8 @@ class TestPortal:
         # 5. Burn CAT coin
         burner_puzzle = get_cat_burner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
             SOURCE_CHAIN,
-            SOURCE_TYPE
+            SOURCE
         )
         burner_puzzle_hash = burner_puzzle.get_tree_hash()
 
@@ -240,7 +239,8 @@ class TestPortal:
 
         cat_burn_inner_puzzle = get_cat_burn_inner_puzzle(
             BRIDGING_PUZZLE_HASH,
-            SOURCE_INFO,
+            SOURCE_CHAIN,
+            SOURCE,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             ETH_RECEIVER
         )
@@ -307,7 +307,6 @@ class TestPortal:
             10000,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
             ETH_RECEIVER,
-            int(time.time()) - 24 * 60 * 60,
             burner_coin
         )
         burner_spend = CoinSpend(

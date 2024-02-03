@@ -63,22 +63,25 @@ def get_cat_mint_and_payout_inner_puzzle(
 
 def get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash: bytes32,
+    destination_chain: bytes,
     destination: bytes,
     source_chain_token_contract_address: bytes,
 ) -> Program:
   return BURN_INNER_PUZZLE_MOD.curry(
-    get_cat_burner_puzzle(bridging_puzzle_hash, destination).get_tree_hash(),
+    get_cat_burner_puzzle(bridging_puzzle_hash, destination_chain, destination).get_tree_hash(),
     source_chain_token_contract_address
   )
 
 def get_cat_burn_inner_puzzle(
     bridging_puzzle_hash: bytes32,
+    destination_chain: bytes,
     destination: bytes, # e.g., ETH token bridge
     source_chain_token_contract_address: bytes,
     target_receiver: bytes,
 ) -> Program:
   return get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash,
+    destination_chain,
     destination,
     source_chain_token_contract_address
   ).curry(
@@ -88,13 +91,13 @@ def get_cat_burn_inner_puzzle(
 def get_wrapped_tail(
     portal_receiver_launcher_id: bytes32,
     bridging_puzzle_hash: bytes32,
+    source_chain: bytes,
     source: bytes,
     source_chain_token_contract_address: bytes,
-    other_chain: bytes,
 ) -> Program:
   return WRAPPED_TAIL_MOD.curry(
     get_cat_minter_puzzle(
-      portal_receiver_launcher_id, bridging_puzzle_hash, other_chain, source
+      portal_receiver_launcher_id, bridging_puzzle_hash, source_chain, source
     ).get_tree_hash(),
     get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, source, source_chain_token_contract_address).get_tree_hash(),
   )
