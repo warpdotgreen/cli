@@ -11,7 +11,6 @@
     SELF_HASH
     LAST_NONCES
     update_package ; () of (update_puzzle . update_solution)
-    ; msg info
     nonces ; (list nonce1 nonce2 ...)
     msg_infos ; (list (list validator_sigs_switch source_chain source destination message) ... )
   )
@@ -36,7 +35,7 @@
         nonce source_chain source destination message
       ))
       (c
-        (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
+        (list CREATE_COIN (curry_hashes MESSAGE_COIN_MOD_HASH
           (sha256 1 nonce)
           (sha256 2
             (sha256 1 source_chain)
@@ -65,7 +64,7 @@
     (c
       (list
         CREATE_COIN
-        (curry_hashes_inline SELF_HASH
+        (curry_hashes SELF_HASH
           (sha256 1 SELF_HASH)
           (sha256tree nonces)
         )

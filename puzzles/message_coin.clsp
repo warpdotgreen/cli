@@ -2,27 +2,43 @@
 ;; used to record messages from Ethereum - can be spent by the intended receiver (puzzle or singleton)
 
 (mod (
-    ; first curry (automated)
-    SINGLETON_MOD_HASH
-    SINGLETON_LAUNCHER_PUZZLE_HASH
-    PORTAL_RECEIVER_LAUNCHER_ID
+    (@ args (
+      ; first curry (automated)
+      SINGLETON_MOD_HASH
+      SINGLETON_LAUNCHER_PUZZLE_HASH
+      PORTAL_RECEIVER_LAUNCHER_ID
 
-    ; second curry
-    NONCE
-    (SOURCE_CHAIN . SOURCE) ; source info
-    DESTINATION ; destination
-    MESSAGE_HASH
+      ; second curry
+      NONCE
+      (SOURCE_CHAIN . SOURCE) ; source info
+      DESTINATION ; destination
+      MESSAGE_HASH
 
-    (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
-    (parent_parent_info . parent_inner_puzzle_hash) ; parent proof
-    my_coin_id
+      (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
+      (parent_parent_info . parent_inner_puzzle_hash) ; parent proof
+      my_coin_id
+    ))
   )
 
   (include condition_codes.clib)
   (include curry.clib)
   (include sha256tree.clib)
 
-  (defun-inline main (receiver_coin_id)
+  (defun main (
+    (
+      SINGLETON_MOD_HASH
+      SINGLETON_LAUNCHER_PUZZLE_HASH
+      PORTAL_RECEIVER_LAUNCHER_ID
+      NONCE
+      (SOURCE_CHAIN . SOURCE)
+      DESTINATION
+      MESSAGE_HASH
+      (receiver_parent_info receiver_puzzle_hash . receiver_amount)
+      (parent_parent_info . parent_inner_puzzle_hash)
+      my_coin_id
+    ) ; copy of mod args
+    receiver_coin_id
+  )
     (if (= receiver_puzzle_hash DESTINATION)
       (list
         (list ASSERT_MY_COIN_ID my_coin_id)
@@ -47,6 +63,7 @@
   )
 
   (main
+    args
     (sha256
       (value_b32_or_x receiver_parent_info)
       (value_b32_or_x receiver_puzzle_hash)
