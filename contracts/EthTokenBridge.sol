@@ -156,4 +156,11 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             );
         }
     }
+
+    function rescueEther() public onlyOwner {
+        uint256 amount = address(this).balance;
+        fees[iweth] += amount;
+
+        IWETH(iweth).deposit{value: amount}();
+    }
 }
