@@ -200,7 +200,7 @@ describe("EthTokenBridge", function () {
     });
 
 
-    describe.only("bridgeEtherToChia", function () {
+    describe("bridgeEtherToChia", function () {
         it("Should correctly bridge ETH and deduct fees", async function () {
             const receiver = ethers.encodeBytes32String("receiverOnChia");
             const ethToSend = ethers.parseEther("1");
@@ -231,6 +231,34 @@ describe("EthTokenBridge", function () {
             await expect(
                 ethTokenBridge.connect(user).bridgeEtherToChia(receiver)
             ).to.be.reverted;
+        });
+    });
+
+    describe("rescueEther", function () {
+        beforeEach(async function () {
+            await owner.sendTransaction({
+                to: ethTokenBridge.target,
+                value: ethers.parseEther("1")
+            });
+        });
+
+        it("Should allow owner to rescue Ether", async function () {
+            const contractEthBalance = await ethers.provider.getBalance(ethTokenBridge.target);
+
+            const feesBefore = await ethTokenBridge.fees(mockWETH.target);
+            expect(feesBefore).to.equal(0);
+
+            await expect(ethTokenBridge.rescueEther()).to.not.be.reverted;
+
+            expect(await mockWETH.balanceOf(ethTokenBridge.target)).to.equal(contractEthBalance);
+
+            const feesAfter = await ethTokenBridge.fees(mockWETH.target);
+            expect(feesAfter).to.equal(contractEthBalance);
+        });
+
+        it("Should revert if non-owner tries to rescue Ether", async function () {
+            await expect(ethTokenBridge.connect(user).rescueEther())
+                .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
         });
     });
 
