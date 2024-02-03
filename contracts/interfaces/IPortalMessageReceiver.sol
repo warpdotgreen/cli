@@ -7,8 +7,7 @@ interface IPortalMessageReceiver {
     function receiveMessage(
         bytes32 _nonce,
         bytes3 _source_chain,
-        bytes1 _source_type,
-        bytes32 _source_info,
-        bytes memory _contents
+        bytes32 _source,
+        bytes32[] memory _contents
     ) external;
 }

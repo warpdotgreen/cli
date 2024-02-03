@@ -20,12 +20,6 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
 
-    struct AssetReturnMessage {
-        address assetContract;
-        address receiver;
-        uint256 amount;
-    }
-
     constructor(
         address _portal,
         bytes32 _chiaSideBurnPuzzle,
@@ -45,34 +39,30 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     function receiveMessage(
         bytes32 /* _nonce */,
         bytes3 _source_chain,
-        bytes1 _source_type,
-        bytes32 _source_info,
-        bytes memory _contents
+        bytes32 _source,
+        bytes32[] memory _contents
     ) public {
         require(msg.sender == portal, "!portal");
         require(
-            _source_info == chiaSideBurnPuzzle &&
-                _source_chain == bytes3("xch") &&
-                _source_type == bytes1("p"),
+            _source == chiaSideBurnPuzzle && _source_chain == bytes3("xch"),
             "!source"
         );
 
-        AssetReturnMessage memory message = abi.decode(
-            _contents,
-            (AssetReturnMessage)
-        );
+        address assetContract = address(uint160(uint256(_contents[0])));
+        address receiver = address(uint160(uint256(_contents[1])));
+        uint256 amount = uint256(_contents[2]);
 
         uint256 chiaToEthFactor = 10 **
-            ERC20Decimals(message.assetContract).decimals() /
+            ERC20Decimals(assetContract).decimals() /
             1000;
-        message.amount = message.amount * chiaToEthFactor;
-        uint256 transferFee = (message.amount * fee) / 10000;
+        amount = amount * chiaToEthFactor;
+        uint256 transferFee = (amount * fee) / 10000;
 
-        fees[message.assetContract] += transferFee;
+        fees[assetContract] += transferFee;
         SafeERC20.safeTransfer(
-            IERC20(message.assetContract),
-            message.receiver,
-            message.amount - transferFee
+            IERC20(assetContract),
+            receiver,
+            amount - transferFee
         );
     }
 
@@ -87,10 +77,10 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
         uint256 transferFee = (_amount * fee) / 10000;
 
-        bytes[] memory message = new bytes[](3);
-        message[0] = abi.encode(_assetContract);
-        message[1] = abi.encode(_receiver);
-        message[2] = abi.encode(_amount - transferFee);
+        bytes32[] memory message = new bytes32[](3);
+        message[0] = bytes32(uint256(uint160(_assetContract)));
+        message[1] = _receiver;
+        message[2] = bytes32(_amount - transferFee);
 
         uint256 chiaToEthFactor = 10 **
             ERC20Decimals(_assetContract).decimals() /
@@ -105,7 +95,6 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
         IPortal(portal).sendMessage{value: msg.value}(
             bytes3("xch"), // chia
-            bytes1("p"), // puzzle hash
             chiaSideMintPuzzle,
             message
         );
