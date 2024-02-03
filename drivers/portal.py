@@ -14,7 +14,9 @@ MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
 
 def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> Program:
-    return MESSAGE_COIN_MOD.curry(SINGLETON_MOD_HASH, SINGLETON_LAUNCHER_HASH, portal_receiver_launcher_id)
+    return MESSAGE_COIN_MOD.curry(
+       (SINGLETON_MOD_HASH, (portal_receiver_launcher_id, SINGLETON_LAUNCHER_HASH))
+    )
 
 def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,

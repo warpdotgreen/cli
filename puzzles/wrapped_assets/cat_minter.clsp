@@ -2,48 +2,49 @@
 ;; used to mint wrapped ERC20 CATs
 
 (mod (
-    (@ args (
-      MESSAGE_COIN_MOD_HASH ; after first curry
-      CAT_MOD_HASH
-      WRAPPED_TAIL_MOD_HASH
-      CAT_MINT_AND_PAYOUT_MOD_HASH
-      CAT_BURNER_PUZZLE_HASH_HASH ; (sha256 1 CAT_BURNER_PUZZLE_HASH)
-      CAT_BURN_INNER_MOD_HASH
-      SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_CHAIN SOURCE))
-      nonce
-      message
-      my_puzzle_hash
-      my_coin_id
-      message_coin_parent_info
-    ))
+    MESSAGE_COIN_MOD_HASH ; after first curry
+    CAT_MOD_HASH
+    WRAPPED_TAIL_MOD_HASH
+    CAT_MINT_AND_PAYOUT_MOD_HASH
+    CAT_BURNER_PUZZLE_HASH_HASH ; (sha256 1 CAT_BURNER_PUZZLE_HASH)
+    CAT_BURN_INNER_MOD_HASH
+    SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_CHAIN SOURCE))
+    nonce
+    message
+    my_puzzle_hash
+    my_coin_id
+    message_coin_parent_info
   )
 
   (include "condition_codes.clib")
   (include "curry.clib")
   (include "sha256tree.clib")
 
-  (defun main (
-    (
-      MESSAGE_COIN_MOD_HASH
-      CAT_MOD_HASH
-      WRAPPED_TAIL_MOD_HASH
-      CAT_MINT_AND_PAYOUT_MOD_HASH
-      CAT_BURNER_PUZZLE_HASH_HASH
-      CAT_BURN_INNER_MOD_HASH
-      SOURCE_STUFF_HASH
-      nonce
-      message
-      my_puzzle_hash
-      my_coin_id
-      message_coin_parent_info
-    ) ; copy of args from above
-    message_coin_id
+  (defun add_announcement_asserts (message_coin_id my_coin_id conditions_so_far)
+    (c
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 message_coin_id my_coin_id))
+      (c
+        (list CREATE_COIN_ANNOUNCEMENT message_coin_id)
+        conditions_so_far
+      )
+    )
   )
+
+  (add_announcement_asserts
+    (sha256
+      (if (= (strlen message_coin_parent_info) 32) message_coin_parent_info (x))
+      (curry_hashes MESSAGE_COIN_MOD_HASH
+        (sha256 1 nonce)
+        SOURCE_STUFF_HASH
+        (sha256 1 my_puzzle_hash) ; receiver stuff
+        (sha256 1 (sha256tree message)); MESSAGE_HASH
+      )
+      0
+    ) ; message_coin_id
+    my_coin_id
     (list
       (list ASSERT_MY_COIN_ID my_coin_id)
       (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
-      (list ASSERT_COIN_ANNOUNCEMENT (sha256 message_coin_id my_coin_id))
-      (list CREATE_COIN_ANNOUNCEMENT message_coin_id)
       (list CREATE_COIN
         (curry_hashes CAT_MOD_HASH
           (sha256 1 CAT_MOD_HASH)
@@ -61,19 +62,5 @@
         (f (r (r message))) ; amount
       )
     )
-  )
-
-  (main
-    args
-    (sha256
-      (if (= (strlen message_coin_parent_info) 32) message_coin_parent_info (x))
-      (curry_hashes MESSAGE_COIN_MOD_HASH
-        (sha256 1 nonce)
-        SOURCE_STUFF_HASH
-        (sha256 1 my_puzzle_hash) ; receiver stuff
-        (sha256 1 (sha256tree message)); MESSAGE_HASH
-      )
-      0
-    ) ; message_coin_id
   )
 )

@@ -2,35 +2,43 @@
 ;; used to burn a CAT representing an ERC20-wrapped asset
 
 (mod (
-  ; 1st curry
-  CAT_BURNER_PUZZLE_HASH
-  SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
-  ; CAT_BURN_INNER_PUZZLE_FIRST_HASH until here
-  ; 2nd curry
-  RECEIVER ; receiver address
-  BRIDGE_FEE ; used as cat_burner_amount
-  cat_burner_parent_id
-  my_coin_id
-  tail_reveal
+    ; 1st curry
+    CAT_BURNER_PUZZLE_HASH
+    SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS
+    ; CAT_BURN_INNER_PUZZLE_FIRST_HASH until here
+    ; 2nd curry
+    RECEIVER ; receiver address
+    BRIDGE_FEE ; used as cat_burner_amount
+    cat_burner_parent_id
+    my_coin_id
+    tail_reveal
 )
   (include "condition_codes.clib")
   (include "curry.clib")
   (include "sha256tree.clib")
 
-  (defun-inline main (cat_bruner_coin_id)
+  (defun create_announcements (
+    my_coin_id
+    cat_bruner_coin_id
+  )
     (list
-      (list ASSERT_MY_COIN_ID my_coin_id)
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 cat_bruner_coin_id my_coin_id))
       (list CREATE_COIN_ANNOUNCEMENT cat_bruner_coin_id)
-      (list CREATE_COIN 0 -113 tail_reveal (c (sha256 1 RECEIVER) (sha256 1 BRIDGE_FEE)))
     )
   )
 
-  (main
-    (sha256
-      (if (= (strlen cat_burner_parent_id) 32) cat_burner_parent_id (x))
-      CAT_BURNER_PUZZLE_HASH
-      BRIDGE_FEE
+  (c
+    (list ASSERT_MY_COIN_ID my_coin_id)
+    (c
+      (list CREATE_COIN 0 -113 tail_reveal (c (sha256 1 RECEIVER) (sha256 1 BRIDGE_FEE)))
+      (create_announcements
+        my_coin_id
+        (sha256
+          (if (= (strlen cat_burner_parent_id) 32) cat_burner_parent_id (x))
+          CAT_BURNER_PUZZLE_HASH
+          BRIDGE_FEE
+        )
+      )
     )
   )
 )
