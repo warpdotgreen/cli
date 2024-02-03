@@ -91,7 +91,7 @@ On Chia, messages are picked up by looking for the following output condition:
 (list CREATE_COIN
   [bridge_specific_puzzle_hash]
   [amount]
-  ([source_type] [destination_chain] [destination_type] [destination_info] [deadline] . [content])
+  ([destination_chain] [destination] . [content])
 )
 ```
 

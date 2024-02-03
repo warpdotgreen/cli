@@ -6,14 +6,12 @@
   BURN_INNER_PUZZZLE_MOD_HASH
   BRIDGING_PUZZLE_HASH
   DESTINATION_CHAIN
-  DESTINATION_TYPE
-  DESTINATION_INFO ; token bridg address @ destination
+  DESTINATION ; token bridg address @ destination
   cat_parent_info
   tail_hash_hash ; (sha256 1 tail_hash)
   cat_amount
   source_chain_token_contract_address
   destination_receiver_address
-  time_now_ish
   my_amount
   my_puzzle_hash
   my_coin_id
@@ -27,7 +25,6 @@
       (list ASSERT_MY_COIN_ID my_coin_id)
       (list ASSERT_MY_AMOUNT my_amount)
       (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
-      (list ASSERT_SECONDS_ABSOLUTE time_now_ish)
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 cat_burn_coin_id my_coin_id))
       (list CREATE_COIN_ANNOUNCEMENT cat_burn_coin_id)
       (list
@@ -35,11 +32,9 @@
         BRIDGING_PUZZLE_HASH ; static
         my_amount ; allows changing min fee without changing puzzle hash
         (list
-          ; ([source_type] [destination_chain] [destination_type] [destination_info] . [content])
-          'p' ; source type = 'puzzle hash'
+          ; ([destination_chain] [destination] . [content])
           DESTINATION_CHAIN
-          DESTINATION_TYPE
-          DESTINATION_INFO ; who receives this message
+          DESTINATION ; who receives this message
           ; begin message
           source_chain_token_contract_address
           destination_receiver_address

@@ -9,12 +9,11 @@
 
     ; second curry
     NONCE
-    (SOURCE_INFO . (SOURCE_CHAIN . SOURCE_TYPE)) ; source
-    (DESTINATION_INFO . DESTINATION_TYPE) ; destination
+    (SOURCE_CHAIN . SOURCE) ; source info
+    DESTINATION ; destination
     MESSAGE_HASH
 
     (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
-    receiver_singleton_proof ;  (launcher_id . inner_puzzle_hash) or ()
     (parent_parent_info . parent_inner_puzzle_hash) ; parent proof
     my_coin_id
   )
@@ -23,21 +22,8 @@
   (include curry.clib)
   (include sha256tree.clib)
 
-  (defun-inline verify_target () 
-    (if (= DESTINATION_TYPE 'p') ; puzzle hash
-      (= receiver_puzzle_hash DESTINATION_INFO)
-      (all
-        (= DESTINATION_INFO (f receiver_singleton_proof)) ; singleton if
-        (= receiver_puzzle_hash (curry_hashes SINGLETON_MOD_HASH
-          (sha256tree (c SINGLETON_MOD_HASH (c (f receiver_singleton_proof) SINGLETON_LAUNCHER_PUZZLE_HASH)))
-          (r receiver_singleton_proof)
-        ))
-      )
-    )
-  )
-
   (defun-inline main (receiver_coin_id)
-    (if (verify_target)
+    (if (= receiver_puzzle_hash DESTINATION)
       (list
         (list ASSERT_MY_COIN_ID my_coin_id)
         (list ASSERT_MY_PARENT_ID (sha256
