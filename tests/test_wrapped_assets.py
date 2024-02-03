@@ -18,7 +18,6 @@ from chia.types.blockchain_format.program import INFINITE_COST
 from chia.wallet.cat_wallet.cat_utils import \
     unsigned_spend_bundle_for_spendable_cats
 import pytest
-import time
 import json
 
 from tests.utils import *
@@ -242,7 +241,8 @@ class TestPortal:
             SOURCE_CHAIN,
             SOURCE,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
-            ETH_RECEIVER
+            ETH_RECEIVER,
+            1
         )
         cat_burn_inner_puzzle_hash = cat_burn_inner_puzzle.get_tree_hash()
 
@@ -279,7 +279,6 @@ class TestPortal:
 
         cat_burn_inner_solution = get_burn_inner_puzzle_solution(
             burner_coin.parent_coin_info,
-            1,
             last_cat_coin.name(),
             wrapped_asset_tail
         )
@@ -295,7 +294,7 @@ class TestPortal:
             ),
             extra_delta=-last_cat_coin.amount,
             limitations_program_reveal=wrapped_asset_tail,
-            limitations_solution=raw_hash([b'\x01', ETH_RECEIVER])
+            limitations_solution=Program.to((raw_hash([b'\x01', ETH_RECEIVER]), raw_hash([b'\x01', b'\x01'])))
         )
         last_cat_spend = unsigned_spend_bundle_for_spendable_cats(
             CAT_MOD, [last_cat]
@@ -319,6 +318,7 @@ class TestPortal:
             [one_cat_spend, last_cat_spend, burner_spend],
             AugSchemeMPL.aggregate([])
         )
+
         await node.push_tx(burn_spend_bundle)
         await wait_for_coin(node, burner_coin, also_wait_for_spent=True)
 

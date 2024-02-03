@@ -78,6 +78,7 @@ def get_cat_burn_inner_puzzle(
     destination: bytes, # e.g., ETH token bridge
     source_chain_token_contract_address: bytes,
     target_receiver: bytes,
+    bridge_fee: int
 ) -> Program:
   return get_cat_burn_inner_puzzle_first_curry(
     bridging_puzzle_hash,
@@ -85,7 +86,8 @@ def get_cat_burn_inner_puzzle(
     destination,
     source_chain_token_contract_address
   ).curry(
-    target_receiver
+    target_receiver,
+    bridge_fee
   )
 
 def get_wrapped_tail(
@@ -106,13 +108,11 @@ def get_wrapped_tail(
 
 def get_burn_inner_puzzle_solution(
     cat_burner_parent_id: bytes32,
-    cat_burner_amount: int,
     my_coin_id: bytes32,
     tail_reveal: Program
 ) -> Program:
   return Program.to([
     cat_burner_parent_id,
-    cat_burner_amount,
     my_coin_id,
     tail_reveal
   ])
