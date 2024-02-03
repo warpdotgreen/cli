@@ -35,12 +35,11 @@
         BRIDGING_PUZZLE_HASH ; static
         my_amount ; allows changing min fee without changing puzzle hash
         (list
-          ; ([source_type] [destination_chain] [destination_type] [destination_info] [deadline] . [content])
+          ; ([source_type] [destination_chain] [destination_type] [destination_info] . [content])
           'p' ; source type = 'puzzle hash'
           DESTINATION_CHAIN
           DESTINATION_TYPE
           DESTINATION_INFO ; who receives this message
-          (+ time_now_ish 315360000) ; deadline - 10 years
           ; begin message
           source_chain_token_contract_address
           destination_receiver_address

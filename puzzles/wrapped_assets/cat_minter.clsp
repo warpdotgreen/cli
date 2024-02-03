@@ -10,7 +10,6 @@
     CAT_BURN_INNER_MOD_HASH
     SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_INFO (c SOURCE_CHAIN SOURCE_TYPE)))
     nonce
-    deadline
     message
     my_puzzle_hash
     my_coin_id
@@ -56,7 +55,6 @@
           (sha256 1 my_puzzle_hash)
           (sha256 1 'p')
         ) ; receiver stuff
-        (sha256 1 deadline)
         (sha256 1 (sha256tree message)); MESSAGE_HASH
       )
       0

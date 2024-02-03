@@ -13,7 +13,7 @@
     update_package ; () of (update_puzzle . update_solution)
     ; msg info
     nonces ; (list nonce1 nonce2 ...)
-    msg_infos ; (list (list validator_sigs_switch source_chain source_type source_info destination_type destination_info deadline message) ... )
+    msg_infos ; (list (list validator_sigs_switch source_chain source_type source_info destination_type destination_info message) ... )
   )
 
   (include condition_codes.clib)
@@ -26,14 +26,14 @@
       MESSAGE_COIN_MOD_HASH
       (nonce . remaining_nonces)
       ((
-        validator_sigs_switch source_chain source_type source_info destination_type destination_info deadline message
+        validator_sigs_switch source_chain source_type source_info destination_type destination_info message
       ). remaining_msg_infos)
     )
     (verify_validator_sigs
       VALIDATOR_INFO
       validator_sigs_switch
       (sha256tree (list
-        nonce source_chain source_type source_info destination_type destination_info deadline message
+        nonce source_chain source_type source_info destination_type destination_info message
       ))
       (c
         (list CREATE_COIN (curry_hashes_inline MESSAGE_COIN_MOD_HASH
@@ -49,7 +49,6 @@
             (sha256 1 destination_info)
             (sha256 1 destination_type)
           )
-          (sha256 1 deadline)
           (sha256 1 (sha256tree message)) ; message was revealed on-chain
         ) 0)
         (if remaining_msg_infos

@@ -11,7 +11,6 @@
     NONCE
     (SOURCE_INFO . (SOURCE_CHAIN . SOURCE_TYPE)) ; source
     (DESTINATION_INFO . DESTINATION_TYPE) ; destination
-    DEADLINE
     MESSAGE_HASH
 
     (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
@@ -40,7 +39,6 @@
   (defun-inline main (receiver_coin_id)
     (if (verify_target)
       (list
-        (list ASSERT_BEFORE_SECONDS_ABSOLUTE DEADLINE)
         (list ASSERT_MY_COIN_ID my_coin_id)
         (list ASSERT_MY_PARENT_ID (sha256
           parent_parent_info
