@@ -1,10 +1,11 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EthTokenBridge, ERC20Mock, Portal } from "../typechain-types";
+import { EthTokenBridge, ERC20Mock, Portal, WETHMock } from "../typechain-types";
 
 describe("EthTokenBridge", function () {
     let ethTokenBridge: EthTokenBridge;
     let mockERC20: ERC20Mock;
+    let mockWETH: WETHMock;
     let portal: Portal;
     let owner: any;
     let user: any;
@@ -26,12 +27,15 @@ describe("EthTokenBridge", function () {
         const ERC20Factory = await ethers.getContractFactory("ERC20Mock");
         mockERC20 = await ERC20Factory.deploy("MockToken", "MTK");
 
+        const WETHFactory = await ethers.getContractFactory("WETHMock");
+        mockWETH = await WETHFactory.deploy();
+
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy(owner.address, owner.address, messageFee);
         portalAddress = portal.target as string;
 
         const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
-        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, chiaSideBurnPuzzle, chiaSideMintPuzzle);
+        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, mockWETH, chiaSideBurnPuzzle, chiaSideMintPuzzle);
     });
 
     describe("Deployment", function () {
