@@ -8,6 +8,7 @@ import "./interfaces/IPortal.sol";
 import "./interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface ERC20Decimals {
@@ -139,6 +140,38 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             bytes3("xch"), // chia
             chiaSideMintPuzzle,
             message
+        );
+    }
+
+    function bridgeToChiaWithPermit(
+        address _assetContract,
+        bytes32 _receiver,
+        uint256 _amount, // on Chia
+        uint256 _deadline,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) public payable {
+        require(msg.value == IPortal(portal).messageFee(), "!fee");
+        uint256 factor = 10 ** (ERC20Decimals(_assetContract).decimals() - 3);
+
+        IERC20Permit(_assetContract).permit(
+            msg.sender,
+            address(this),
+            _amount * factor,
+            _deadline,
+            _v,
+            _r,
+            _s
+        );
+
+        _handleBridging(
+            _assetContract,
+            true,
+            _receiver,
+            _amount,
+            msg.value,
+            factor
         );
     }
 
