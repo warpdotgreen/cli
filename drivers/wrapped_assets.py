@@ -99,7 +99,9 @@ def get_wrapped_tail(
     get_cat_minter_puzzle(
       portal_receiver_launcher_id, bridging_puzzle_hash, source_chain, source
     ).get_tree_hash(),
-    get_cat_burn_inner_puzzle_first_curry(bridging_puzzle_hash, source, source_chain_token_contract_address).get_tree_hash(),
+    get_cat_burn_inner_puzzle_first_curry(
+      bridging_puzzle_hash, source_chain, source, source_chain_token_contract_address
+    ).get_tree_hash(),
   )
 
 def get_burn_inner_puzzle_solution(
