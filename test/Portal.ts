@@ -10,7 +10,6 @@ describe("Portal", function () {
         otherAccount: any,
         feeCollector: any,
         messageFee: BigNumberish;
-    const nonce1 = ethers.encodeBytes32String("nonce1")
 
     beforeEach(async function () {
         [owner, otherAccount, feeCollector] = await ethers.getSigners();
