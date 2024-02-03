@@ -134,7 +134,6 @@ def get_cat_mint_and_payout_inner_puzzle_solution(
 
 def get_cat_minter_puzzle_solution(
     nonce: int,
-    deadline: int,
     message: Program,
     my_puzzle_hash: bytes32,
     my_coin_id: bytes32,
@@ -142,7 +141,6 @@ def get_cat_minter_puzzle_solution(
 ) -> Program:
   return Program.to([
     nonce,
-    deadline,
     message,
     my_puzzle_hash,
     my_coin_id,

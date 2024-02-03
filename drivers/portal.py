@@ -21,7 +21,6 @@ def get_message_coin_puzzle(
     source_info: bytes,
     nonce: int,
     destination_info: bytes32,
-    deadline: int,
     message_hash: bytes32,
     source_chain: bytes = b'eth', # ethereum
     source_type: bytes = b'c', # contract
@@ -31,7 +30,6 @@ def get_message_coin_puzzle(
     nonce,
     (source_info, (source_chain, source_type)),
     (destination_info, destination_type),
-    deadline,
     message_hash
   )
 
@@ -70,7 +68,6 @@ class PortalMessage:
     validator_sig_switches: List[bool]
     source_info: bytes
     destination_info: bytes32
-    deadline: int
     message: Program
     source_chain: bytes = b'eth'
     source_type: bytes = b'c'
@@ -98,7 +95,6 @@ def get_portal_receiver_inner_solution(
             msg.source_info,
             msg.destination_type,
             msg.destination_info,
-            msg.deadline,
             msg.message
           ] for msg in messages
        ]

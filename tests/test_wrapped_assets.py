@@ -29,7 +29,6 @@ NONCE = 1337
 SOURCE_CHAIN = b'eth'
 SOURCE_TYPE = b'c'
 SOURCE_INFO = to_eth_address("eth_token_master")
-DEADLINE = int(time.time()) + 24 * 60 * 60
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
@@ -94,7 +93,6 @@ class TestPortal:
             SOURCE_INFO,
             NONCE,
             minter_puzzle_hash,
-            DEADLINE,
             message.get_tree_hash()
         )
         message_coin_puzzle_hash = message_coin_puzzle.get_tree_hash()
@@ -149,7 +147,6 @@ class TestPortal:
 
         minter_puzzle_solution = get_cat_minter_puzzle_solution(
             NONCE,
-            DEADLINE,
             message,
             minter_puzzle_hash,
             minter_coin.name(),

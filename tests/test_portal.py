@@ -24,7 +24,6 @@ NONCE = 1337
 SOURCE_CHAIN = 'eth'
 SOURCE_TYPE  = 'c'
 SOURCE_INFO = to_eth_address("sender")
-DEADLINE = int(time.time()) + 24 * 60 * 60
 MESSAGE = Program.to(["yaku", "hito", 1337])
 
 assert len(VALIDATOR_SIG_SWITCHES) == 11
@@ -179,7 +178,6 @@ class TestPortal:
             source_info=SOURCE_INFO,
             destination_type='p' if with_ph else 's',
             destination_info=target,
-            deadline=DEADLINE,
             message=MESSAGE
         )
         portal_inner_solution = get_portal_receiver_inner_solution(
@@ -191,7 +189,7 @@ class TestPortal:
             portal_inner_solution
         )
 
-        # nonce source_chain source_type source_info destination_type destination_info deadline message
+        # nonce source_chain source_type source_info destination_type destination_info message
         message_to_sign: bytes = Program(Program.to([
             NONCE,
             SOURCE_CHAIN,
@@ -199,7 +197,6 @@ class TestPortal:
             SOURCE_INFO,
             'p' if with_ph else 's',
             target,
-            DEADLINE,
             MESSAGE
         ])).get_tree_hash()
         message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
@@ -227,7 +224,6 @@ class TestPortal:
             SOURCE_INFO,
             NONCE,
             target,
-            DEADLINE,
             Program(MESSAGE).get_tree_hash(),
             destination_type='p' if with_ph else 's',
         )
