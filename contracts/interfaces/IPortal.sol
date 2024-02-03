@@ -9,7 +9,6 @@ interface IPortal {
         bytes3 destination_chain,
         bytes1 destination_type,
         bytes32 destination_info,
-        uint256 deadline,
         bytes[] contents
     );
 
@@ -21,7 +20,6 @@ interface IPortal {
         bytes3 _destination_chain,
         bytes1 _destination_type,
         bytes32 _destination_info,
-        uint256 _deadline,
         bytes[] memory _contents
     ) external payable;
 
@@ -31,7 +29,6 @@ interface IPortal {
         bytes1 _source_type,
         bytes32 _source_info,
         address _destination_info,
-        uint256 _deadline,
         bytes memory _contents
     ) external;
 }

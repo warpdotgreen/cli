@@ -17,7 +17,6 @@ contract Portal is Ownable {
         bytes3 destination_chain,
         bytes1 destination_type,
         bytes32 destination_info,
-        uint256 deadline,
         bytes[] contents
     );
 
@@ -36,10 +35,8 @@ contract Portal is Ownable {
         bytes3 _destination_chain,
         bytes1 _destination_type,
         bytes32 _destination_info,
-        uint256 _deadline,
         bytes[] memory _contents
     ) public payable {
-        require(_deadline >= block.timestamp, "!deadline");
         require(msg.value == messageFee, "!fee");
         ethNonce += 1;
         emit MessageSent(
@@ -47,7 +44,6 @@ contract Portal is Ownable {
             _destination_chain,
             _destination_type,
             _destination_info,
-            _deadline,
             _contents
         );
     }
@@ -58,11 +54,9 @@ contract Portal is Ownable {
         bytes1 _source_type,
         bytes32 _source_info,
         address _destination_info,
-        uint256 _deadline,
         bytes memory _contents
     ) public onlyOwner {
         require(!nonceUsed[_nonce], "!nonce");
-        require(_deadline >= block.timestamp, "!deadline");
 
         nonceUsed[_nonce] = true;
 
