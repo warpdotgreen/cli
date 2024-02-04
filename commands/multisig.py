@@ -1,9 +1,11 @@
 import click
 from commands.cli_wrappers import *
-from chia.rpc.full_node_rpc_client import FullNodeRpcClients
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
+from chia.rpc.full_node_rpc_client import FullNodeRpcClient
+from chia.types.coin_spend import CoinSpend, compute_additions
+from chia.types.blockchain_format.coin import Coin
 from typing import List
 import json
 
@@ -12,6 +14,30 @@ def multisig():
     pass
 
 COIN_ID_SAVE_FILE = "last_spent_multisig_coinid"
+
+async def get_latest_spent_multisig_coin(node: FullNodeRpcClient):
+    last_coin_id: bytes32
+    try:
+        last_coin_id = bytes.fromhex(open(COIN_ID_SAVE_FILE, "r").read())
+    except:
+        last_coin_id = get_config_item(["chia", "multisig_launcher_id"])
+
+    coin_record = await node.get_coin_record_by_name(last_coin_id)
+    while coin_record.spent_block_index is not None:
+        spend: CoinSpend = await node.get_puzzle_and_solution(
+            coin_record.coin.name(), coin_record.spent_block_index
+        )
+        additions = compute_additions(spend.coin_spend)
+        new_coin: Coin
+        for c in additions:
+            if c.amount % 2 == 1:
+                new_coin = c
+                break
+
+        coin_record = await node.get_coin_record_by_name(new_coin.name())
+
+    open(COIN_ID_SAVE_FILE, "w").write(coin_record.coin.parent_coin_info.hex())
+    return coin_record.coin.parent_coin_info
 
 @multisig.command()
 @click.option('--payout-structure-file', required=True, help='JSON file containing {address: share}')
