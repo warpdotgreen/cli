@@ -7,6 +7,7 @@ from chia.wallet.trading.offer import Offer, OFFER_MOD
 from chia.types.blockchain_format.program import Program
 from chia.types.spend_bundle import SpendBundle
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import SINGLETON_LAUNCHER_HASH, SINGLETON_LAUNCHER, launch_conditions_and_coinsol
+from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
@@ -155,7 +156,11 @@ def launch_xch_multisig(offer):
         SINGLETON_LAUNCHER_HASH,
         1
     )
-    click.echo(f"Multisig launcher coin id: {launcher_coin.name()}")
+
+    launcher_id = launcher_coin.name()
+    click.echo(f"Multisig launcher coin id: {launcher_id.hex()}")
+    p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
+    click.echo(f"Multisig p2_singleton ph: {p2_puzzle_hash.hex()}")
 
     threshold = get_config_item(["chia", "multisig_treshold"])
     pks = get_config_item(["chia", "multisig_keys"])
