@@ -43,7 +43,7 @@ async def get_latest_spent_multisig_coin(node: FullNodeRpcClient):
 @click.option('--payout-structure-file', required=True, help='JSON file containing {address: share}')
 @async_func
 @with_node
-async def start_new_spend(
+async def start_new_tx(
     node: FullNodeRpcClient,
     payout_structure_file: str
 ):
@@ -103,9 +103,39 @@ async def start_new_spend(
     coins_to_claim = {}
     for cr in to_claim:
         coins_to_claim[cr.coin.name().hex()] = cr.coin.amount
-    open("unsigned_transaction.json", "w").write(json.dumps({
+    open("unsigned_tx.json", "w").write(json.dumps({
         "multisig_parent": latest_coin.name().hex(),
         "payout_structure": payout_structure,
         "coins": coins_to_claim,
+        "fee": fee
     }))
-    click.echo("Done! Unsigned transaction saved to unsigned_transaction.json")
+    click.echo("Done! Unsigned transaction saved to unsigned_tx.json")
+
+
+@multisig.command()
+@click.option('--unsigned-tx-file', required=True, help='JSON file containing unsigned tx details')
+@async_func
+@with_node
+async def sign_tx(
+    node: FullNodeRpcClient,
+    unsigned_tx_file: str
+):
+    unsigned_tx = json.loads(open(unsigned_tx_file, "r").read())
+    click.echo("Parsing unsigned tx...")
+
+    total_amount = sum([v for v in unsigned_tx["coins"].values()])
+    fee = unsigned_tx["fee"]
+    payout_amount = total_amount - fee
+
+    payout_structure = unsigned_tx["payout_structure"]
+    total_share = sum([v for v in payout_structure.values()])
+
+    click.echo("Payouts:")
+    for address, share in payout_structure.items():
+        mojo_amount = share * payout_amount // total_share
+        if mojo_amount % 2 == 0:
+            mojo_amount -= 1
+            fee += 1
+        click.echo(f"{address}: {mojo_amount // 10 ** 12} XCH ({mojo_amount} mojos - {share * 10000 // total_share / 100}%)")
+      
+    click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
