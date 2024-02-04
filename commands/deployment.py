@@ -21,6 +21,7 @@ def get_eth_deployment_data():
     portal_artifact = load_contract_artifact('Portal.sol')
     eth_token_bridge_artifact = load_contract_artifact('EthTokenBridge.sol')
 
+    print("PORTAL DEPLOYMENT TX:")
     portal_constructor_data = w3.eth.contract(
         abi=portal_artifact['abi'],
         bytecode=portal_artifact['bytecode']
@@ -34,3 +35,7 @@ def get_eth_deployment_data():
     #     abi=eth_token_bridge_artifact['abi'],
     #     bytecode=eth_token_bridge_artifact['bytecode']
     # ).constructor(arg1, arg2).build_transaction()['data']
+
+@deployment.command()
+def launch_xch_multisig():
+    pass
