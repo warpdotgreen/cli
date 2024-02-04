@@ -3,10 +3,11 @@
 
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
 
-contract Portal is Ownable {
+contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
     mapping(bytes32 => bool) private nonceUsed;
     address public feeCollector;
@@ -19,11 +20,12 @@ contract Portal is Ownable {
         bytes32[] contents
     );
 
-    constructor(
+    function initialize(
         address _messageMultisig,
         address _feeCollector,
         uint256 _messageFee
-    ) Ownable(_messageMultisig) {
+    ) public initializer {
+        __Ownable_init(_messageMultisig);
         feeCollector = _feeCollector;
         messageFee = _messageFee;
     }

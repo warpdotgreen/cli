@@ -19,6 +19,7 @@
   "homepage": "https://github.com/Yakuhito/bridge#readme",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts-upgradeable": "^5.0.1",
     "@typechain/ethers-v6": "^0.5.1",
     "@typechain/hardhat": "^9.1.0",
     "hardhat": "^2.19.4",

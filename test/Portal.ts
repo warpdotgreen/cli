@@ -23,7 +23,8 @@ describe("Portal", function () {
         [owner, otherAccount, feeCollector] = await ethers.getSigners();
         messageFee = ethers.parseEther("0.01");
         const PortalFactory = await ethers.getContractFactory("Portal");
-        portal = await PortalFactory.deploy(owner.address, feeCollector.address, messageFee);
+        portal = await PortalFactory.deploy();
+        await portal.initialize(owner.address, feeCollector.address, messageFee);
         const MockReceiverFactory = await ethers.getContractFactory("PortalMessageReceiverMock");
         mockReceiver = await MockReceiverFactory.deploy();
     });

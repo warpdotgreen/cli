@@ -33,7 +33,8 @@ describe("EthTokenBridge", function () {
         mockWETH = await WETHFactory.deploy();
 
         const PortalFactory = await ethers.getContractFactory("Portal");
-        portal = await PortalFactory.deploy(owner.address, owner.address, messageFee);
+        portal = await PortalFactory.deploy();
+        await portal.initialize(owner.address, owner.address, messageFee);
         portalAddress = portal.target as string;
 
         const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
