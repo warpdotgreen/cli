@@ -24,7 +24,8 @@ def predict_create2_address(sender, salt, init_code):
 
 @deployment.command()
 @click.option('--weth-address', required=True, help='WETH contract address to be used by the bridge')
-def get_eth_deployment_data(weth_address):
+@click.option('--wei-per-message-fee', default=10 ** (18 - 3 - 2), help='Fee to send a message from ETH (default: 1 cent @ $1000 ETH)')
+def get_eth_deployment_data(weth_address, wei_per_message_fee):
     click.echo("Constructing txes based on config...")
 
     w3 = Web3(Web3.HTTPProvider(get_config_item(["ethereum", "rpc_url"])))
@@ -36,7 +37,7 @@ def get_eth_deployment_data(weth_address):
         open('artifacts/contracts/EthTokenBridge.sol/EthTokenBridge.json', 'r').read()
       )
     proxy_artifact = json.loads(
-        open('artifacts/contracts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
+        open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
       )
     
     portal_safe_address = get_config_item(["ethereum", "portal_safe_address"])
@@ -54,16 +55,24 @@ def get_eth_deployment_data(weth_address):
 
     portal_logic_address = predict_create2_address(create_call_address, salt, portal_constructor_data)
 
-    portal_initialization_data = portal_contract.initalize()
-    # todo: /\/\
+    portal_initialization_data = portal_initialization_data = portal_contract.encodeABI(
+        fn_name='initialize',
+        args=[
+            Web3.to_bytes(hexstr=portal_safe_address),
+            Web3.to_bytes(hexstr=deployer_safe_address),
+            wei_per_message_fee
+        ]
+    )
     proxy_constructor_data = w3.eth.contract(
         abi=proxy_artifact['abi'],
         bytecode=proxy_artifact['bytecode']
     ).constructor(
-        Web3.to_bytes(hexstr=portal_address),
+        Web3.to_bytes(hexstr=portal_logic_address),
         Web3.to_bytes(hexstr=deployer_safe_address),
         portal_initialization_data
-    ).build_transaction()['data']
+    ).build_transaction({
+        'gas': 5000000000
+    })['data']
     open("proxy_constructor.data", "w").write(proxy_constructor_data)
 
     portal_address = predict_create2_address(create_call_address, salt, proxy_constructor_data)
