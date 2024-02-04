@@ -275,8 +275,9 @@ async def start_new_tx(
 
   spend_bundle = SpendBundle(coin_spends, sigs)
   open("sb.json", "w").write(json.dumps(spend_bundle.to_json_dict(), indent=4))
+  open("push_request.json", "w").write(json.dumps({"spend_bundle": spend_bundle.to_json_dict()}, indent=4))
   click.echo("Spend bundle constructed and saved to sb.json.")
-  click.echo("To send, use: chia rpc full_node push_tx -f sb.json")
+  click.echo("To send, use: chia rpc full_node push_tx -f push_request.json")
 
   node.close()
   await node.await_closed()

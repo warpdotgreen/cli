@@ -182,6 +182,7 @@ def launch_xch_multisig(offer):
             
     sb: SpendBundle = SpendBundle(coin_spends, offer_sb.aggregated_signature)
     open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
 
     click.echo("SpendBundle created and saved to sb.json")
-    click.echo("To spend: chia rpc full_node push_tx -j sb.json")
+    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
