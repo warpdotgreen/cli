@@ -155,3 +155,5 @@ tests/__pycache__/
 drivers/__pycache__
 drivers/__pycache__/
 config.json
+__pycache__
+commands/__pycache__
