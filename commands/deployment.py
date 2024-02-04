@@ -155,6 +155,7 @@ def launch_xch_multisig(offer):
         SINGLETON_LAUNCHER_HASH,
         1
     )
+    click.echo(f"Multisig launcher coin id: {launcher_coin.name()}")
 
     threshold = get_config_item(["chia", "multisig_treshold"])
     pks = get_config_item(["chia", "multisig_keys"])
