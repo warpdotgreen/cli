@@ -159,3 +159,4 @@ __pycache__
 commands/__pycache__
 *.data
 sb.json
+last_spent_multisig_coinid
