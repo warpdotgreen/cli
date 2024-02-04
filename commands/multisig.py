@@ -5,7 +5,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
-from chia.types.coin_spend import CoinSpend, compute_additions
+from chia.types.coin_spend import CoinSpend, compute_additions_with_cost
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
 from commands.keys import mnemonic_to_validator_pk
@@ -13,6 +13,7 @@ from chia.util.bech32m import decode_puzzle_hash
 from typing import List
 from blspy import PrivateKey, AugSchemeMPL, G1Element
 from chia.types.spend_bundle import SpendBundle
+from chia.types.blockchain_format.program import INFINITE_COST
 from drivers.multisig import *
 import json
 
@@ -27,15 +28,15 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
     try:
         last_coin_id = bytes.fromhex(open(COIN_ID_SAVE_FILE, "r").read())
     except:
-        last_coin_id = get_config_item(["chia", "multisig_launcher_id"])
+        last_coin_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
 
     parent_record = None
     coin_record: CoinRecord = await node.get_coin_record_by_name(last_coin_id)
     while coin_record.spent_block_index is not None:
-        spend: CoinSpend = await node.get_puzzle_and_solution(
+        cs = await node.get_puzzle_and_solution(
             coin_record.coin.name(), coin_record.spent_block_index
         )
-        additions = compute_additions(spend.coin_spend)
+        additions, _ = compute_additions_with_cost(cs, max_cost=INFINITE_COST)
         new_coin: Coin
         for c in additions:
             if c.amount % 2 == 1:
@@ -43,7 +44,7 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
                 break
 
         parent_record = coin_record
-        coin_record = await node.get_coin_record_by_name(new_coin.name())
+        coin_record: CoinRecord = await node.get_coin_record_by_name(new_coin.name())
 
     open(COIN_ID_SAVE_FILE, "w").write(coin_record.coin.parent_coin_info.hex())
     return parent_record, coin_record.coin.name()
@@ -127,12 +128,13 @@ async def start_new_tx(
     click.echo(f"In total, there are {len(coin_records)} coins with a total value of {sum([cr.coin.amount for cr in coin_records]) / 10 ** 12} XCH.")
 
     value = input("In XCH, how much would you like to collect? ")
-    value = int(float(value) ** 10 ** 12)
+    value = int(float(value) * 10 ** 12)
 
     fee = input("In XCH, what fee should the claim tx have? ")
-    fee = int(float(value) ** 10 ** 12)
+    fee = int(float(value) * 10 ** 12)
 
     total_value = value + fee
+    click.echo(f"Total value: {total_value / 10 ** 12} XCH ({total_value} mojos)")
 
     max_coins = 200
     to_claim = []
@@ -207,7 +209,7 @@ def sign_tx(
 @click.option('--sigs', required=True, help='Signatures, separated by commas')
 @async_func
 @with_node
-async def start_new_tx(
+async def broadcast_spend(
     node: FullNodeRpcClient,
     payout_structure_file: str,
     sigs: str

@@ -17,7 +17,8 @@ def async_func(f):
 
 async def get_node_client() -> FullNodeRpcClient:
     try:  
-        root_path = Path(get_config_item("chia", "chia_root"))
+        root_path = Path(get_config_item(["chia", "chia_root"]))
+        print("yak", root_path)
         config = load_config(root_path, "config.yaml")
         self_hostname = config["self_hostname"]
         rpc_port = config["full_node"]["rpc_port"]
