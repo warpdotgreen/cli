@@ -25,12 +25,16 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     constructor(
         address _portal,
-        address _iweth,
-        bytes32 _chiaSideBurnPuzzle,
-        bytes32 _chiaSideMintPuzzle
+        address _iweth
     ) Ownable(msg.sender) {
         portal = _portal;
         iweth = _iweth;
+        chiaSideBurnPuzzle = bytes32(0);
+        chiaSideMintPuzzle = bytes32(0);
+    }
+
+    function initializePuzzleHashes(bytes32 _chiaSideBurnPuzzle, bytes32 _chiaSideMintPuzzle) public onlyOwner {
+        require(chiaSideBurnPuzzle == bytes32(0) && chiaSideBurnPuzzle == bytes32(0), "nope");
         chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
