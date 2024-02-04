@@ -35,20 +35,38 @@ def get_eth_deployment_data(weth_address):
     eth_token_bridge_artifact = json.loads(
         open('artifacts/contracts/EthTokenBridge.sol/EthTokenBridge.json', 'r').read()
       )
+    proxy_artifact = json.loads(
+        open('artifacts/contracts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
+      )
     
     portal_safe_address = get_config_item(["ethereum", "portal_safe_address"])
     deployer_safe_address = get_config_item(["ethereum", "deployer_safe_address"])
     create_call_address = get_config_item(["ethereum", "create_call_address"])
 
-    salt = hashlib.sha256(b"yakuhito6").digest()
+    salt = hashlib.sha256(b"yakuhito6.2").digest()
 
-    portal_constructor_data = w3.eth.contract(
+    portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
         bytecode=portal_artifact['bytecode']
-    ).constructor().build_transaction()['data']
+    )
+    portal_constructor_data = portal_contract.constructor().build_transaction()['data']
     open("portal_constructor.data", "w").write(portal_constructor_data)
 
-    portal_address = predict_create2_address(create_call_address, salt, portal_constructor_data)
+    portal_logic_address = predict_create2_address(create_call_address, salt, portal_constructor_data)
+
+    portal_initialization_data = portal_contract.initalize()
+    # todo: /\/\
+    proxy_constructor_data = w3.eth.contract(
+        abi=proxy_artifact['abi'],
+        bytecode=proxy_artifact['bytecode']
+    ).constructor(
+        Web3.to_bytes(hexstr=portal_address),
+        Web3.to_bytes(hexstr=deployer_safe_address),
+        portal_initialization_data
+    ).build_transaction()['data']
+    open("proxy_constructor.data", "w").write(proxy_constructor_data)
+
+    portal_address = predict_create2_address(create_call_address, salt, proxy_constructor_data)
 
     eth_token_bridge_constructor_data = w3.eth.contract(
         abi=eth_token_bridge_artifact['abi'],
@@ -72,9 +90,17 @@ def get_eth_deployment_data(weth_address):
     print(f"\t Value: 0")
     print(f"\t Data: see portal_constructor.data")
     print(f"\t Salt: 0x{salt.hex()}")
+    print(f"\t Predicted address: {portal_logic_address}")
+
+    print("Tx 2: deploy TransparentUpgradeableProxy")
+    print(f"\t To: {create_call_address}")
+    print(f"\t Contract method selector: performCreate2")
+    print(f"\t Value: 0")
+    print(f"\t Data: see proxy_constructor.data")
+    print(f"\t Salt: 0x{salt.hex()}")
     print(f"\t Predicted address: {portal_address}")
 
-    print("Tx 2: deploy EthTokenBridge")
+    print("Tx 3: deploy EthTokenBridge")
     print(f"\t To: {create_call_address}")
     print(f"\t Contract method selector: performCreate2")
     print(f"\t Value: 0")
@@ -82,7 +108,6 @@ def get_eth_deployment_data(weth_address):
     print(f"\t Salt: 0x{salt.hex()}")
     print(f"\t Predicted address: {predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)}")
 
-    print("Tx 3: deploy TransparentUpgradeableProxy")
 
 @deployment.command()
 def launch_xch_multisig():
