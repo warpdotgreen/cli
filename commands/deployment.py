@@ -12,6 +12,7 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
+from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle
 from commands.config import get_config_item
 from blspy import G1Element
 import hashlib
@@ -250,3 +251,30 @@ def launch_xch_portal(offer):
 
     click.echo("SpendBundle created and saved to sb.json")
     click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+
+@deployment.command()
+@click.option('--for-chain', default="ethereum", help='Source/destination blockchain config entry')
+def get_xch_info(for_chain: str):
+    multisig_launcher_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
+    portal_launcher_id = bytes.fromhex(get_config_item(["chia", "portal_launcher_id"]))
+    portal_threshold = get_config_item(["chia", "portal_threshold"])
+
+    p2_multisig = pay_to_singleton_puzzle(multisig_launcher_id)
+
+    minter_puzzle = get_cat_minter_puzzle(
+        portal_launcher_id,
+        p2_multisig,
+        get_config_item([for_chain, "id"]).encode(),
+        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+    )
+
+    burner_puzzle = get_cat_burner_puzzle(
+        p2_multisig,
+        get_config_item([for_chain, "id"]).encode(),
+        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+    )
+
+    click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
+    click.echo(f"Portal signature threshold: {portal_threshold}")
+    click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
+    click.echo(f"Burner puzzle hash: {burner_puzzle.get_tree_hash().hex()}")
