@@ -130,11 +130,16 @@ def get_eth_deployment_data(weth_address, wei_per_message_fee):
     print(f"\t Predicted address: {predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)}")
 
 
+# chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
 @deployment.command()
-@click.option('--offer', required=True, help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
+@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
 def launch_xch_multisig(offer):
+    if offer == "help":
+        click.echo("Oops, you forgot --offer!")
+        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
+        return
     offer = Offer.from_bech32(offer)
-    offer_sb: SpendBundle = Offer.to_spend_bundle()
+    offer_sb: SpendBundle = offer.to_spend_bundle()
     coin_spends = []
     for cs in offer_sb.coin_spends:
         if cs.coin.parent_coin_info != b'\x00' * 32:
