@@ -6,6 +6,8 @@ from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import calculate_s
 from blspy import AugSchemeMPL, PrivateKey
 from chia.util.bech32m import encode_puzzle_hash
 from commands.config import get_config_item
+from eth_account import Account
+from web3.auto import w3
 
 @click.group()
 def keys():
@@ -40,3 +42,9 @@ def generate_xch_key():
 @keys.command()
 def generate_eth_key():
     click.echo("Generating ETH key...")
+
+    account = Account.create()
+
+    click.echo(f"Private Key: {account.key.hex()}")
+    click.echo(f"Public Key: {account._key_obj.public_key}")
+    click.echo(f"Address: {w3.to_checksum_address(account.address)}")
