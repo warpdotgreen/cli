@@ -1,6 +1,7 @@
 import click
 from commands.cli_wrappers import *
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
+from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
@@ -11,6 +12,7 @@ from commands.keys import mnemonic_to_validator_pk
 from chia.util.bech32m import decode_puzzle_hash
 from typing import List
 from blspy import PrivateKey, AugSchemeMPL, G1Element
+from chia.types.spend_bundle import SpendBundle
 from drivers.multisig import *
 import json
 
@@ -47,8 +49,8 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
     return parent_record, coin_record.coin.name()
 
 
-def get_message_to_sign(unsigned_tx) -> bytes:
-    coin_id: bytes32 = bytes.fromhex(unsigned_tx["multisig_id"])
+def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
+    coin_id: bytes32 = bytes.fromhex(unsigned_tx["multisig_latest_id"])
     conditions = []
 
     total_amount = sum([v for v in unsigned_tx["coins"].values()])
@@ -70,6 +72,12 @@ def get_message_to_sign(unsigned_tx) -> bytes:
             mojo_amount
         ]))
 
+    for coin_id in unsigned_tx["coins"].keys():
+        conditions.append(Program.to([
+            ConditionOpcode.CREATE_PUZZLE_ANNOUNCEMENT,
+            bytes.fromhex(coin_id)
+        ]))
+
     conditions.append([ConditionOpcode.RESERVE_FEE, fee])
 
     inner_puzzle: Program = get_multisig_inner_puzzle(
@@ -81,7 +89,7 @@ def get_message_to_sign(unsigned_tx) -> bytes:
         inner_puzzle.get_tree_hash(),
         conditions
     )
-    return delegated_puzzle.get_tree_hash()
+    return delegated_puzzle
 
 @multisig.command()
 @click.option('--payout-structure-file', required=True, help='JSON file containing {address: share}')
@@ -151,7 +159,7 @@ async def start_new_tx(
         "payout_structure": payout_structure,
         "coins": coins_to_claim,
         "fee": fee,
-        "multisig_id": latest_id.hex()
+        "multisig_latest_id": latest_id.hex()
     }))
     click.echo("Done! Unsigned transaction saved to unsigned_tx.json")
 
@@ -182,11 +190,93 @@ def sign_tx(
             fee += 1
         click.echo(f"{address}: {mojo_amount // 10 ** 12} XCH ({mojo_amount} mojos - {share * 10000 // total_share / 100}%)")
     
-    message_to_sign = get_message_to_sign(unsigned_tx)
+    message_to_sign: bytes32 = get_delegated_puzzle_for_unsigned_tx(unsigned_tx).get_tree_hash()
 
     click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
     mnemo = input("To sign, input your 12-word cold mnemonic: ")
-    pk: PrivateKey = mnemonic_to_validator_pk(mnemo.strip())
-    sig = AugSchemeMPL.sign(pk, message_to_sign)
+    sk: PrivateKey = mnemonic_to_validator_pk(mnemo.strip())
+    pk: G1Element = sk.get_g1()
+    sig = AugSchemeMPL.sign(sk, message_to_sign)
 
-    click.echo(f"Signature: {bytes(sig).hex()}")
+    pks = get_config_item(["chia", "multisig_pks"])
+    pk_index = pks.index(bytes(pk).hex())
+    click.echo(f"Signature: {pk_index}-{bytes(sig).hex()}")
+
+@multisig.command()
+@click.option('--unsigned-tx-file', required=True, help='JSON file containing unsigned tx details')
+@click.option('--sigs', required=True, help='Signatures, separated by commas')
+@async_func
+@with_node
+async def start_new_tx(
+    node: FullNodeRpcClient,
+    payout_structure_file: str,
+    sigs: str
+):
+  click.echo("Building spend bundle...")
+  payout_structure = json.loads(open(payout_structure_file, "r").read())
+
+  coin_id = payout_structure["multisig_latest_id"]
+  multisig_record: CoinRecord = await node.get_coin_record_by_name(coin_id)
+  assert multisig_record.spent_block_index is None
+
+  multisig_parent_spend = await node.get_puzzle_and_solution(
+      multisig_record.coin.parent_coin_info,
+      multisig_record.confirmed_block_index
+  )
+
+  delegated_puzzle = get_delegated_puzzle_for_unsigned_tx(payout_structure)
+  multisig_launcher_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
+
+  threshold = get_config_item("chia", "multisig_threshold")
+  pks = [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item("chia", "multisig_pks")]
+
+  multisig_inner_puzzle = get_multisig_inner_puzzle(
+      pks,
+      threshold
+  )
+  multisig_inner_puzzle_hash = multisig_inner_puzzle.get_tree_hash()
+
+  multisig_puzzle = puzzle_for_singleton(
+      multisig_launcher_id,
+      multisig_inner_puzzle
+  )
+  multisig_coin = Coin(multisig_parent_spend.coin.name(), multisig_puzzle.get_tree_hash(), 1)
+
+  selectors = [0 for _ in range(pks)]
+  sigs = []
+  for sig in sigs.split(","):
+      pk_index, sig = sig.split("-")
+      pk_index = int(pk_index)
+      sig = bytes.fromhex(sig)
+      click.print(f"Verifying signature {pk_index}-{sig}...")
+      if not AugSchemeMPL.verify(pks[pk_index], multisig_inner_puzzle_hash, sig):
+          click.echo("Invalid signature :(")
+          return
+
+      selectors[pk_index] = 1
+      sigs.append(sig)
+
+  multisig_solution = get_multisig_solution(
+      multisig_parent_spend,
+      get_config_item("chia", "multisig_threshold"),
+      selectors,
+      delegated_puzzle
+  )
+
+  multisig_coin_spend = CoinSpend(multisig_coin, multisig_puzzle, multisig_solution)
+  coin_spends = [ multisig_coin_spend ]
+
+  for coin_id in payout_structure["coins"].keys():
+      coin_record: CoinRecord = await node.get_coin_record_by_name(coin_id)
+      _, _, spend = claim_p2_singleton(
+          coin_record.coin, multisig_inner_puzzle_hash, multisig_launcher_id
+      )
+      coin_spends.append(spend)
+
+  spend_bundle = SpendBundle(coin_spends, sigs)
+  open("sb.json", "w").write(json.dumps(spend_bundle.to_json_dict(), indent=4))
+  click.echo("Spend bundle constructed and saved to sb.json.")
+  click.echo("To send, use: chia rpc full_node push_tx -f sb.json")
+
+  node.close()
+  await node.await_closed()

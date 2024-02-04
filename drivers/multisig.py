@@ -37,15 +37,14 @@ def get_multisig_delegated_puzzle_for_conditions(
 def get_multisig_inner_solution(
     treshold: int,
     selectors: List[bool],
-    coin_id: bytes32,
-    inner_puzz_hash: bytes32,
-    conditions: List[Program],
+    delegated_puzzle: Program,
+    delegated_solution: Program = Program.to(0)
 ) -> Program:
   return solution_for_delegated_puzzle(
     treshold,
     selectors,
-    get_multisig_delegated_puzzle_for_conditions(coin_id, inner_puzz_hash, conditions),
-    Program.to(0)
+    delegated_puzzle,
+    delegated_solution
   )
 
 def get_multisig_solution(
