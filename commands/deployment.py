@@ -3,10 +3,17 @@ import click
 import json
 from web3 import Web3
 from commands.config import get_config_item
-from chia.wallet.trading.offer import OFFER_MOD
-from chia.wallet.trading.offer import OFFER_MOD_HASH
-from chia.wallet.trading.offer import Offer
+from chia.wallet.trading.offer import Offer, OFFER_MOD
+from chia.types.blockchain_format.program import Program
+from chia.types.spend_bundle import SpendBundle
+from chia.wallet.puzzles.singleton_top_layer_v1_1 import SINGLETON_LAUNCHER_HASH, SINGLETON_LAUNCHER, launch_conditions_and_coinsol
+from chia.types.blockchain_format.coin import Coin
+from chia.types.coin_spend import CoinSpend
+from drivers.multisig import get_multisig_inner_puzzle
+from commands.config import get_config_item
+from blspy import G1Element
 import hashlib
+import json
 
 @click.group()
 def deployment():
@@ -125,4 +132,45 @@ def get_eth_deployment_data(weth_address, wei_per_message_fee):
 @deployment.command()
 @click.option('--offer', required=True, help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
 def launch_xch_multisig(offer):
-    pass
+    offer = Offer.from_bech32(offer)
+    offer_sb: SpendBundle = Offer.to_spend_bundle()
+    coin_spends = []
+    for cs in offer_sb.coin_spends:
+        if cs.coin.parent_coin_info != b'\x00' * 32:
+            coin_spends.append(cs)
+
+    # create launcher coin
+    nonce = b"multisig" * 4
+    launcher_parent = offer.get_offered_coins()[None][0]
+    launcher_parent_puzzle = OFFER_MOD
+    launcher_parent_solution = Program.to([
+        [nonce, [SINGLETON_LAUNCHER_HASH, 1]]
+    ])
+    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
+    coin_spends.append(launcher_parent_spend)
+            
+    # spend launcher coin
+    launcher_coin = Coin(
+        launcher_parent.name(),
+        SINGLETON_LAUNCHER_HASH,
+        1
+    )
+
+    threshold = get_config_item(["chia", "multisig_treshold"])
+    pks = get_config_item(["chia", "multisig_keys"])
+    pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in pks]
+    multisig_inner_puzzle = get_multisig_inner_puzzle(pks, threshold)
+
+    _, launcher_spend = launch_conditions_and_coinsol(
+        launcher_parent,
+        multisig_inner_puzzle,
+        [("yep", "multisig")],
+        1
+    )
+    coin_spends.append(launcher_spend)
+            
+    sb: SpendBundle = SpendBundle(coin_spends, offer_sb.aggregated_signature)
+    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+
+    click.echo("SpendBundle created and saved to sb.json")
+    click.echo("To spend: chia rpc full_node push_tx -j sb.json")

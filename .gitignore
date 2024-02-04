@@ -158,3 +158,4 @@ config.json
 __pycache__
 commands/__pycache__
 *.data
+sb.json
