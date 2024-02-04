@@ -1,7 +1,7 @@
 import click
 from commands.cli_wrappers import *
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
-from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton
+from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton, pay_to_singleton_puzzle
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
@@ -52,8 +52,18 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
 
 
 def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
+    launcher_id: bytes32 = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
     coin_id: bytes32 = bytes.fromhex(unsigned_tx["multisig_latest_id"])
     conditions = []
+
+    p2_ph = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
+    p2_coin_ids: List[bytes32] = [
+        Coin(
+            bytes.fromhex(coin_parent),
+            p2_ph,
+            coin_amount
+        ).name() for coin_parent, coin_amount in unsigned_tx["coins"].items()
+    ]
 
     total_amount = sum([v for v in unsigned_tx["coins"].values()])
     fee = unsigned_tx["fee"]
@@ -74,10 +84,10 @@ def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
             mojo_amount
         ]))
 
-    for p2_coin_id in unsigned_tx["coins"].keys():
+    for p2_coin_id in p2_coin_ids:
         conditions.append(Program.to([
             ConditionOpcode.CREATE_PUZZLE_ANNOUNCEMENT,
-            bytes.fromhex(p2_coin_id)
+            p2_coin_id
         ]))
 
     conditions.append([ConditionOpcode.RESERVE_FEE, fee])
@@ -157,7 +167,7 @@ async def start_new_tx(
 
     coins_to_claim = {}
     for cr in to_claim:
-        coins_to_claim[cr.coin.name().hex()] = cr.coin.amount
+        coins_to_claim[cr.coin.parent_coin_info.hex()] = cr.coin.amount
     open("unsigned_tx.json", "w").write(json.dumps({
         "payout_structure": payout_structure,
         "coins": coins_to_claim,
@@ -271,9 +281,11 @@ async def broadcast_spend(
   multisig_coin_spend = CoinSpend(multisig_coin, multisig_puzzle, multisig_solution)
   coin_spends = [ multisig_coin_spend ]
 
-  for coin_id in unsigned_tx["coins"].keys():
+  p2_puzzle_hash = pay_to_singleton_puzzle(multisig_launcher_id).get_tree_hash()
+  for coin_parent, coin_amount in unsigned_tx["coins"].items():
+      coin = Coin(bytes.fromhex(coin_parent), p2_puzzle_hash, coin_amount)
       coin_record: CoinRecord = await node.get_coin_record_by_name(
-        bytes.fromhex(coin_id)
+        coin.name()
       )
       _, _, spend = claim_p2_singleton(
           coin_record.coin, multisig_inner_puzzle_hash, multisig_launcher_id
@@ -283,7 +295,7 @@ async def broadcast_spend(
   spend_bundle = SpendBundle(coin_spends, AugSchemeMPL.aggregate(parsed_sigs))
   open("sb.json", "w").write(json.dumps(spend_bundle.to_json_dict(), indent=4))
   open("push_request.json", "w").write(json.dumps({"spend_bundle": spend_bundle.to_json_dict()}, indent=4))
-  click.echo("Spend bundle constructed and saved to sb.json.")
+  click.echo("Spend bundle constructed and saved to sb.json")
   click.echo("To send, use: chia rpc full_node push_tx -j push_request.json")
 
   node.close()

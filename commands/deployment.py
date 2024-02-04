@@ -36,9 +36,9 @@ def predict_create2_address(sender, salt, init_code):
 
 @deployment.command()
 @click.option('--weth-address', required=True, help='WETH contract address to be used by the bridge')
-@click.option('--wei-per-message-fee', default=10 ** (18 - 3 - 2), help='Fee to send a message from ETH (default: 1 cent @ $1000 ETH)')
-def get_eth_deployment_data(weth_address, wei_per_message_fee):
+def get_eth_deployment_data(weth_address):
     click.echo("Constructing txes based on config...")
+    wei_per_message_fee = get_config_item(["ethereum", "wei_per_message_fee"])
 
     w3 = Web3(Web3.HTTPProvider(get_config_item(["ethereum", "rpc_url"])))
 
