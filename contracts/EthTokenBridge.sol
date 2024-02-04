@@ -25,8 +25,9 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     constructor(
         address _portal,
+        address _feeManager,
         address _iweth
-    ) Ownable(msg.sender) {
+    ) Ownable(_feeManager) {
         portal = _portal;
         iweth = _iweth;
         chiaSideBurnPuzzle = bytes32(0);

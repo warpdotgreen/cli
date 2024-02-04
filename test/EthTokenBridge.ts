@@ -38,7 +38,7 @@ describe("EthTokenBridge", function () {
         portalAddress = portal.target as string;
 
         const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
-        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, mockWETH);
+        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, owner.address, mockWETH);
 
         await ethTokenBridge.initializePuzzleHashes(chiaSideBurnPuzzle, chiaSideMintPuzzle)
     });
