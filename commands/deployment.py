@@ -167,7 +167,7 @@ def launch_xch_multisig(offer):
     p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
     click.echo(f"Multisig p2_singleton ph: {p2_puzzle_hash.hex()}")
 
-    threshold = get_config_item(["chia", "multisig_treshold"])
+    threshold = get_config_item(["chia", "multisig_threshold"])
     pks = get_config_item(["chia", "multisig_keys"])
     pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in pks]
     multisig_inner_puzzle = get_multisig_inner_puzzle(pks, threshold)

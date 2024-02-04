@@ -51,9 +51,8 @@ def get_multisig_solution(
     last_spend: CoinSpend,
     threshold: int,
     selectors: List[bool],
-    coin_id: bytes32,
-    inner_puzz_hash: bytes32,
-    conditions: List[Program],
+    delegated_puzzle: Program,
+    delegated_solution: Program = Program.to(0)
 ) -> Program:
   return solution_for_singleton(
      lineage_proof_for_coinsol(last_spend),
@@ -61,9 +60,8 @@ def get_multisig_solution(
      get_multisig_inner_solution(
       threshold,
       selectors,
-      coin_id,
-      inner_puzz_hash,
-      conditions
+      delegated_puzzle,
+      delegated_solution
     )
   )
 

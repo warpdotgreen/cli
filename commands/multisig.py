@@ -5,13 +5,13 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
-from chia.types.coin_spend import CoinSpend, compute_additions_with_cost
+from chia.types.coin_spend import CoinSpend, compute_additions
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
 from commands.keys import mnemonic_to_validator_pk
 from chia.util.bech32m import decode_puzzle_hash
 from typing import List
-from blspy import PrivateKey, AugSchemeMPL, G1Element
+from blspy import PrivateKey, AugSchemeMPL, G1Element, G2Element
 from chia.types.spend_bundle import SpendBundle
 from chia.types.blockchain_format.program import INFINITE_COST
 from drivers.multisig import *
@@ -32,13 +32,14 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
 
     parent_record = None
     coin_record: CoinRecord = await node.get_coin_record_by_name(last_coin_id)
-    while coin_record.spent_block_index is not None:
-        cs = await node.get_puzzle_and_solution(
+    while coin_record.spent_block_index != 0:
+        cs: CoinSpend = await node.get_puzzle_and_solution(
             coin_record.coin.name(), coin_record.spent_block_index
         )
-        additions, _ = compute_additions_with_cost(cs, max_cost=INFINITE_COST)
+        
+        new_coins = compute_additions(cs)
         new_coin: Coin
-        for c in additions:
+        for c in new_coins:
             if c.amount % 2 == 1:
                 new_coin = c
                 break
@@ -73,17 +74,17 @@ def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
             mojo_amount
         ]))
 
-    for coin_id in unsigned_tx["coins"].keys():
+    for p2_coin_id in unsigned_tx["coins"].keys():
         conditions.append(Program.to([
             ConditionOpcode.CREATE_PUZZLE_ANNOUNCEMENT,
-            bytes.fromhex(coin_id)
+            bytes.fromhex(p2_coin_id)
         ]))
 
     conditions.append([ConditionOpcode.RESERVE_FEE, fee])
 
     inner_puzzle: Program = get_multisig_inner_puzzle(
-        [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item("chia", "multisig_pks")],
-        get_config_item("chia", "multisig_threshold")
+        [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["chia", "multisig_keys"])],
+        get_config_item(["chia", "multisig_threshold"])
     )
     delegated_puzzle: Program = get_multisig_delegated_puzzle_for_conditions(
         coin_id,
@@ -131,10 +132,10 @@ async def start_new_tx(
     value = int(float(value) * 10 ** 12)
 
     fee = input("In XCH, what fee should the claim tx have? ")
-    fee = int(float(value) * 10 ** 12)
+    fee = int(float(fee) * 10 ** 12)
 
     total_value = value + fee
-    click.echo(f"Total value: {total_value / 10 ** 12} XCH ({total_value} mojos)")
+    click.echo(f"Total value: {total_value / (10 ** 12)} XCH ({total_value} mojos)")
 
     max_coins = 200
     to_claim = []
@@ -162,7 +163,7 @@ async def start_new_tx(
         "coins": coins_to_claim,
         "fee": fee,
         "multisig_latest_id": latest_id.hex()
-    }))
+    }, indent=4))
     click.echo("Done! Unsigned transaction saved to unsigned_tx.json")
 
     node.close()
@@ -190,9 +191,10 @@ def sign_tx(
         if mojo_amount % 2 == 1:
             mojo_amount -= 1
             fee += 1
-        click.echo(f"{address}: {mojo_amount // 10 ** 12} XCH ({mojo_amount} mojos - {share * 10000 // total_share / 100}%)")
+        click.echo(f"{address}: {mojo_amount / 10 ** 12} XCH ({mojo_amount} mojos - {share * 10000 // total_share / 100}%)")
     
     message_to_sign: bytes32 = get_delegated_puzzle_for_unsigned_tx(unsigned_tx).get_tree_hash()
+    click.echo(f"Message to sign: {message_to_sign.hex()}")
 
     click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
     mnemo = input("To sign, input your 12-word cold mnemonic: ")
@@ -200,7 +202,7 @@ def sign_tx(
     pk: G1Element = sk.get_g1()
     sig = AugSchemeMPL.sign(sk, message_to_sign)
 
-    pks = get_config_item(["chia", "multisig_pks"])
+    pks = get_config_item(["chia", "multisig_keys"])
     pk_index = pks.index(bytes(pk).hex())
     click.echo(f"Signature: {pk_index}-{bytes(sig).hex()}")
 
@@ -211,26 +213,27 @@ def sign_tx(
 @with_node
 async def broadcast_spend(
     node: FullNodeRpcClient,
-    payout_structure_file: str,
+    unsigned_tx_file: str,
     sigs: str
 ):
   click.echo("Building spend bundle...")
-  payout_structure = json.loads(open(payout_structure_file, "r").read())
+  unsigned_tx = json.loads(open(unsigned_tx_file, "r").read())
 
-  coin_id = payout_structure["multisig_latest_id"]
+  coin_id = bytes.fromhex(unsigned_tx["multisig_latest_id"])
   multisig_record: CoinRecord = await node.get_coin_record_by_name(coin_id)
-  assert multisig_record.spent_block_index is None
+  assert multisig_record.spent_block_index == 0
 
   multisig_parent_spend = await node.get_puzzle_and_solution(
       multisig_record.coin.parent_coin_info,
       multisig_record.confirmed_block_index
   )
 
-  delegated_puzzle = get_delegated_puzzle_for_unsigned_tx(payout_structure)
+  delegated_puzzle = get_delegated_puzzle_for_unsigned_tx(unsigned_tx)
+  delegated_puzzle_hash: bytes32 = delegated_puzzle.get_tree_hash()
   multisig_launcher_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
 
-  threshold = get_config_item("chia", "multisig_threshold")
-  pks = [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item("chia", "multisig_pks")]
+  threshold = get_config_item(["chia", "multisig_threshold"])
+  pks = [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["chia", "multisig_keys"])]
 
   multisig_inner_puzzle = get_multisig_inner_puzzle(
       pks,
@@ -244,23 +247,23 @@ async def broadcast_spend(
   )
   multisig_coin = Coin(multisig_parent_spend.coin.name(), multisig_puzzle.get_tree_hash(), 1)
 
-  selectors = [0 for _ in range(pks)]
-  sigs = []
+  selectors = [0 for _ in pks]
+  parsed_sigs: List[G2Element] = []
   for sig in sigs.split(","):
       pk_index, sig = sig.split("-")
       pk_index = int(pk_index)
-      sig = bytes.fromhex(sig)
-      click.print(f"Verifying signature {pk_index}-{sig}...")
-      if not AugSchemeMPL.verify(pks[pk_index], multisig_inner_puzzle_hash, sig):
+      sig = G2Element.from_bytes(bytes.fromhex(sig))
+      click.echo(f"Verifying signature {pk_index}-{sig}...")
+      if not AugSchemeMPL.verify(pks[pk_index], delegated_puzzle_hash, sig):
           click.echo("Invalid signature :(")
           return
 
       selectors[pk_index] = 1
-      sigs.append(sig)
+      parsed_sigs.append(sig)
 
   multisig_solution = get_multisig_solution(
       multisig_parent_spend,
-      get_config_item("chia", "multisig_threshold"),
+      threshold,
       selectors,
       delegated_puzzle
   )
@@ -268,18 +271,20 @@ async def broadcast_spend(
   multisig_coin_spend = CoinSpend(multisig_coin, multisig_puzzle, multisig_solution)
   coin_spends = [ multisig_coin_spend ]
 
-  for coin_id in payout_structure["coins"].keys():
-      coin_record: CoinRecord = await node.get_coin_record_by_name(coin_id)
+  for coin_id in unsigned_tx["coins"].keys():
+      coin_record: CoinRecord = await node.get_coin_record_by_name(
+        bytes.fromhex(coin_id)
+      )
       _, _, spend = claim_p2_singleton(
           coin_record.coin, multisig_inner_puzzle_hash, multisig_launcher_id
       )
       coin_spends.append(spend)
 
-  spend_bundle = SpendBundle(coin_spends, sigs)
+  spend_bundle = SpendBundle(coin_spends, AugSchemeMPL.aggregate(parsed_sigs))
   open("sb.json", "w").write(json.dumps(spend_bundle.to_json_dict(), indent=4))
   open("push_request.json", "w").write(json.dumps({"spend_bundle": spend_bundle.to_json_dict()}, indent=4))
   click.echo("Spend bundle constructed and saved to sb.json.")
-  click.echo("To send, use: chia rpc full_node push_tx -f push_request.json")
+  click.echo("To send, use: chia rpc full_node push_tx -j push_request.json")
 
   node.close()
   await node.await_closed()
