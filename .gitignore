@@ -160,3 +160,4 @@ commands/__pycache__
 *.data
 sb.json
 last_spent_multisig_coinid
+unsigned_transaction.json

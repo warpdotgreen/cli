@@ -5,6 +5,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from typing import List
+import json
 
 @click.group()
 def multisig():
@@ -13,10 +14,12 @@ def multisig():
 COIN_ID_SAVE_FILE = "last_spent_multisig_coinid"
 
 @multisig.command()
+@click.option('--payout-structure-file', required=True, help='JSON file containing {address: share}')
 @async_func
 @with_node
 async def start_new_spend(
     node: FullNodeRpcClient,
+    payout_structure_file: str
 ):
     click.echo("Finding coins...")
     launcher_id = get_config_item(["chia", "multisig_launcher_id"])
@@ -63,3 +66,20 @@ async def start_new_spend(
         
     click.echo(f"Selected {len(to_claim)} claimable coins with a total value of {sum([cr.coin.amount for cr in to_claim]) / 10 ** 12} XCH.")
     
+    payout_structure = json.loads(open(payout_structure_file, "r").read())
+    click.echo("Payout structure data loaded.")
+
+    click.echo("One last thing: finding latest spent multisig coin...")
+    latest_coin = await get_latest_spent_multisig_coin(node)
+
+    click.echo(f"Latest spent multisig coin: {latest_coin.name().hex()}")
+
+    coins_to_claim = {}
+    for cr in to_claim:
+        coins_to_claim[cr.coin.name().hex()] = cr.coin.amount
+    open("unsigned_transaction.json", "w").write(json.dumps({
+        "multisig_parent": latest_coin.name().hex(),
+        "payout_structure": payout_structure,
+        "coins": coins_to_claim,
+    }))
+    click.echo("Done! Unsigned transaction saved to unsigned_transaction.json")
