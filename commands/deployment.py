@@ -1,7 +1,11 @@
+# note from yak: this file is ungly, but it works.
 import click
 import json
 from web3 import Web3
 from commands.config import get_config_item
+from chia.wallet.trading.offer import OFFER_MOD
+from chia.wallet.trading.offer import OFFER_MOD_HASH
+from chia.wallet.trading.offer import Offer
 import hashlib
 
 @click.group()
@@ -119,5 +123,6 @@ def get_eth_deployment_data(weth_address, wei_per_message_fee):
 
 
 @deployment.command()
-def launch_xch_multisig():
+@click.option('--offer', required=True, help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
+def launch_xch_multisig(offer):
     pass
