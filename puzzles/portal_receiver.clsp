@@ -44,7 +44,7 @@
           (sha256 1 destination)
           (sha256 1 (sha256tree message)) ; message was revealed on-chain
         ) 0)
-        (if remaining_msg_infos
+        (if remaining_nonces
           (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH remaining_nonces remaining_msg_infos)
           ; else
           ()
