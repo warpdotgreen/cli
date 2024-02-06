@@ -154,3 +154,12 @@ tests/__pycache__
 tests/__pycache__/
 drivers/__pycache__
 drivers/__pycache__/
+config.json
+__pycache__
+commands/__pycache__
+*.data
+sb.json
+last_spent_multisig_coinid
+unsigned_tx.json
+push_request.json
+payout_structure.json

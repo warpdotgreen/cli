@@ -33,11 +33,14 @@ describe("EthTokenBridge", function () {
         mockWETH = await WETHFactory.deploy();
 
         const PortalFactory = await ethers.getContractFactory("Portal");
-        portal = await PortalFactory.deploy(owner.address, owner.address, messageFee);
+        portal = await PortalFactory.deploy();
+        await portal.initialize(owner.address, owner.address, messageFee);
         portalAddress = portal.target as string;
 
         const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
-        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, mockWETH, chiaSideBurnPuzzle, chiaSideMintPuzzle);
+        ethTokenBridge = await EthTokenBridgeFactory.deploy(portalAddress, owner.address, mockWETH);
+
+        await ethTokenBridge.initializePuzzleHashes(chiaSideBurnPuzzle, chiaSideMintPuzzle)
     });
 
     describe("Deployment", function () {
@@ -46,6 +49,11 @@ describe("EthTokenBridge", function () {
             expect(await ethTokenBridge.chiaSideBurnPuzzle()).to.equal(chiaSideBurnPuzzle);
             expect(await ethTokenBridge.chiaSideMintPuzzle()).to.equal(chiaSideMintPuzzle);
             expect(await ethTokenBridge.fee()).to.equal(initialFee);
+        });
+
+        it("Should not allow setting puzzles a second time", async function () {
+            await expect(ethTokenBridge.initializePuzzleHashes(chiaSideBurnPuzzle, chiaSideMintPuzzle))
+                .to.be.revertedWith("nope");
         });
     });
 
