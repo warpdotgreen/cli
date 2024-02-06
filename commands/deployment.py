@@ -25,7 +25,7 @@ from typing import Tuple
 import hashlib
 import secrets
 import json
-from cli_wrappers import async_func
+from commands.cli_wrappers import async_func
 
 @click.group()
 def deployment():
@@ -157,7 +157,6 @@ async def securely_launch_singleton(
     # unless it has exactly the intended ph
     entropy = secrets.token_bytes(16)
     mnemonic = bytes_to_mnemonic(entropy)
-    click.echo(f"Mnemonic: {mnemonic}")
     temp_private_key = mnemonic_to_validator_pk(mnemonic)
     temp_public_key = temp_private_key.get_g1()
             
@@ -197,32 +196,34 @@ async def securely_launch_singleton(
     coin_spends.append(launcher_spend)
 
     # finally, spend launcher parent
-    launcher_parent_solution = Program.to(conditions + [
-        [ConditionOpcode.CREATE_COIN, SINGLETON_LAUNCHER_HASH, 1]
-    ])
+    launcher_parent_solution = solution_for_conditions(Program.to(conditions))
     launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
     coin_spends.append(launcher_parent_spend)
 
-    def just_return_the_fing_key():
+    def just_return_the_fing_key(arg: any):
         return temp_private_key
 
-    sb: SpendBundle = await sign_coin_spends(
-        coin_spends,
+    sb_just_for_sig: SpendBundle = await sign_coin_spends(
+        [launcher_parent_spend],
         just_return_the_fing_key,
         just_return_the_fing_key,
-        DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA,
-        DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM
+        bytes.fromhex(get_config_item(["chia", "agg_sig_data"])),
+        DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM,
+        []
     )
+    sig = sb_just_for_sig.aggregated_signature
             
     sb = SpendBundle(
         coin_spends,
-        AugSchemeMPL.affgregate([offer_sb.aggregated_signature, sb])
+        AugSchemeMPL.aggregate([offer_sb.aggregated_signature, sig])
     )
     open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
     open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
 
     click.echo("SpendBundle created and saved to sb.json")
     click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+    click.echo("To follow in mempool: chia rpc full_node get_mempool_items_by_coin_name '{\"coin_name\": \"" + launcher_id.hex() + "\"}'")
+    click.echo("To confirm: chia rpc full_node get_coin_record_by_name '{\"name\": \"" + launcher_id.hex() + "\"}'")
 
     return [launcher_id, sb]
 
