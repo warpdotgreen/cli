@@ -6,18 +6,26 @@ from commands.config import get_config_item
 from chia.wallet.trading.offer import Offer, OFFER_MOD
 from chia.types.blockchain_format.program import Program
 from chia.types.spend_bundle import SpendBundle
+from chia.wallet.sign_coin_spends import sign_coin_spends
+from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import SINGLETON_LAUNCHER_HASH, SINGLETON_LAUNCHER, launch_conditions_and_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
+from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
+from commands.keys import mnemonic_to_validator_pk
 from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle
+from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk, solution_for_conditions
 from commands.config import get_config_item
-from blspy import G1Element
+from blspy import G1Element, AugSchemeMPL
+from chia.consensus.default_constants import DEFAULT_CONSTANTS
+from typing import Tuple
 import hashlib
 import secrets
 import json
+from commands.cli_wrappers import async_func
 
 @click.group()
 def deployment():
@@ -133,32 +141,43 @@ def get_eth_deployment_data(weth_address):
     print(f"\t Predicted address: {predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)}")
 
 
-# chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
-@deployment.command()
-@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
-def launch_xch_multisig(offer):
-    if offer == "help":
-        click.echo("Oops, you forgot --offer!")
-        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
-        return
-    offer = Offer.from_bech32(offer)
+async def securely_launch_singleton(
+    offer: Offer,
+    get_target_singleton_inner_puzze: any,
+    comments: List[Tuple[str, str]] = []
+) -> Tuple[bytes32, SpendBundle]: # launcher_id, spend_bundle
     offer_sb: SpendBundle = offer.to_spend_bundle()
     coin_spends = []
     for cs in offer_sb.coin_spends:
         if cs.coin.parent_coin_info != b'\x00' * 32:
             coin_spends.append(cs)
 
-    # create launcher coin
-    nonce = b"multisig" * 4
-    launcher_parent = offer.get_offered_coins()[None][0]
-    launcher_parent_puzzle = OFFER_MOD
-    launcher_parent_solution = Program.to([
-        [nonce, [SINGLETON_LAUNCHER_HASH, 1]]
-    ])
-    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
-    coin_spends.append(launcher_parent_spend)
+    # create launcher parent parent coin
+    # this coin makes it impossible for the singleton to have the predicted launcher id
+    # unless it has exactly the intended ph
+    entropy = secrets.token_bytes(16)
+    mnemonic = bytes_to_mnemonic(entropy)
+    temp_private_key = mnemonic_to_validator_pk(mnemonic)
+    temp_public_key = temp_private_key.get_g1()
             
+    launcher_parent_puzzle = puzzle_for_pk(Program.to(temp_public_key))
+    launcher_parent_puzzle_hash = launcher_parent_puzzle.get_tree_hash()
+
+    nonce = secrets.token_bytes(32)
+    launcher_parent_parent = offer.get_offered_coins()[None][0]
+    launcher_parent_parent_puzzle = OFFER_MOD
+    launcher_parent_parent_solution = Program.to([
+        [nonce, [launcher_parent_puzzle_hash, 1]]
+    ])
+    launcher_parent_parent_spend = CoinSpend(launcher_parent_parent, launcher_parent_parent_puzzle, launcher_parent_parent_solution)
+    coin_spends.append(launcher_parent_parent_spend)
+
     # spend launcher coin
+    launcher_parent = Coin(
+        launcher_parent_parent.name(),
+        launcher_parent_puzzle_hash,
+        1
+    )
     launcher_coin = Coin(
         launcher_parent.name(),
         SINGLETON_LAUNCHER_HASH,
@@ -166,91 +185,106 @@ def launch_xch_multisig(offer):
     )
 
     launcher_id = launcher_coin.name()
-    click.echo(f"Multisig launcher coin id: {launcher_id.hex()}")
-    p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
-    click.echo(f"Multisig p2_singleton ph: {p2_puzzle_hash.hex()}")
+    click.echo(f"Launcher coin id: {launcher_id.hex()}")
+
+    conditions, launcher_spend = launch_conditions_and_coinsol(
+        launcher_parent,
+        get_target_singleton_inner_puzze(launcher_id),
+        comments,
+        1
+    )
+    coin_spends.append(launcher_spend)
+
+    # finally, spend launcher parent
+    launcher_parent_solution = solution_for_conditions(Program.to(conditions))
+    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
+    coin_spends.append(launcher_parent_spend)
+
+    def just_return_the_fing_key(arg: any):
+        return temp_private_key
+
+    sb_just_for_sig: SpendBundle = await sign_coin_spends(
+        [launcher_parent_spend],
+        just_return_the_fing_key,
+        just_return_the_fing_key,
+        bytes.fromhex(get_config_item(["chia", "agg_sig_data"])),
+        DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM,
+        []
+    )
+    sig = sb_just_for_sig.aggregated_signature
+            
+    sb = SpendBundle(
+        coin_spends,
+        AugSchemeMPL.aggregate([offer_sb.aggregated_signature, sig])
+    )
+    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
+
+    click.echo("SpendBundle created and saved to sb.json")
+    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+    click.echo("To follow in mempool: chia rpc full_node get_mempool_items_by_coin_name '{\"coin_name\": \"" + launcher_id.hex() + "\"}'")
+    click.echo("To confirm: chia rpc full_node get_coin_record_by_name '{\"name\": \"" + launcher_id.hex() + "\"}'")
+
+    return [launcher_id, sb]
+
+
+# chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
+@deployment.command()
+@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
+@async_func
+async def launch_xch_multisig(offer):
+    if offer == "help":
+        click.echo("Oops, you forgot --offer!")
+        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
+        return
+    offer = Offer.from_bech32(offer)
 
     threshold = get_config_item(["chia", "multisig_threshold"])
     pks = get_config_item(["chia", "multisig_keys"])
     pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in pks]
     multisig_inner_puzzle = get_multisig_inner_puzzle(pks, threshold)
 
-    _, launcher_spend = launch_conditions_and_coinsol(
-        launcher_parent,
-        multisig_inner_puzzle,
-        [("yep", "multisig")],
-        1
+    def get_multisig_inner_puzzle_pls(launcher_id: bytes32):
+        return multisig_inner_puzzle
+    
+    launcher_id, _ = await securely_launch_singleton(
+        offer,
+        get_multisig_inner_puzzle_pls,
+        [("yep", "multisig")]
     )
-    coin_spends.append(launcher_spend)
-            
-    sb: SpendBundle = SpendBundle(coin_spends, offer_sb.aggregated_signature)
-    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
-    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
-
-    click.echo("SpendBundle created and saved to sb.json")
-    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+    p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
+    click.echo(f"One last thing - p2_multisig puzzle (bridging ph) is {p2_puzzle_hash.hex()}")
 
 
 # chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
 @deployment.command()
 @click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
-def launch_xch_portal(offer):
+@async_func
+async def launch_xch_portal(offer):
     if offer == "help":
         click.echo("Oops, you forgot --offer!")
         click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
         return
     offer = Offer.from_bech32(offer)
-    offer_sb: SpendBundle = offer.to_spend_bundle()
-    coin_spends = []
-    for cs in offer_sb.coin_spends:
-        if cs.coin.parent_coin_info != b'\x00' * 32:
-            coin_spends.append(cs)
-
-    # create launcher coin
-    nonce = secrets.token_bytes(32)
-    launcher_parent = offer.get_offered_coins()[None][0]
-    launcher_parent_puzzle = OFFER_MOD
-    launcher_parent_solution = Program.to([
-        [nonce, [SINGLETON_LAUNCHER_HASH, 1]]
-    ])
-    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
-    coin_spends.append(launcher_parent_spend)
-            
-    # spend launcher coin
-    launcher_coin = Coin(
-        launcher_parent.name(),
-        SINGLETON_LAUNCHER_HASH,
-        1
-    )
-
-    launcher_id = launcher_coin.name()
-    click.echo(f"Portal launcher coin id: {launcher_id.hex()}")
     
     portal_threshold = get_config_item(["chia", "portal_threshold"])
     portal_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["chia", "portal_keys"])]
     multisig_threshold = get_config_item(["chia", "multisig_threshold"])
     multisig_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["chia", "multisig_keys"])]
-    portal_inner_puzzle = get_portal_receiver_inner_puzzle(
-        launcher_id,
-        portal_threshold,
-        portal_pks,
-        get_multisig_inner_puzzle(multisig_pks, multisig_threshold)
-    )
 
-    _, launcher_spend = launch_conditions_and_coinsol(
-        launcher_parent,
-        portal_inner_puzzle,
-        [("warp", "green")],
-        1
-    )
-    coin_spends.append(launcher_spend)
-            
-    sb: SpendBundle = SpendBundle(coin_spends, offer_sb.aggregated_signature)
-    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
-    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
+    def get_portal_receiver_inner_puzzle_pls(launcher_id: bytes32):
+        return get_portal_receiver_inner_puzzle(
+            launcher_id,
+            portal_threshold,
+            portal_pks,
+            get_multisig_inner_puzzle(multisig_pks, multisig_threshold)
+        )
 
-    click.echo("SpendBundle created and saved to sb.json")
-    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+    await securely_launch_singleton(
+        offer,
+        get_portal_receiver_inner_puzzle_pls,
+        [("the", "portal")]
+    )
 
 @deployment.command()
 @click.option('--for-chain', default="ethereum", help='Source/destination blockchain config entry')
