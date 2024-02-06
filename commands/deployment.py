@@ -6,15 +6,20 @@ from commands.config import get_config_item
 from chia.wallet.trading.offer import Offer, OFFER_MOD
 from chia.types.blockchain_format.program import Program
 from chia.types.spend_bundle import SpendBundle
+from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import SINGLETON_LAUNCHER_HASH, SINGLETON_LAUNCHER, launch_conditions_and_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
+from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
+from commands.keys import mnemonic_to_validator_pk
 from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle
+from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk, solution_for_conditions
 from commands.config import get_config_item
-from blspy import G1Element
+from blspy import G1Element, AugSchemeMPL
+from typing import Tuple
 import hashlib
 import secrets
 import json
@@ -278,3 +283,77 @@ def get_xch_info(for_chain: str):
     click.echo(f"Portal signature threshold: {portal_threshold}")
     click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
     click.echo(f"Burner puzzle hash: {burner_puzzle.get_tree_hash().hex()}")
+
+def securely_launch_singleton(
+    offer: Offer,
+    target_singleton_inner_puzze: Program,
+    comments: List[Tuple[str, str]] = []
+) -> Tuple[bytes32, SpendBundle]: # launcher_id, spend_bundle
+    offer_sb: SpendBundle = offer.to_spend_bundle()
+    coin_spends = []
+    for cs in offer_sb.coin_spends:
+        if cs.coin.parent_coin_info != b'\x00' * 32:
+            coin_spends.append(cs)
+
+    # create launcher parent parent coin
+    # this coin makes it impossible for the singleton to have the predicted launcher id
+    # unless it has exactly the intended ph
+    entropy = secrets.token_bytes(16)
+    mnemonic = bytes_to_mnemonic(entropy)
+    click.echo(f"Mnemonic: {mnemonic}")
+    temp_private_key = mnemonic_to_validator_pk(mnemonic)
+    temp_public_key = temp_private_key.get_g1()
+            
+    launcher_parent_puzzle = puzzle_for_pk(Program.to(temp_public_key))
+    launcher_parent_puzzle_hash = launcher_parent_puzzle.get_tree_hash()
+
+    nonce = secrets.token_bytes(32)
+    launcher_parent_parent = offer.get_offered_coins()[None][0]
+    launcher_parent_parent_puzzle = OFFER_MOD
+    launcher_parent_parent_solution = Program.to([
+        [nonce, [launcher_parent_puzzle_hash, 1]]
+    ])
+    launcher_parent_parent_spend = CoinSpend(launcher_parent_parent, launcher_parent_parent_puzzle, launcher_parent_parent_solution)
+    coin_spends.append(launcher_parent_parent_spend)
+
+    # spend launcher coin
+    launcher_parent = Coin(
+        launcher_parent_parent.name(),
+        launcher_parent_puzzle_hash,
+        1
+    )
+    launcher_coin = Coin(
+        launcher_parent.name(),
+        SINGLETON_LAUNCHER_HASH,
+        1
+    )
+
+    launcher_id = launcher_coin.name()
+    click.echo(f"Launcher coin id: {launcher_id.hex()}")
+
+    conditions, launcher_spend = launch_conditions_and_coinsol(
+        launcher_parent,
+        target_singleton_inner_puzze,
+        comments,
+        1
+    )
+    coin_spends.append(launcher_spend)
+
+    # finally, spend launcher parent
+    launcher_parent_solution = Program.to(conditions + [
+        [ConditionOpcode.CREATE_COIN, SINGLETON_LAUNCHER_HASH, 1]
+    ])
+    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
+    coin_spends.append(launcher_parent_spend)
+
+    sig = 
+            
+    sb: SpendBundle = SpendBundle(
+        coin_spends,
+        AugSchemeMPL.affgregate([offer_sb.aggregated_signature, sig])
+    )
+    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
+
+    click.echo("SpendBundle created and saved to sb.json")
+    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
