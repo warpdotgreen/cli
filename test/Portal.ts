@@ -14,6 +14,8 @@ describe("Portal", function () {
     let signer2: HardhatEthersSigner;
     let signer3: HardhatEthersSigner;
 
+    const abiCoder = new ethers.AbiCoder();
+
     const nonce = ethers.encodeBytes32String("nonce1");
     const puzzleHash = ethers.encodeBytes32String("puzzleHash");
     const xchChain = "0x786368";
@@ -73,29 +75,48 @@ describe("Portal", function () {
         });
     });
 
-    // describe("receiveMessage", function () {
-    //     it("Should process valid message", async function () {
-    //         await expect(
-    //             await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message)
-    //         ).to.emit(mockReceiver, "MessageReceived").withArgs(
-    //             nonce,
-    //             xchChain,
-    //             puzzleHash,
-    //             message
-    //         )
-    //     });
+    describe("receiveMessage", function () {
+        let sig: any;
 
-    //     it("Should fail is same nonce is used twice", async function () {
-    //         await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message);
-    //         await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
-    //             .to.be.revertedWith("!nonce");
-    //     });
+        beforeEach(async function () {
+            const msg = ethers.keccak256(
+                abiCoder.encode(
+                    ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
+                    [nonce, xchChain, puzzleHash, mockReceiver.target, message]
+                )
+            );
 
-    //     it("Should fail if not called by owner", async function () {
-    //         await expect(portal.connect(otherAccount).receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message))
-    //             .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
-    //     });
-    // });
+            let signers = [signer1, signer2].sort((a, b) => a.address.localeCompare(b.address));
+
+            let signatures = [];
+            for (let i = 0; i < signers.length; i++) {
+                const signer = signers[i];
+                const signedMsg = await signer.signMessage(msg);
+                const {r, v, s} = ethers.Signature.from(signedMsg);
+                signatures.push(ethers.concat(['0x' + v.toString(16), r, s]));
+            }
+
+            console.log(signer1.address, signer2.address, signer3.address, user.address, owner.address)
+            sig = ethers.concat(signatures);
+        });
+
+        it.only("Should process valid message", async function () {
+            await expect(
+                await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig)
+            ).to.emit(mockReceiver, "MessageReceived").withArgs(
+                nonce,
+                xchChain,
+                puzzleHash,
+                message
+            )
+        });
+
+        it("Should fail is same nonce is used twice", async function () {
+            await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig);
+            await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
+                .to.be.revertedWith("!nonce");
+        });
+    });
 
     describe("withdrawFees", function () {
         it("Should allow owner to withdraw", async function () {
