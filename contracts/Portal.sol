@@ -126,6 +126,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     }
 
     function updateSigner(address _signer, bool _newValue) public onlyOwner {
+        require(isSigner[_signer] != _newValue, "!diff");
         isSigner[_signer] = _newValue;
 
         emit SignerUpdated(
@@ -135,6 +136,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     }
 
     function updateSignatureThreshold(uint256 _newValue) public onlyOwner {
+        require(signatureThreshold != _newValue && _newValue > 0, "!val");
         signatureThreshold = _newValue;
 
         emit ThresholdUpdated(

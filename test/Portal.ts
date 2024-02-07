@@ -145,5 +145,12 @@ describe("Portal", function () {
             ).to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
             expect(await portal.isSigner(user.address)).to.be.false;
         });
+
+        it("Should fail if value is already set to new value", async function () {
+            await expect(
+                portal.connect(owner).updateSigner(signer1.address, true)
+            ).to.be.revertedWith("!diff");
+            expect(await portal.isSigner(signer1.address)).to.be.true;
+        });
     });
 });
