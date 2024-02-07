@@ -80,12 +80,12 @@ describe("Portal", function () {
 
         beforeEach(async function () {  
             const msg = ethers.keccak256(
-                abiCoder.encode(
+                ethers.solidityPacked(
                     ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
                     [nonce, xchChain, puzzleHash, mockReceiver.target, message]
                 )
             );
-
+            
             let signers = [signer1, signer2].sort((a, b) => a.address.localeCompare(b.address));
 
             let signatures = [];

@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
+import "hardhat/console.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
@@ -106,6 +107,10 @@ contract Portal is Initializable, OwnableUpgradeable {
             }
 
             address signer = ecrecover(messageHash, v, r, s);
+            console.logAddress(signer);
+            console.log("=");
+            console.logBytes32(messageHash);
+            console.log("=");
             require(signer != address(0), "0");
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");
