@@ -6,7 +6,6 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
-import "hardhat/console.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
@@ -78,29 +77,30 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] memory _contents,
         bytes memory sigs
     ) public {
-        require(sigs.length == signatureThreshold * 65, "!len"  );
+        require(sigs.length == signatureThreshold * 65, "!len");
 
-        bytes32 msgInfo = keccak256(
+        bytes32 messageHash = keccak256(
             abi.encodePacked(
-                _nonce,
-                _source_chain,
-                _source,
-                _destination,
-                _contents
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(
+                    abi.encodePacked(
+                        _nonce,
+                        _source_chain,
+                        _source,
+                        _destination,
+                        _contents
+                    )
+                )
             )
         );
-        bytes32 messageHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", msgInfo)
-        );
-        console.log("-- msg bytes -- ");
-        console.logBytes(abi.encodePacked("\x19Ethereum Signed Message:\n32", msgInfo));
-
+        
         address lastSigner = address(0);
-        uint8 v;
-        bytes32 r;
-        bytes32 s;
 
         for(uint256 i = 0; i < signatureThreshold; i++) {
+            uint8 v;
+            bytes32 r;
+            bytes32 s;
+
             assembly {
                 let ib := add(mul(65, i), 32)
                 v := byte(0, mload(add(sigs, ib)))
@@ -109,10 +109,6 @@ contract Portal is Initializable, OwnableUpgradeable {
             }
 
             address signer = ecrecover(messageHash, v, r, s);
-            console.log("-- msgInfo, messageHash, signer --");
-            console.logBytes32(msgInfo);
-            console.logBytes32(messageHash);
-            console.logAddress(signer);
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");
             lastSigner = signer;

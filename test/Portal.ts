@@ -76,9 +76,7 @@ describe("Portal", function () {
     });
 
     describe("receiveMessage", function () {
-        let sig: any;
-
-        beforeEach(async function () {  
+        async function getSig(signers: any[]): Promise<any> {
             let msg = ethers.getBytes(ethers.keccak256(
                 ethers.solidityPacked(
                     ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
@@ -86,38 +84,21 @@ describe("Portal", function () {
                 )
             ));
             
-            let signers = [signer1, signer2].sort((a, b) => a.address.localeCompare(b.address));
+            signers = signers.sort((a, b) => a.address.localeCompare(b.address));
 
             let signatures = [];
             for (let i = 0; i < signers.length; i++) {
                 const signer = signers[i];
                 const signedMsg = await signer.signMessage(msg);
-                console.log({
-                    "verify": ethers.verifyMessage(msg, signedMsg),
-                    "hashedMessage": ethers.hashMessage(msg),
-                    // "unhashedMessage": ethers.concat([
-                    //     ethers.toUtf8Bytes(ethers.MessagePrefix),
-                    //     ethers.toUtf8Bytes(String(msg.length)),,
-                    //     msg
-                    // ])
-                });
-                /*
-                 if (typeof(message) === "string") { message = toUtf8Bytes(message); }
-                    return keccak256(concat([
-                        toUtf8Bytes(MessagePrefix),
-                        toUtf8Bytes(String(message.length)),
-                        message
-                    ]));
-                */
                 const sig = ethers.Signature.from(signedMsg);
                 signatures.push(ethers.concat(['0x' + sig.v.toString(16), sig.r, sig.s]));
             }
 
-            console.log(signer1.address, signer2.address, signer3.address, user.address, owner.address)
-            sig = ethers.concat(signatures);
-        });
+            return ethers.concat(signatures);
+        }
 
-        it.only("Should process valid message", async function () {
+        it("Should process valid message", async function () {
+            const sig = await getSig([signer1, signer2]);
             await expect(
                 await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig)
             ).to.emit(mockReceiver, "MessageReceived").withArgs(
@@ -129,9 +110,22 @@ describe("Portal", function () {
         });
 
         it("Should fail is same nonce is used twice", async function () {
+            const sig = await getSig([signer2, signer3]);
             await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig);
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!nonce");
+        });
+
+        it("Should fail is same sig is used twice", async function () {
+            let sig = await getSig([signer2, signer2]);
+            await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
+                .to.be.revertedWith("!order");
+        });
+
+        it("Should fail is signature does not belong to a signer", async function () {
+            let sig = await getSig([user, signer2]);
+            await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
+                .to.be.revertedWith("!signer");
         });
     });
 
