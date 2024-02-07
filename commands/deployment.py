@@ -63,7 +63,6 @@ def get_eth_deployment_data(weth_address):
         open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
       )
     
-    portal_safe_address = get_config_item(["ethereum", "portal_safe_address"])
     deployer_safe_address = get_config_item(["ethereum", "deployer_safe_address"])
     create_call_address = get_config_item(["ethereum", "create_call_address"])
 
@@ -81,9 +80,10 @@ def get_eth_deployment_data(weth_address):
     portal_initialization_data = portal_initialization_data = portal_contract.encodeABI(
         fn_name='initialize',
         args=[
-            Web3.to_bytes(hexstr=portal_safe_address),
             Web3.to_bytes(hexstr=deployer_safe_address),
-            wei_per_message_fee
+            wei_per_message_fee,
+            [Web3.to_bytes(hexstr=addr) for addr in get_config_item(["ethereum", "hot_addresses"])],
+            get_config_item(["ethereum", "portal_threshold"])
         ]
     )
     proxy_constructor_data = w3.eth.contract(
