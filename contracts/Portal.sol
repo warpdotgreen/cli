@@ -10,8 +10,11 @@ import "./interfaces/IPortalMessageReceiver.sol";
 contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
     mapping(bytes32 => bool) private nonceUsed;
-    address public feeCollector;
+
     uint256 public messageFee;
+
+    mapping(address => bool) public isSigner;
+    uint256 public signatureThreshold;
 
     event MessageSent(
         bytes32 indexed nonce,
@@ -20,14 +23,33 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] contents
     );
 
+    event SignerUpdated(
+        address signer,
+        bool isSigner
+    );
+
+    event SignagtureThresholdUpdated(
+        uint256 newThreshold
+    );
+
+    event MessageFeeUpdated(
+        uint256 newFee
+    );
+
     function initialize(
-        address _messageMultisig,
-        address _feeCollector,
-        uint256 _messageFee
+        address _coldMultisig,
+        uint256 _messageFee,
+        address[] memory _signers,
+        uint256 _signatureThreshold
     ) public initializer {
-        __Ownable_init(_messageMultisig);
-        feeCollector = _feeCollector;
+        __Ownable_init(_coldMultisig);
+
         messageFee = _messageFee;
+        signatureThreshold = _signatureThreshold;
+
+        for (uint256 i = 0; i < _signers.length; i++) {
+            isSigner[_signers[i]] = true;
+        }
     }
 
     receive() external payable {}
@@ -52,10 +74,47 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes3 _source_chain,
         bytes32 _source,
         address _destination,
-        bytes32[] memory _contents
-    ) public onlyOwner {
-        require(!nonceUsed[_nonce], "!nonce");
+        bytes32[] memory _contents,
+        bytes memory sigs
+    ) public {
+        require(sigs.length == signatureThreshold * 65, "!len");
 
+        bytes32 messageHash = keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(
+                    abi.encodePacked(
+                        _nonce,
+                        _source_chain,
+                        _source,
+                        _destination,
+                        _contents
+                    )
+                )
+            )
+        );
+        
+        address lastSigner = address(0);
+
+        for(uint256 i = 0; i < signatureThreshold; i++) {
+            uint8 v;
+            bytes32 r;
+            bytes32 s;
+
+            assembly {
+                let ib := add(mul(65, i), 32)
+                v := byte(0, mload(add(sigs, ib)))
+                r := mload(add(sigs, add(1, ib)))
+                s := mload(add(sigs, add(33, ib)))
+            }
+
+            address signer = ecrecover(messageHash, v, r, s);
+            require(isSigner[signer], "!signer");
+            require(signer > lastSigner, "!order");
+            lastSigner = signer;
+        }
+        
+        require(!nonceUsed[_nonce], "!nonce");
         nonceUsed[_nonce] = true;
 
         IPortalMessageReceiver(_destination).receiveMessage(
@@ -69,11 +128,37 @@ contract Portal is Initializable, OwnableUpgradeable {
     function withdrawFees(
         address[] memory _receivers,
         uint256[] memory _amounts
-    ) public {
-        require(msg.sender == feeCollector, "!feeCollector");
-
+    ) public onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             payable(_receivers[i]).transfer(_amounts[i]);
         }
+    }
+
+    function updateSigner(address _signer, bool _newValue) public onlyOwner {
+        require(isSigner[_signer] != _newValue, "!diff");
+        isSigner[_signer] = _newValue;
+
+        emit SignerUpdated(
+            _signer,
+            _newValue
+        );
+    }
+
+    function updateSignatureThreshold(uint256 _newValue) public onlyOwner {
+        require(signatureThreshold != _newValue && _newValue > 0, "!val");
+        signatureThreshold = _newValue;
+
+        emit SignagtureThresholdUpdated(
+            _newValue
+        );
+    }
+
+    function updateMessageFee(uint256 _newValue) public onlyOwner {
+        require(messageFee != _newValue, "!diff");
+        messageFee = _newValue;
+
+        emit MessageFeeUpdated(
+            _newValue
+        );
     }
 }

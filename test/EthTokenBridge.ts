@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { EthTokenBridge, ERC20Mock, Portal, WETHMock } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-
+import { getSig } from "./Portal";
 
 describe("EthTokenBridge", function () {
     let ethTokenBridge: EthTokenBridge;
@@ -11,20 +11,19 @@ describe("EthTokenBridge", function () {
     let portal: Portal;
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
-    let anotherUser: HardhatEthersSigner;
+    let signer: HardhatEthersSigner;
     let portalAddress: string;
     
     const messageFee = ethers.parseEther("0.001");
     const initialFee = 30n; // 0.3%
     const chiaToEthAmountFactor = 1000000000000000n;
-    const abiCoder = new ethers.AbiCoder();
     const nonce1 = ethers.encodeBytes32String("nonce1");
     const chiaSideBurnPuzzle = ethers.encodeBytes32String("chia-burn-puzzle");
     const chiaSideMintPuzzle = ethers.encodeBytes32String("chia-mint-puzzle");
     const sourceChain = "0x786368";
 
     beforeEach(async function () {
-        [owner, user, anotherUser] = await ethers.getSigners();
+        [owner, user, signer] = await ethers.getSigners();
 
         const ERC20Factory = await ethers.getContractFactory("ERC20Mock");
         mockERC20 = await ERC20Factory.deploy("MockToken", "MTK");
@@ -34,7 +33,7 @@ describe("EthTokenBridge", function () {
 
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
-        await portal.initialize(owner.address, owner.address, messageFee);
+        await portal.initialize(owner.address, messageFee, [ signer.address ], 1);
         portalAddress = portal.target as string;
 
         const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
@@ -136,7 +135,13 @@ describe("EthTokenBridge", function () {
 
             await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
-            await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message)
+            const sig = await getSig(
+                nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
+                [signer]
+            );
+            await portal.receiveMessage(
+                nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig
+            )
             
             const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);
@@ -167,7 +172,11 @@ describe("EthTokenBridge", function () {
                 ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
             ]
 
-            await expect(portal.receiveMessage(nonce1, sourceChain, invalidPuzzle, ethTokenBridge.target, message))
+            const sig = await getSig(
+                nonce1, sourceChain, invalidPuzzle, ethTokenBridge.target.toString(), message,
+                [signer]
+            );
+            await expect(portal.receiveMessage(nonce1, sourceChain, invalidPuzzle, ethTokenBridge.target, message, sig))
                 .to.be.revertedWith("!source");
         });
     });
@@ -185,7 +194,11 @@ describe("EthTokenBridge", function () {
 
             await mockERC20.mint(ethTokenBridge.target, amount * chiaToEthAmountFactor);
 
-            await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message)
+            const sig = await getSig(
+                nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
+                [signer]
+            );
+            await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig)
             
             const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
             expect(newBridgeBalance).to.equal(expectedFee);
