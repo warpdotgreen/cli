@@ -162,4 +162,4 @@ sb.json
 last_spent_multisig_coinid
 unsigned_tx.json
 push_request.json
-payout_structure.json
+hardhat.config.ts
