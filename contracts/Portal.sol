@@ -23,6 +23,15 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] contents
     );
 
+    event SignerUpdated(
+        address signer,
+        bool isSigner
+    );
+
+    event ThresholdUpdated(
+        uint256 newThreshold
+    );
+
     function initialize(
         address _coldMultisig,
         uint256 _messageFee,
@@ -118,9 +127,18 @@ contract Portal is Initializable, OwnableUpgradeable {
 
     function updateSigner(address _signer, bool _newValue) public onlyOwner {
         isSigner[_signer] = _newValue;
+
+        emit SignerUpdated(
+            _signer,
+            _newValue
+        );
     }
 
     function updateSignatureThreshold(uint256 _newValue) public onlyOwner {
         signatureThreshold = _newValue;
+
+        emit ThresholdUpdated(
+            _newValue
+        );
     }
 }
