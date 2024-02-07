@@ -310,5 +310,5 @@ def get_xch_info(for_chain: str):
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
     click.echo(f"Portal signature threshold: {portal_threshold}")
-    click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
     click.echo(f"Burner puzzle hash: {burner_puzzle.get_tree_hash().hex()}")
+    click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
