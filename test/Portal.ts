@@ -4,6 +4,34 @@ import { Portal, PortalMessageReceiverMock } from "../typechain-types";
 import { BigNumberish } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
+export async function getSig(
+    nonce: string,
+    chain: string,
+    source: string,
+    destination: string,
+    message: string[],
+    signers: any[]
+): Promise<any> {
+    let msg = ethers.getBytes(ethers.keccak256(
+        ethers.solidityPacked(
+            ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
+            [nonce, chain, source, destination, message]
+        )
+    ));
+    
+    signers = signers.sort((a, b) => a.address.localeCompare(b.address));
+
+    let signatures = [];
+    for (let i = 0; i < signers.length; i++) {
+        const signer = signers[i];
+        const signedMsg = await signer.signMessage(msg);
+        const sig = ethers.Signature.from(signedMsg);
+        signatures.push(ethers.concat(['0x' + sig.v.toString(16), sig.r, sig.s]));
+    }
+
+    return ethers.concat(signatures);
+}
+
 describe("Portal", function () {
     let portal: Portal;
     let mockReceiver: PortalMessageReceiverMock;
@@ -76,29 +104,11 @@ describe("Portal", function () {
     });
 
     describe("receiveMessage", function () {
-        async function getSig(signers: any[]): Promise<any> {
-            let msg = ethers.getBytes(ethers.keccak256(
-                ethers.solidityPacked(
-                    ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
-                    [nonce, xchChain, puzzleHash, mockReceiver.target, message]
-                )
-            ));
-            
-            signers = signers.sort((a, b) => a.address.localeCompare(b.address));
-
-            let signatures = [];
-            for (let i = 0; i < signers.length; i++) {
-                const signer = signers[i];
-                const signedMsg = await signer.signMessage(msg);
-                const sig = ethers.Signature.from(signedMsg);
-                signatures.push(ethers.concat(['0x' + sig.v.toString(16), sig.r, sig.s]));
-            }
-
-            return ethers.concat(signatures);
-        }
-
         it("Should process valid message", async function () {
-            const sig = await getSig([signer1, signer2]);
+            const sig = await getSig(
+                nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
+                [signer1, signer2]
+            );
             await expect(
                 await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig)
             ).to.emit(mockReceiver, "MessageReceived").withArgs(
@@ -110,20 +120,29 @@ describe("Portal", function () {
         });
 
         it("Should fail is same nonce is used twice", async function () {
-            const sig = await getSig([signer2, signer3]);
+            const sig = await getSig(
+                nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
+                [signer2, signer3]
+            );
             await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig);
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!nonce");
         });
 
         it("Should fail is same sig is used twice", async function () {
-            let sig = await getSig([signer2, signer2]);
+            let sig = await getSig(
+                nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
+                [signer2, signer2]
+            );
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!order");
         });
 
         it("Should fail is signature does not belong to a signer", async function () {
-            let sig = await getSig([user, signer2]);
+            let sig = await getSig(
+                nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
+                [user, signer2]
+            );
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!signer");
         });
