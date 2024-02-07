@@ -6,7 +6,6 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
-import "hardhat/console.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
@@ -80,7 +79,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     ) public {
         require(sigs.length == signatureThreshold * 65, "!len"  );
 
-        bytes32 messageHash = keccak256(
+        bytes32 msgInfo = keccak256(
             abi.encodePacked(
                 _nonce,
                 _source_chain,
@@ -89,6 +88,10 @@ contract Portal is Initializable, OwnableUpgradeable {
                 _contents
             )
         );
+        bytes32 messageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", msgInfo)
+        );
+
         address lastSigner = address(0);
         uint8 v;
         bytes32 r;
@@ -103,8 +106,6 @@ contract Portal is Initializable, OwnableUpgradeable {
             }
 
             address signer = ecrecover(messageHash, v, r, s);
-            console.log(i);
-            console.log(signer);
             require(signer != address(0), "0");
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");

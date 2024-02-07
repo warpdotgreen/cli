@@ -78,7 +78,7 @@ describe("Portal", function () {
     describe("receiveMessage", function () {
         let sig: any;
 
-        beforeEach(async function () {
+        beforeEach(async function () {  
             const msg = ethers.keccak256(
                 abiCoder.encode(
                     ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
