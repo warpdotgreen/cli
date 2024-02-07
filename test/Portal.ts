@@ -9,7 +9,7 @@ describe("Portal", function () {
     let mockReceiver: PortalMessageReceiverMock;
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
-    let messageFee: BigNumberish;
+    let messageFee: any;
     let signer1: HardhatEthersSigner;
     let signer2: HardhatEthersSigner;
     let signer3: HardhatEthersSigner;
@@ -151,6 +151,50 @@ describe("Portal", function () {
                 portal.connect(owner).updateSigner(signer1.address, true)
             ).to.be.revertedWith("!diff");
             expect(await portal.isSigner(signer1.address)).to.be.true;
+        });
+    });
+
+    describe("updateSignatureThreshold", function () {
+        it("Should allow owner to update threshold", async function () {
+            await expect(portal.connect(owner).updateSignatureThreshold(1))
+                .to.emit(portal, "SignagtureThresholdUpdated").withArgs(1);
+            expect(await portal.signatureThreshold()).to.equal(1);
+        });
+
+        it("Should not allow non-owner to update thresholg", async function () {
+            await expect(
+                portal.updateSignatureThreshold(1)
+            ).to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
+            expect(await portal.signatureThreshold()).to.equal(2);
+        });
+
+        it("Should fail if value is already set to new value", async function () {
+            await expect(
+                portal.connect(owner).updateSignatureThreshold(2)
+            ).to.be.revertedWith("!val");
+            expect(await portal.signatureThreshold()).to.equal(2);
+        });
+    });
+
+    describe("updateMessageFee", function () {
+        it("Should allow owner to update the per-message fee", async function () {
+            await expect(portal.connect(owner).updateMessageFee(messageFee * 2n))
+                .to.emit(portal, "MessageFeeUpdated").withArgs(messageFee * 2n);
+            expect(await portal.messageFee()).to.equal(messageFee * 2n);
+        });
+
+        it("Should not allow non-owner to update per-message fee", async function () {
+            await expect(
+                portal.updateMessageFee(messageFee * 2n)
+            ).to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
+            expect(await portal.messageFee()).to.equal(messageFee);
+        });
+
+        it("Should fail if value is already set to new value", async function () {
+            await expect(
+                portal.connect(owner).updateMessageFee(messageFee)
+            ).to.be.revertedWith("!diff");
+            expect(await portal.messageFee()).to.equal(messageFee);
         });
     });
 });

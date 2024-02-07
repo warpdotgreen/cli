@@ -28,8 +28,12 @@ contract Portal is Initializable, OwnableUpgradeable {
         bool isSigner
     );
 
-    event ThresholdUpdated(
+    event SignagtureThresholdUpdated(
         uint256 newThreshold
+    );
+
+    event MessageFeeUpdated(
+        uint256 newFee
     );
 
     function initialize(
@@ -139,7 +143,16 @@ contract Portal is Initializable, OwnableUpgradeable {
         require(signatureThreshold != _newValue && _newValue > 0, "!val");
         signatureThreshold = _newValue;
 
-        emit ThresholdUpdated(
+        emit SignagtureThresholdUpdated(
+            _newValue
+        );
+    }
+
+    function updateMessageFee(uint256 _newValue) public onlyOwner {
+        require(messageFee != _newValue, "!diff");
+        messageFee = _newValue;
+
+        emit MessageFeeUpdated(
             _newValue
         );
     }
