@@ -92,6 +92,8 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32 messageHash = keccak256(
             abi.encodePacked("\x19Ethereum Signed Message:\n32", msgInfo)
         );
+        console.log("-- msg bytes -- ");
+        console.logBytes(abi.encodePacked("\x19Ethereum Signed Message:\n32", msgInfo));
 
         address lastSigner = address(0);
         uint8 v;
@@ -107,11 +109,10 @@ contract Portal is Initializable, OwnableUpgradeable {
             }
 
             address signer = ecrecover(messageHash, v, r, s);
-            console.logAddress(signer);
-            console.log("=");
+            console.log("-- msgInfo, messageHash, signer --");
+            console.logBytes32(msgInfo);
             console.logBytes32(messageHash);
-            console.log("=");
-            require(signer != address(0), "0");
+            console.logAddress(signer);
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");
             lastSigner = signer;

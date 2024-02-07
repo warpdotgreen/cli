@@ -79,12 +79,12 @@ describe("Portal", function () {
         let sig: any;
 
         beforeEach(async function () {  
-            const msg = ethers.keccak256(
+            let msg = ethers.getBytes(ethers.keccak256(
                 ethers.solidityPacked(
                     ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
                     [nonce, xchChain, puzzleHash, mockReceiver.target, message]
                 )
-            );
+            ));
             
             let signers = [signer1, signer2].sort((a, b) => a.address.localeCompare(b.address));
 
@@ -92,8 +92,25 @@ describe("Portal", function () {
             for (let i = 0; i < signers.length; i++) {
                 const signer = signers[i];
                 const signedMsg = await signer.signMessage(msg);
-                const {r, v, s} = ethers.Signature.from(signedMsg);
-                signatures.push(ethers.concat(['0x' + v.toString(16), r, s]));
+                console.log({
+                    "verify": ethers.verifyMessage(msg, signedMsg),
+                    "hashedMessage": ethers.hashMessage(msg),
+                    // "unhashedMessage": ethers.concat([
+                    //     ethers.toUtf8Bytes(ethers.MessagePrefix),
+                    //     ethers.toUtf8Bytes(String(msg.length)),,
+                    //     msg
+                    // ])
+                });
+                /*
+                 if (typeof(message) === "string") { message = toUtf8Bytes(message); }
+                    return keccak256(concat([
+                        toUtf8Bytes(MessagePrefix),
+                        toUtf8Bytes(String(message.length)),
+                        message
+                    ]));
+                */
+                const sig = ethers.Signature.from(signedMsg);
+                signatures.push(ethers.concat(['0x' + sig.v.toString(16), sig.r, sig.s]));
             }
 
             console.log(signer1.address, signer2.address, signer3.address, user.address, owner.address)
