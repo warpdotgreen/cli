@@ -34,8 +34,15 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         chiaSideMintPuzzle = bytes32(0);
     }
 
-    function initializePuzzleHashes(bytes32 _chiaSideBurnPuzzle, bytes32 _chiaSideMintPuzzle) public onlyOwner {
-        require(chiaSideBurnPuzzle == bytes32(0) && chiaSideBurnPuzzle == bytes32(0), "nope");
+    function initializePuzzleHashes(
+        bytes32 _chiaSideBurnPuzzle,
+        bytes32 _chiaSideMintPuzzle
+    ) public onlyOwner {
+        require(
+            chiaSideBurnPuzzle == bytes32(0) &&
+                chiaSideBurnPuzzle == bytes32(0),
+            "nope"
+        );
         chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
@@ -101,7 +108,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     function bridgeEtherToChia(bytes32 _receiver) public payable {
         uint256 factor = 1 ether / 1000;
         uint256 messageFee = IPortal(portal).messageFee();
-        require(msg.value - messageFee > factor, "!fee");
+        require(msg.value - messageFee >= factor, "!fee");
 
         IWETH(iweth).deposit{value: msg.value - messageFee}();
 
