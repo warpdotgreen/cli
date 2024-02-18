@@ -1,5 +1,6 @@
 # used to simulate something like FireAcademy.io
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 # from chia.util.config import load_config
 from pathlib import Path
 import requests
@@ -7,6 +8,7 @@ import json
 import os
 
 app = Flask(__name__)
+CORS(app)
 
 CHIA_ROOT = os.environ.get("CHIA_ROOT", os.path.expanduser("~/.chia/mainnet"))
 CERT_PATH = os.path.join(CHIA_ROOT, 'config/ssl/full_node/private_full_node.crt')
