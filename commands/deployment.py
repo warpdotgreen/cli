@@ -66,7 +66,7 @@ def get_eth_deployment_data(weth_address):
     deployer_safe_address = get_config_item(["ethereum", "deployer_safe_address"])
     create_call_address = get_config_item(["ethereum", "create_call_address"])
 
-    salt = hashlib.sha256(b"yakuhito").digest()
+    salt = hashlib.sha256(b"yak-yak").digest()
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
@@ -277,7 +277,7 @@ async def launch_xch_portal(offer):
             launcher_id,
             portal_threshold,
             portal_pks,
-            get_multisig_inner_puzzle(multisig_pks, multisig_threshold)
+            get_multisig_inner_puzzle(multisig_pks, multisig_threshold).get_tree_hash()
         )
 
     await securely_launch_singleton(

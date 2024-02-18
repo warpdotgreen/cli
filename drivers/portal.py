@@ -22,7 +22,7 @@ def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,
     source_chain: bytes,
     source: bytes32,
-    nonce: int,
+    nonce: bytes32,
     destination: bytes32,
     message_hash: bytes32,
 ) -> Program:
@@ -64,7 +64,7 @@ def get_portal_receiver_full_puzzle(
 
 @dataclasses.dataclass(frozen=True)
 class PortalMessage:
-    nonce: int
+    nonce: bytes32
     validator_sig_switches: List[bool]
     source_chain: bytes
     source: bytes32
