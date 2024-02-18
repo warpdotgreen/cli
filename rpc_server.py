@@ -1,13 +1,24 @@
 # used to simulate something like FireAcademy.io
 from flask import Flask, request, jsonify
+from chia.util.config import load_config
+from pathlib import Path
 import requests
 import json
+import os
 
 app = Flask(__name__)
 
-CERT_PATH = '~/.chia/mainnet/config/ssl/full_node/private_full_node.crt'
-KEY_PATH = '~/.chia/mainnet/config/ssl/full_node/private_full_node.key'
-RPC_URL = 'https://localhost:8555'
+CHIA_ROOT = os.environ.get("CHIA_ROOT", os.path.expanduser("~/.chia/mainnet"))
+CERT_PATH = os.path.join(CHIA_ROOT, 'config/ssl/full_node/private_full_node.crt')
+KEY_PATH = os.path.join(CHIA_ROOT, 'config/ssl/full_node/private_full_node.key')
+
+root_path = Path(CHIA_ROOT)
+config = load_config(root_path, "config.yaml")
+rpc_port = config["full_node"]["rpc_port"]
+
+RPC_URL = f'https://localhost:{rpc_port}'
+
+print(CERT_PATH, KEY_PATH, RPC_URL)
 
 @app.route('/<endpoint>', methods=['GET', 'POST'])
 def forward_request(endpoint):

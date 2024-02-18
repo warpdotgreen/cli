@@ -163,3 +163,5 @@ last_spent_multisig_coinid
 unsigned_tx.json
 push_request.json
 hardhat.config.ts
+rpc-venv
+rpc-venv/
