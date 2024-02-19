@@ -5,18 +5,21 @@ from commands.config import get_config_item
 from web3 import Web3
 import time
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def revertBlock(db, chain_id: bytes, height: int):
+    block = db.query(Block).filter(Block.height == height and Block.chain_id == chain_id).first()
+    block_hash = block.hash
+    db.query(Message).filter(Message.source_chain == chain_id and Message.block_hash == block_hash).delete()
+    block.delete()
     logging.info(f"Block #{chain_id.decode()}-{height} reverted.")
-    db.query(Block).filter(Block.height == height and Block.chain_id == chain_id).delete()
-    db.commit()
 
 
 def addBlock(db, chain_id: bytes, height: int, hash: bytes, prev_hash: bytes):
-    logging.info(f"Block #{chain_id.decode()}-{height} added to db.")
     db.add(Block(height=height, hash=hash, chain_id=chain_id, prev_hash=prev_hash))
+    logging.info(f"Block #{chain_id.decode()}-{height} added to db.")
 
 
 # returns new block height we should sync to
@@ -58,18 +61,18 @@ async def eth_block_follower(chain_name: str, chain_id: bytes):
     
     latest_block_in_db = db.query(Block).filter(Block.chain_id == chain_id).order_by(Block.height.desc()).first()
     latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([chain_name, 'min_height'])
-    logging.info(f"Synced peak: {latest_synced_block_height}")
+    logging.info(f"Synced peak: {chain_id.decode()}-{latest_synced_block_height}")
 
     block_filter = web3.eth.filter('latest')
 
     latest_mined_block = web3.eth.block_number
-    logging.info(f"Quickly syncing to: {latest_mined_block}")
+    logging.info(f"Quickly syncing to: {chain_id.decode()}-{latest_mined_block}")
 
     while latest_synced_block_height <= latest_mined_block:
       latest_synced_block_height = syncBlockUsingHeight(db, web3, chain_id, latest_synced_block_height)
     db.commit()
 
-    logging.info("Quick sync done. Listening for new blocks using filter.")
+    logging.info(f"Quick sync done on {chain_id.decode()}. Listening for new blocks using filter.")
     while True:
         for block_hash in block_filter.get_new_entries():
             block = web3.eth.get_block(block_hash)
@@ -80,8 +83,62 @@ async def eth_block_follower(chain_name: str, chain_id: bytes):
             db.commit()
         time.sleep(1)
 
+def nonceIntToBytes(nonceInt: int) -> bytes:
+    s = hex(nonceInt)[2:]
+    return (64 - len(s)) * "0" + s
+
+async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
+    db = setup_database()
+
+    web3 = Web3(Web3.HTTPProvider(get_config_item([chain_name, 'rpc_url'])))
+
+    portal_contract_abi = json.loads(open("artifacts/contracts/Portal.sol/Portal.json", "r").read())["abi"]
+    portal_contract_address = get_config_item([chain_name, 'portal_address'])
+    
+    latest_message_in_db = db.query(Message).filter(Message.source_chain == chain_id).order_by(Message.nonce.desc()).first()
+    latest_synced_nonce_int: int = int(latest_message_in_db.nonce.hex()[2:], 16) if latest_message_in_db is not None else 0
+    logging.info(f"Last synced nonce: {chain_id.decode()}-{latest_synced_nonce_int}")
+
+    contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
+
+    event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
+
+    last_used_nonce_int: int = contract.functions.ethNonce().call()
+    logging.info(f"Quickly syncing nonce to: {chain_id.decode()}-{last_used_nonce_int}")
+
+    if latest_synced_nonce_int < last_used_nonce_int:
+      latest_synced_nonce_int += 1
+
+      block_hash = latest_message_in_db.block_hash if latest_message_in_db is not None else None
+      block = db.query(Block).filter(Block.hash == block_hash and Block.chain_id == chain_id).first() if block_hash is not None else None
+      query_start_height = block.height - 1 if block is not None else get_config_item([chain_name, 'min_height'])
+      while latest_synced_nonce_int <= last_used_nonce_int:
+        one_event_filter = contract.events.MessageSent.create_filter(
+            fromBlock=query_start_height - 10000, # todo: remove
+            toBlock='latest',
+            argument_filters={'nonce': "0x" + nonceIntToBytes(latest_synced_nonce_int)}
+        )
+        event = one_event_filter.get_all_entries()
+        print(event)
+        print("sync here ser")
+        # syncMessageUsingNonceInt(db, web3, chain_id, latest_synced_nonce_int)
+        latest_synced_nonce_int += 1
+        break
+      # db.commit()
+
+    logging.info(f"Quick sync done on {chain_id.decode()}. Listening for new messages using live filter.")
+    # while True:
+    #     for block_hash in block_filter.get_new_entries():
+    #         block = web3.eth.get_block(block_hash)
+    #         block_height = block['number']
+    #         latest_synced_block_height = syncBlockUsingHeight(db, web3, chain_id, block_height, block)
+    #         while latest_synced_block_height < block_height + 1:
+    #             latest_synced_block_height = syncBlockUsingHeight(db, web3, chain_id, latest_synced_block_height)
+    #         db.commit()
+    #     time.sleep(1)
+
 
 @click.command()
 @async_func
 async def listen():
-    await eth_block_follower('ethereum', b"eth")
+    await eth_sent_messages_follower('ethereum', b"eth")
