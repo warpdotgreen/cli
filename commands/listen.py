@@ -87,17 +87,30 @@ def nonceIntToBytes(nonceInt: int) -> bytes:
     s = hex(nonceInt)[2:]
     return (64 - len(s)) * "0" + s
 
-def addEventToDb(db, chain_id: bytes, event: dict):
+def addEventToDb(db, chain_id: bytes, event):
+    source = bytes.fromhex(event['args']['source'][2:])
+
     db.add(Message(
         nonce=event['args']['nonce'],
         source_chain=chain_id,
-        source=event['args']['source'],
+        source=b"0" * (64 - len(source)) + source,
         destination_chain=event['args']['destination_chain'],
         destination=event['args']['destination'],
         contents=join_message_contents(event['args']['contents']),
         block_hash=event['blockHash'],
         sig=b'',
     ))
+    logging.info(f"Message {chain_id.decode()}-{int(event['args']['nonce'].hex(), 16)} added to db.")
+
+
+def getEventByIntNonce(contract, nonce: int, start_height: int):
+    one_event_filter = contract.events.MessageSent.create_filter(
+        fromBlock=start_height,
+        toBlock='latest',
+        argument_filters={'nonce': "0x" + nonceIntToBytes(nonce)}
+    )
+    return one_event_filter.get_all_entries()[0]
+
 
 async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
     db = setup_database()
@@ -125,30 +138,27 @@ async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
       block = db.query(Block).filter(Block.hash == block_hash and Block.chain_id == chain_id).first() if block_hash is not None else None
       query_start_height = block.height - 1 if block is not None else get_config_item([chain_name, 'min_height'])
       while latest_synced_nonce_int <= last_used_nonce_int:
-        one_event_filter = contract.events.MessageSent.create_filter(
-            fromBlock=query_start_height,
-            toBlock='latest',
-            argument_filters={'nonce': "0x" + nonceIntToBytes(latest_synced_nonce_int)}
-        )
-        event = one_event_filter.get_all_entries()
+        event = getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
         addEventToDb(db, chain_id, event)
         latest_synced_nonce_int += 1
-        break
-      # db.commit()
+      db.commit()
 
     logging.info(f"Quick sync done on {chain_id.decode()}. Listening for new messages using live filter.")
-    # while True:
-    #     for block_hash in block_filter.get_new_entries():
-    #         block = web3.eth.get_block(block_hash)
-    #         block_height = block['number']
-    #         latest_synced_block_height = syncBlockUsingHeight(db, web3, chain_id, block_height, block)
-    #         while latest_synced_block_height < block_height + 1:
-    #             latest_synced_block_height = syncBlockUsingHeight(db, web3, chain_id, latest_synced_block_height)
-    #         db.commit()
-    #     time.sleep(1)
+    while True:
+        for event in event_filter.get_new_entries():
+            event_nonce_int = int(event['args']['nonce'].hex(), 16)
+            while latest_synced_nonce_int < event_nonce_int:
+                prev_event = getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
+                addEventToDb(db, chain_id, prev_event)
+                latest_synced_nonce_int += 1
+
+            addEventToDb(db, chain_id, event)
+            db.commit()
+        time.sleep(1)
 
 
 @click.command()
 @async_func
 async def listen():
-    await eth_block_follower('ethereum', b"eth")
+    # await eth_block_follower('ethereum', b"eth")
+    await eth_sent_messages_follower('ethereum', b"eth")
