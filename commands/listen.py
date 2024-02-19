@@ -147,6 +147,10 @@ async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
     while True:
         for event in event_filter.get_new_entries():
             event_nonce_int = int(event['args']['nonce'].hex(), 16)
+
+            latest_message_in_db = db.query(Message).filter(Message.source_chain == chain_id).order_by(Message.nonce.desc()).first()
+            latest_synced_nonce_int: int = int(latest_message_in_db.nonce.hex()[2:], 16) if latest_message_in_db is not None else 0
+            
             while latest_synced_nonce_int < event_nonce_int:
                 prev_event = getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
                 addEventToDb(db, chain_id, prev_event)
