@@ -18,23 +18,25 @@ contract Portal is Initializable, OwnableUpgradeable {
 
     event MessageSent(
         bytes32 indexed nonce,
+        address source,
         bytes3 destination_chain,
         bytes32 destination,
         bytes32[] contents
     );
 
-    event SignerUpdated(
-        address signer,
-        bool isSigner
+    event MessageReceived(
+        bytes32 indexed nonce,
+        bytes3 source_chain,
+        bytes32 source,
+        address destination,
+        bytes32[] contents
     );
 
-    event SignagtureThresholdUpdated(
-        uint256 newThreshold
-    );
+    event SignerUpdated(address signer, bool isSigner);
 
-    event MessageFeeUpdated(
-        uint256 newFee
-    );
+    event SignagtureThresholdUpdated(uint256 newThreshold);
+
+    event MessageFeeUpdated(uint256 newFee);
 
     function initialize(
         address _coldMultisig,
@@ -63,6 +65,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         ethNonce += 1;
         emit MessageSent(
             bytes32(ethNonce),
+            msg.sender,
             _destination_chain,
             _destination,
             _contents
@@ -93,10 +96,10 @@ contract Portal is Initializable, OwnableUpgradeable {
                 )
             )
         );
-        
+
         address lastSigner = address(0);
 
-        for(uint256 i = 0; i < signatureThreshold; i++) {
+        for (uint256 i = 0; i < signatureThreshold; i++) {
             uint8 v;
             bytes32 r;
             bytes32 s;
@@ -113,7 +116,7 @@ contract Portal is Initializable, OwnableUpgradeable {
             require(signer > lastSigner, "!order");
             lastSigner = signer;
         }
-        
+
         require(!nonceUsed[_nonce], "!nonce");
         nonceUsed[_nonce] = true;
 
@@ -121,6 +124,14 @@ contract Portal is Initializable, OwnableUpgradeable {
             _nonce,
             _source_chain,
             _source,
+            _contents
+        );
+
+        emit MessageReceived(
+            _nonce,
+            _source_chain,
+            _source,
+            _destination,
             _contents
         );
     }
@@ -138,27 +149,20 @@ contract Portal is Initializable, OwnableUpgradeable {
         require(isSigner[_signer] != _newValue, "!diff");
         isSigner[_signer] = _newValue;
 
-        emit SignerUpdated(
-            _signer,
-            _newValue
-        );
+        emit SignerUpdated(_signer, _newValue);
     }
 
     function updateSignatureThreshold(uint256 _newValue) public onlyOwner {
         require(signatureThreshold != _newValue && _newValue > 0, "!val");
         signatureThreshold = _newValue;
 
-        emit SignagtureThresholdUpdated(
-            _newValue
-        );
+        emit SignagtureThresholdUpdated(_newValue);
     }
 
     function updateMessageFee(uint256 _newValue) public onlyOwner {
         require(messageFee != _newValue, "!diff");
         messageFee = _newValue;
 
-        emit MessageFeeUpdated(
-            _newValue
-        );
+        emit MessageFeeUpdated(_newValue);
     }
 }

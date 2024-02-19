@@ -22,7 +22,6 @@ class Message(Base):
     contents = Column(BLOB)
     block_hash = Column(BLOB)
     sig = Column(BLOB)
-    used_on_destination_chain = Column(Boolean)
 
 class Block(Base):
     __tablename__ = 'blocks'

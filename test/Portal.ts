@@ -6,7 +6,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 export async function getSig(
     nonce: string,
-    chain: string,
+    source_chain: string,
     source: string,
     destination: string,
     message: string[],
@@ -15,7 +15,7 @@ export async function getSig(
     let msg = ethers.getBytes(ethers.keccak256(
         ethers.solidityPacked(
             ["bytes32", "bytes3", "bytes32", "address", "bytes32[]"],
-            [nonce, chain, source, destination, message]
+            [nonce, source_chain, source, destination, message]
         )
     ));
     
@@ -90,6 +90,7 @@ describe("Portal", function () {
                 .to.emit(portal, "MessageSent")
                 .withArgs(
                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    user.address,
                     xchChain,
                     puzzleHash,
                     message
@@ -104,17 +105,18 @@ describe("Portal", function () {
     });
 
     describe("receiveMessage", function () {
-        it("Should process valid message", async function () {
+        it("Should process valid message and emit event", async function () {
             const sig = await getSig(
                 nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
                 [signer1, signer2]
             );
             await expect(
                 await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig)
-            ).to.emit(mockReceiver, "MessageReceived").withArgs(
+            ).to.emit(portal, "MessageReceived").withArgs(
                 nonce,
                 xchChain,
                 puzzleHash,
+                mockReceiver.target,
                 message
             )
         });

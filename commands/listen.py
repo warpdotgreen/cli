@@ -87,6 +87,18 @@ def nonceIntToBytes(nonceInt: int) -> bytes:
     s = hex(nonceInt)[2:]
     return (64 - len(s)) * "0" + s
 
+def addEventToDb(db, chain_id: bytes, event: dict):
+    db.add(Message(
+        nonce=event['args']['nonce'],
+        source_chain=chain_id,
+        source=event['args']['source'],
+        destination_chain=event['args']['destination_chain'],
+        destination=event['args']['destination'],
+        contents=join_message_contents(event['args']['contents']),
+        block_hash=event['blockHash'],
+        sig=b'',
+    ))
+
 async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
     db = setup_database()
 
@@ -119,9 +131,7 @@ async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
             argument_filters={'nonce': "0x" + nonceIntToBytes(latest_synced_nonce_int)}
         )
         event = one_event_filter.get_all_entries()
-        print(event)
-        print("sync here ser")
-        # syncMessageUsingNonceInt(db, web3, chain_id, latest_synced_nonce_int)
+        addEventToDb(db, chain_id, event)
         latest_synced_nonce_int += 1
         break
       # db.commit()
@@ -141,4 +151,4 @@ async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
 @click.command()
 @async_func
 async def listen():
-    await eth_sent_messages_follower('ethereum', b"eth")
+    await eth_block_follower('ethereum', b"eth")
