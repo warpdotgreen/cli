@@ -293,7 +293,7 @@ def get_xch_info(for_chain: str):
     portal_launcher_id = bytes.fromhex(get_config_item(["chia", "portal_launcher_id"]))
     portal_threshold = get_config_item(["chia", "portal_threshold"])
 
-    p2_multisig = pay_to_singleton_puzzle(multisig_launcher_id)
+    p2_multisig = pay_to_singleton_puzzle(multisig_launcher_id).get_tree_hash()
 
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
@@ -301,7 +301,7 @@ def get_xch_info(for_chain: str):
         get_config_item([for_chain, "id"]).encode(),
         bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
-
+                
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
         get_config_item([for_chain, "id"]).encode(),

@@ -11,7 +11,7 @@
     DESTINATION ; destination
     MESSAGE_HASH
 
-    (receiver_parent_info receiver_puzzle_hash . receiver_amount) ; receiver_proof
+    (receiver_parent_info . receiver_amount) ; receiver_proof
     parent_proof ; (parent_parent_info . parent_inner_puzzle_hash)
     my_coin_id
   )
@@ -45,18 +45,14 @@
     (if (= (strlen v) 32) v (x))
   )
 
-  (if (= receiver_puzzle_hash DESTINATION)
-    (main
-      PORTAL_RECEIVER_SINGLETON_STRUCT
-      parent_proof
-      my_coin_id
-      (sha256
-        (value_b32_or_x receiver_parent_info)
-        (value_b32_or_x receiver_puzzle_hash)
-        receiver_amount
-      ) ; receiver_coin_id
-    )
-    ; else
-    (x)
+  (main
+    PORTAL_RECEIVER_SINGLETON_STRUCT
+    parent_proof
+    my_coin_id
+    (sha256
+      (value_b32_or_x receiver_parent_info)
+      (value_b32_or_x DESTINATION)
+      receiver_amount
+    ) ; receiver_coin_id
   )
 )

@@ -103,7 +103,7 @@ def get_message_coin_solution(
     message_coin_id: bytes32,
 ) -> Program:
     return Program.to([
-      (receiver_coin.parent_coin_info, (receiver_coin.puzzle_hash, receiver_coin.amount)),
+      (receiver_coin.parent_coin_info, receiver_coin.amount),
       (parent_parent_info, parent_inner_puzzle_hash),
       message_coin_id
     ])
