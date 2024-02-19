@@ -166,3 +166,4 @@ hardhat.config.ts
 rpc-venv
 rpc-venv/
 data.db
+data.db-journal

@@ -126,7 +126,7 @@ async def eth_sent_messages_follower(chain_name: str, chain_id: bytes):
       query_start_height = block.height - 1 if block is not None else get_config_item([chain_name, 'min_height'])
       while latest_synced_nonce_int <= last_used_nonce_int:
         one_event_filter = contract.events.MessageSent.create_filter(
-            fromBlock=query_start_height - 10000, # todo: remove
+            fromBlock=query_start_height,
             toBlock='latest',
             argument_filters={'nonce': "0x" + nonceIntToBytes(latest_synced_nonce_int)}
         )
