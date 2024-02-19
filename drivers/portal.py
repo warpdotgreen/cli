@@ -21,7 +21,7 @@ def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> P
 def get_message_coin_puzzle(
     portal_receiver_launcher_id: bytes32,
     source_chain: bytes,
-    source: bytes32,
+    source: bytes,
     nonce: bytes32,
     destination: bytes32,
     message_hash: bytes32,

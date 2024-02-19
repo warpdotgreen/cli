@@ -66,7 +66,7 @@ def get_eth_deployment_data(weth_address):
     deployer_safe_address = get_config_item(["ethereum", "deployer_safe_address"])
     create_call_address = get_config_item(["ethereum", "create_call_address"])
 
-    salt = hashlib.sha256(b"yak-yak").digest()
+    salt = hashlib.sha256(b"yakuhito sends his regards").digest()
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
@@ -301,7 +301,7 @@ def get_xch_info(for_chain: str):
         get_config_item([for_chain, "id"]).encode(),
         bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
-                
+
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
         get_config_item([for_chain, "id"]).encode(),
