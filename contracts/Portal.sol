@@ -9,7 +9,7 @@ import "./interfaces/IPortalMessageReceiver.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
-    mapping(bytes32 => bool) private nonceUsed;
+    mapping(bytes32 => bool) private usedNonces;
 
     uint256 public messageFee;
 
@@ -117,8 +117,9 @@ contract Portal is Initializable, OwnableUpgradeable {
             lastSigner = signer;
         }
 
-        require(!nonceUsed[_nonce], "!nonce");
-        nonceUsed[_nonce] = true;
+        bytes32 key = keccak256(abi.encodePacked(_source_chain, _nonce));
+        require(!usedNonces[key], "!nonce");
+        usedNonces[key] = true;
 
         IPortalMessageReceiver(_destination).receiveMessage(
             _nonce,

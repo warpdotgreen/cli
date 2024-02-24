@@ -8,15 +8,17 @@ import logging
 import json
 from commands.followers.eth_follower import EthereumFollower
 from commands.followers.xch_follower import ChiaFollower
+import asyncio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @click.command()
-@async_func
-async def listen():
-    # follower = EthereumFollower("eth")
+def listen():
+    eth_follower = EthereumFollower("eth")
+    xch_follower = ChiaFollower("xch")
 
-    # await follower.run()
-    follower = ChiaFollower("xch")
+    eth_follower.run()
+    xch_follower.run()
 
-    await follower.run()
+    while True:
+        time.sleep(5)

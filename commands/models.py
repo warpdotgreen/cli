@@ -30,6 +30,12 @@ class Block(Base):
     hash = Column(BLOB)
     prev_hash = Column(BLOB)
 
+class Portal(Base):
+    __tablename__ = 'portal_states'
+    chain_id = Column(BLOB(3), primary_key=True)
+    coin_id = Column(BLOB(32), primary_key=True)
+    used_chains_and_nonces = Column(BLOB)
+
 def setup_database(db_path='sqlite:///data.db'):
     engine = create_engine(db_path, echo=False)
     Base.metadata.create_all(engine)

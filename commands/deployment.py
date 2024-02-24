@@ -66,7 +66,7 @@ def get_eth_deployment_data(weth_address):
     deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
     create_call_address = get_config_item(["eth", "create_call_address"])
 
-    salt = hashlib.sha256(b"yakuhito!").digest()
+    salt = hashlib.sha256(b"yakuhito!!!").digest()
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
@@ -298,13 +298,13 @@ def get_xch_info(for_chain: str):
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
         p2_multisig,
-        get_config_item([for_chain, "id"]).encode(),
+        for_chain.encode(),
         bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
-        get_config_item([for_chain, "id"]).encode(),
+        for_chain.encode(),
         bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
 
