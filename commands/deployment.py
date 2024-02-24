@@ -49,9 +49,9 @@ def predict_create2_address(sender, salt, init_code):
 @click.option('--weth-address', required=True, help='WETH contract address to be used by the bridge')
 def get_eth_deployment_data(weth_address):
     click.echo("Constructing txes based on config...")
-    wei_per_message_fee = get_config_item(["ethereum", "wei_per_message_fee"])
+    wei_per_message_fee = get_config_item(["eth", "wei_per_message_fee"])
 
-    w3 = Web3(Web3.HTTPProvider(get_config_item(["ethereum", "rpc_url"])))
+    w3 = Web3(Web3.HTTPProvider(get_config_item(["eth", "rpc_url"])))
 
     portal_artifact = json.loads(
         open('artifacts/contracts/Portal.sol/Portal.json', 'r').read()
@@ -63,8 +63,8 @@ def get_eth_deployment_data(weth_address):
         open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
       )
     
-    deployer_safe_address = get_config_item(["ethereum", "deployer_safe_address"])
-    create_call_address = get_config_item(["ethereum", "create_call_address"])
+    deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
+    create_call_address = get_config_item(["eth", "create_call_address"])
 
     salt = hashlib.sha256(b"yakuhito!").digest()
 
@@ -82,8 +82,8 @@ def get_eth_deployment_data(weth_address):
         args=[
             Web3.to_bytes(hexstr=deployer_safe_address),
             wei_per_message_fee,
-            [Web3.to_bytes(hexstr=addr) for addr in get_config_item(["ethereum", "hot_addresses"])],
-            get_config_item(["ethereum", "portal_threshold"])
+            [Web3.to_bytes(hexstr=addr) for addr in get_config_item(["eth", "hot_addresses"])],
+            get_config_item(["eth", "portal_threshold"])
         ]
     )
     proxy_constructor_data = w3.eth.contract(
