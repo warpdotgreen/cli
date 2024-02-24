@@ -11,7 +11,7 @@
 
   (list
     (list ASSERT_MY_AMOUNT my_amount)
-    (list CREATE_COIN RECEIVER my_amount)
+    (list CREATE_COIN RECEIVER my_amount (list RECEIVER))
     ; if tail_puzzle is not correct, the spend will fail
     (list CREATE_COIN 0 -113 tail_puzzle parent_parent_info)
   )

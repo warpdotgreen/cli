@@ -54,17 +54,26 @@ class ChiaFollower:
 
 
     async def signMessage(self, message: Message):
+        # todo: debug
+        if int(message.nonce.hex(), 16) < 4:
+            logging.error(f"{self.chain}: DEBUG: SKIPPING LOW NONCE FOR DEBUG")
+            return
+        # ------------------------------------------------------------------------------------------------
         logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
 
         assert message.destination_chain == self.chain_id
+        source = message.source
+        while source.startswith(b'\x00'):
+            source = source[1:]
+        # source_chain nonce source destination message
         msg_bytes: bytes = Program(Program.to([
             message.source_chain,
             message.nonce,
-            message.source,
+            source,
             message.destination,
             split_message_contents(message.contents)
         ])).get_tree_hash()
-
+        
         portal_id = await self.getUnspentPortalId()
         msg_bytes = msg_bytes + portal_id + bytes.fromhex(get_config_item([self.chain, "agg_sig_data"]))
 

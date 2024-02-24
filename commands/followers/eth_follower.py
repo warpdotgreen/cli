@@ -158,7 +158,7 @@ class EthereumFollower:
       db.add(Message(
           nonce=nonce,
           source_chain=self.chain_id,
-          source=b"0" * (64 - len(source)) + source,
+          source=b"\x00" * (64 - len(source)) + source,
           destination_chain=event['args']['destination_chain'],
           destination=event['args']['destination'],
           contents=join_message_contents(event['args']['contents']),
