@@ -47,7 +47,7 @@ class EthereumFollower:
         block_prev_hash = bytes(block['parentHash'])
 
         if prev_block_hash is None:
-          prev_block = self.db.query(Block).filter(Block.height == block_height - 1 and Block.chain_id == chain_id).first()
+          prev_block = self.db.query(Block).filter(Block.height == block_height - 1 and Block.chain_id == self.chain_id).first()
           if prev_block is not None and prev_block.hash != block_prev_hash:
               prev_block_hash = prev_block.hash
               self.revertBlock(self.db, self.chain_id, block_height - 1)
@@ -85,6 +85,7 @@ class EthereumFollower:
       logging.info(f"Quickly syncing to: {self.chain_id.decode()}-{latest_mined_block}")
 
       prev_block_hash = None
+      iters = 0
       while latest_synced_block_height <= latest_mined_block:
         latest_synced_block_height, prev_block_hash = self.syncBlockUsingHeight(
           latest_synced_block_height,
@@ -92,6 +93,11 @@ class EthereumFollower:
           prev_block_hash=prev_block_hash,
           check_current_block=prev_block_hash is None
         )
+        iters += 1
+        if iters >= 1000:
+          logging.info(f"{self.chain_id.decode()}: over 1000 iters; saving progress...")
+          self.db.commit()
+          iters = 0
       self.db.commit()
 
       logging.info(f"Quick sync done on {self.chain_id.decode()}. Listening for new blocks using filter.")
