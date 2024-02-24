@@ -97,11 +97,6 @@ class ChiaFollower:
 
             await asyncio.sleep(5)
 
-            # -----------------------------------------------------------------------------------------------------------------------------------------------
-            logging.error("DEBUG: BLOCKING SIGNER THREAD") # todo: debug
-            await asyncio.sleep(60 * 60 * 24 * 365) # todo: debug
-
-
     def revertBlock(self, db, height: int):
       block = db.query(Block).filter(and_(Block.height == height, Block.chain_id == self.chain_id)).first()
       block_hash = block.hash

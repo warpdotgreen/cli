@@ -63,7 +63,7 @@
             (sha256 1 (f (r message))) ; receiver
           ) ; inner puzzle
         ) ; CAT puzzle hash
-        (f (r (r message))) ; amount
+        (* (f (r (r message))) 1) ; amount
       )
     )
   )
