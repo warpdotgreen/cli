@@ -21,6 +21,8 @@ class Message(Base):
     destination = Column(BLOB)
     contents = Column(BLOB)
     block_hash = Column(BLOB)
+    block_number = Column(Integer)
+    has_enough_confirmations_for_signing = Column(Boolean)
     sig = Column(BLOB)
 
 class Block(Base):
@@ -30,11 +32,13 @@ class Block(Base):
     hash = Column(BLOB)
     prev_hash = Column(BLOB)
 
-class Portal(Base):
-    __tablename__ = 'portal_states'
+class ChiaPortalState(Base):
+    __tablename__ = 'xch_portal_states'
     chain_id = Column(BLOB(3), primary_key=True)
     coin_id = Column(BLOB(32), primary_key=True)
     used_chains_and_nonces = Column(BLOB)
+    confirmed_block_height = Column(Integer)
+    confirmed_block_hash = Column(BLOB(32))
 
 def setup_database(db_path='sqlite:///data.db'):
     engine = create_engine(db_path, echo=False)

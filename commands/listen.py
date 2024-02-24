@@ -17,8 +17,10 @@ def listen():
     eth_follower = EthereumFollower("eth")
     xch_follower = ChiaFollower("xch")
 
-    eth_follower.run()
-    xch_follower.run()
-
+    loop = asyncio.get_event_loop()
+    xch_follower.run(loop)
+    eth_follower.run(loop)
+    loop.run_forever()
+    
     while True:
         time.sleep(5)

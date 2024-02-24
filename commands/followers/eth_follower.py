@@ -1,5 +1,6 @@
 from commands.models import *
 from commands.config import get_config_item
+from sqlalchemy import and_
 from typing import Tuple
 from web3 import Web3
 import logging
@@ -9,10 +10,12 @@ import asyncio
 class EthereumFollower:
     chain: str
     chain_id: bytes
+    sign_min_height: int
     
     def __init__(self, chain: str):
         self.chain = chain
         self.chain_id = chain.encode()
+        self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
 
 
     def getDb(self):
@@ -24,17 +27,31 @@ class EthereumFollower:
     
 
     def revertBlock(self, db, height: int):
-      block = db.query(Block).filter(Block.height == height and Block.chain_id == self.chain_id).first()
+      block = db.query(Block).filter(and_(Block.height == height, Block.chain_id == self.chain_id)).first()
       block_hash = block.hash
-      db.query(Message).filter(Message.source_chain == self.chain_id and Message.block_hash == block_hash).delete()
+      db.query(Message).filter(
+         and_(
+            Message.source_chain == self.chain_id,
+            Message.block_hash == block_hash
+          )
+      ).delete()
       block.delete()
       logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
 
 
-    def addBlock(self, db, height: int, hash: bytes, prev_hash: bytes):
+    def addBlock(self, db, height: int, hash: bytes, prev_hash: bytes, check_messages: bool = True):
       db.add(Block(height=height, hash=hash, chain_id=self.chain_id, prev_hash=prev_hash))
       logging.info(f"Block #{self.chain_id.decode()}-{height} added to db.")
 
+      if check_messages:
+         messages = db.query(Message).filter(and_(
+            Message.source_chain == self.chain_id,
+            Message.has_enough_confirmations_for_signing.is_(False),
+            Message.block_number < height - self.sign_min_height
+         )).all()
+         for message in messages:
+            message.has_enough_confirmations_for_signing = True
+            logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
 
     # returns new block height we should sync to
     def syncBlockUsingHeight(
@@ -44,7 +61,7 @@ class EthereumFollower:
           height: int,
           block = None,
           prev_block_hash: bytes = None,
-          check_current_block: bool = True,
+          quick_sync: bool = False,
     ) -> Tuple[int, bytes]: # new_height, next prev block hash
         if block is None:
           block = web3.eth.get_block(height)
@@ -57,7 +74,9 @@ class EthereumFollower:
         block_prev_hash = bytes(block['parentHash'])
 
         if prev_block_hash is None:
-          prev_block = db.query(Block).filter(Block.height == block_height - 1 and Block.chain_id == self.chain_id).first()
+          prev_block = db.query(Block).filter(and_(
+             Block.height == block_height - 1, Block.chain_id == self.chain_id
+          )).first()
           if prev_block is not None and prev_block.hash != block_prev_hash:
               prev_block_hash = prev_block.hash
               self.revertBlock(db, self.chain_id, block_height - 1)
@@ -70,8 +89,10 @@ class EthereumFollower:
               self.revertBlock(db, self.chain_id, block_height - 1)
               return block_height - 1, None
         
-        if check_current_block:
-          current_block = db.query(Block).filter(Block.height == block_height and Block.chain_id == self.chain_id).first()
+        if not quick_sync:
+          current_block = db.query(Block).filter(and_(
+             Block.height == block_height and Block.chain_id == self.chain_id
+          )).first()
           if current_block is not None and current_block.hash == block_hash and current_block.prev_hash == block_prev_hash:
               logging.info(f"Block #{self.chain_id.decode()}-{height} already in db.")
               return block_height + 1, None
@@ -79,7 +100,7 @@ class EthereumFollower:
               self.revertBlock(db, block_height)
               return block_height, None
         
-        self.addBlock(db, block_height, block_hash, block_prev_hash)
+        self.addBlock(db, block_height, block_hash, block_prev_hash, check_messages=not quick_sync)
         return block_height + 1, block_hash
     
     async def blockFollower(self): 
@@ -103,7 +124,7 @@ class EthereumFollower:
           latest_synced_block_height,
           block=None,
           prev_block_hash=prev_block_hash,
-          check_current_block=prev_block_hash is None
+          quick_sync=prev_block_hash is not None
         )
         iters += 1
         if iters >= 200:
@@ -124,7 +145,7 @@ class EthereumFollower:
               while latest_synced_block_height < block_height + 1:
                   latest_synced_block_height, _ = self.syncBlockUsingHeight(db, web3, latest_synced_block_height)
               db.commit()
-          await asyncio.sleep(1)
+          await asyncio.sleep(5)
 
     def nonceIntToBytes(self, nonceInt: int) -> bytes:
       s = hex(nonceInt)[2:]
@@ -142,6 +163,8 @@ class EthereumFollower:
           destination=event['args']['destination'],
           contents=join_message_contents(event['args']['contents']),
           block_hash=event['blockHash'],
+          block_number=db.query(Block).filter(Block.hash == event['blockHash']).first().height,
+          has_enough_confirmations_for_signing=False,
           sig=b'',
       ))
       logging.info(f"Message {self.chain_id.decode()}-{int(event['args']['nonce'].hex(), 16)} added to db.")
@@ -179,9 +202,9 @@ class EthereumFollower:
         latest_synced_nonce_int += 1
 
         block_hash = latest_message_in_db.block_hash if latest_message_in_db is not None else None
-        block = db.query(Block).filter(
+        block = db.query(Block).filter(and_(
            Block.hash == block_hash and Block.chain_id == self.chain_id
-        ).first() if block_hash is not None else None
+        )).first() if block_hash is not None else None
         query_start_height = block.height - 1 if block is not None else get_config_item([self.chain, 'min_height'])
         while latest_synced_nonce_int <= last_used_nonce_int:
           event = self.getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
@@ -206,14 +229,11 @@ class EthereumFollower:
 
               self.addEventToDb(db, event)
               db.commit()
-          await asyncio.sleep(1)
+          await asyncio.sleep(5)
 
-    def run(self):
-      self.loop = asyncio.get_event_loop()
+    def run(self, loop):
+      self.loop = loop
 
       self.loop.create_task(self.blockFollower())
       self.loop.create_task(self.messageFollower())
       # todo: signer task
-
-      if not self.loop.is_running():
-        self.loop.run_forever()
