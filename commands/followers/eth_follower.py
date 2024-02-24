@@ -35,7 +35,6 @@ class EthereumFollower:
             Message.block_hash == block_hash
           )
       ).delete()
-      block.delete()
       logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
 
 
@@ -79,14 +78,14 @@ class EthereumFollower:
           )).first()
           if prev_block is not None and prev_block.hash != block_prev_hash:
               prev_block_hash = prev_block.hash
-              self.revertBlock(db, self.chain_id, block_height - 1)
+              self.revertBlock(db, block_height - 1)
               return block_height - 1, None
           elif prev_block is None and block_height != get_config_item([self.chain, 'min_height']):
               logging.info(f"Block #{self.chain_id.decode()}-{height-1} not in db - soft reverting.")
               return block_height - 1, None
         else:
            if prev_block_hash != block_prev_hash:
-              self.revertBlock(db, self.chain_id, block_height - 1)
+              self.revertBlock(db, block_height - 1)
               return block_height - 1, None
         
         if not quick_sync:
@@ -97,6 +96,7 @@ class EthereumFollower:
               logging.info(f"Block #{self.chain_id.decode()}-{height} already in db.")
               return block_height + 1, None
           elif current_block is not None:
+              logging.info(f"Another block #{self.chain_id.decode()}-{height} in db - reverting.")
               self.revertBlock(db, block_height)
               return block_height, None
         

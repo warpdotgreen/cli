@@ -36,9 +36,9 @@ class ChiaPortalState(Base):
     __tablename__ = 'xch_portal_states'
     chain_id = Column(BLOB(3), primary_key=True)
     coin_id = Column(BLOB(32), primary_key=True)
+    parent_id = Column(BLOB(32))
     used_chains_and_nonces = Column(BLOB)
-    confirmed_block_height = Column(Integer)
-    confirmed_block_hash = Column(BLOB(32))
+    confirmed_block_height = Column(Integer, nullable=True)
 
 def setup_database(db_path='sqlite:///data.db'):
     engine = create_engine(db_path, echo=False)
