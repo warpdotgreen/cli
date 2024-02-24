@@ -9,6 +9,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from typing import List
 from chia.types.blockchain_format.coin import Coin
 import dataclasses
+from typing import Tuple
 
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
@@ -27,8 +28,8 @@ def get_message_coin_puzzle(
     message_hash: bytes32,
 ) -> Program:
   return get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).curry(
-    nonce,
-    (source_chain, source),
+    (source_chain, nonce),
+    source,
     destination,
     message_hash
   )
@@ -38,7 +39,7 @@ def get_portal_receiver_inner_puzzle(
       signature_treshold: int,
       signature_pubkeys: list[G1Element],
       update_puzzle_hash: bytes32,
-      last_nonces: List[int] = [],
+      last_chains_and_nonces: List[Tuple[bytes, int]] = [],
 ) -> Program:
     first_curry = PORTAL_RECEIVER_MOD.curry(
        (signature_treshold, signature_pubkeys), # VALIDATOR_INFO
@@ -47,7 +48,7 @@ def get_portal_receiver_inner_puzzle(
     )
     return first_curry.curry(
        first_curry.get_tree_hash(), # SELF_HASH
-       last_nonces
+       last_chains_and_nonces
     )
 
 def get_portal_receiver_full_puzzle(
@@ -55,11 +56,11 @@ def get_portal_receiver_full_puzzle(
       signature_treshold: int,
       signature_pubkeys: List[G1Element],
       update_puzzle_hash: bytes32,
-      last_nonces: List[int] = [],
+      last_chains_and_nonces: List[Tuple[bytes, int]] = [],
 ) -> Program:
   return puzzle_for_singleton(
      launcher_id,
-     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, update_puzzle_hash, last_nonces),
+     get_portal_receiver_inner_puzzle(launcher_id, signature_treshold, signature_pubkeys, update_puzzle_hash, last_chains_and_nonces),
   )
 
 @dataclasses.dataclass(frozen=True)
@@ -84,11 +85,10 @@ def get_portal_receiver_inner_solution(
 ) -> Program:
     return Program.to([
        0 if update_puzzle_reveal is None or update_puzzle_solution is None else (update_puzzle_reveal, update_puzzle_solution),
-       [messages.nonce for messages in messages],
+       [(message.source_chain, message.nonce) for message in messages],
        [
           [
             get_sigs_switch(msg.validator_sig_switches),
-            msg.source_chain,
             msg.source,
             msg.destination,
             msg.message

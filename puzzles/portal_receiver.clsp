@@ -1,7 +1,7 @@
 ; portal_receiver.clsp by yakuhito
 ;; used to receive messages via the portal
 
-;; LAST_NONCES is here to make sure validator sigs for a 'chain' of nonce confirmations
+;; LAST_CHAINS_AND_NONCES is here to make sure validator sigs for a 'chain' of nonce confirmations
 ;; are invalidated because the coin ids will be different (caused by different puzzle hashes)
 
 (mod (
@@ -9,10 +9,10 @@
     MESSAGE_COIN_MOD_HASH ; after 1st curry
     UPDATE_PUZZLE_HASH ; m of n
     SELF_HASH
-    LAST_NONCES
+    LAST_CHAINS_AND_NONCES
     update_package ; () of (update_puzzle . update_solution)
-    nonces ; (list nonce1 nonce2 ...)
-    msg_infos ; (list (list validator_sigs_switch source_chain source destination message) ... )
+    chains_and_nonces ; (list (c source_chain_1 nonce1) (c source_chain_2 nonce2) ...)
+    msg_infos ; (list (list validator_sigs_switch source destination message) ... )
   )
 
   (include condition_codes.clib)
@@ -23,29 +23,29 @@
   (defun process_messages (
       VALIDATOR_INFO
       MESSAGE_COIN_MOD_HASH
-      (nonce . remaining_nonces)
+      ((source_chain . nonce) . remaining_chains_and_nonces)
       ((
-        validator_sigs_switch source_chain source destination message
+        validator_sigs_switch source destination message
       ). remaining_msg_infos)
     )
     (verify_validator_sigs
       VALIDATOR_INFO
       validator_sigs_switch
       (sha256tree (list
-        nonce source_chain source destination message
+        source_chain nonce source destination message
       ))
       (c
         (list CREATE_COIN (curry_hashes MESSAGE_COIN_MOD_HASH
-          (sha256 1 nonce)
           (sha256 2
             (sha256 1 source_chain)
-            (sha256 1 source)
+            (sha256 1 nonce)
           )
+          (sha256 1 source)
           (sha256 1 destination)
           (sha256 1 (sha256tree message)) ; message was revealed on-chain
         ) 0)
-        (if remaining_nonces
-          (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH remaining_nonces remaining_msg_infos)
+        (if remaining_chains_and_nonces
+          (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH remaining_chains_and_nonces remaining_msg_infos)
           ; else
           ()
         )
@@ -66,11 +66,11 @@
         CREATE_COIN
         (curry_hashes SELF_HASH
           (sha256 1 SELF_HASH)
-          (sha256tree nonces)
+          (sha256tree chains_and_nonces)
         )
         1
       )
-      (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH nonces msg_infos)
+      (process_messages VALIDATOR_INFO MESSAGE_COIN_MOD_HASH chains_and_nonces msg_infos)
     )
   )
 )

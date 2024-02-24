@@ -127,7 +127,7 @@ class TestPortal:
             VALIDATOR_TRESHOLD,
             validator_pks,
             one_puzzle_hash,
-            last_nonces=[NONCE]
+            last_chains_and_nonces=[(SOURCE_CHAIN, NONCE)]
         )
         new_portal_puzzle_hash: bytes32 = puzzle_for_singleton(
             portal_launcher_id,
@@ -154,8 +154,8 @@ class TestPortal:
 
         # nonce source_chain source destination message
         message_to_sign: bytes = Program(Program.to([
-            NONCE,
             SOURCE_CHAIN,
+            NONCE,
             SOURCE,
             target,
             MESSAGE

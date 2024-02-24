@@ -47,11 +47,8 @@ def get_cat_minter_puzzle(
       get_cat_burner_puzzle(bridging_puzzle_hash, source_chain, source).get_tree_hash()
     ]), # CAT_BURNER_PUZZLE_HASH_HASH = (sha256 1 CAT_BURNER_PUZZLE_HASH_HASH)
     BURN_INNER_PUZZLE_MOD_HASH,
-    raw_hash([
-      b'\x02',
-      raw_hash([b'\x01', source_chain]),
-      raw_hash([b'\x01', source]),
-    ]), # SOURCE_STUFF_HASH
+    source_chain,
+    source
   )
 
 def get_cat_mint_and_payout_inner_puzzle(

@@ -14,6 +14,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 @click.command()
 @async_func
 async def listen():
+    # follower = EthereumFollower("eth")
+
+    # await follower.run()
     follower = ChiaFollower("xch")
 
     await follower.run()

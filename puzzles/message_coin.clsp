@@ -6,8 +6,8 @@
     PORTAL_RECEIVER_SINGLETON_STRUCT
 
     ; second curry
-    NONCE
-    (SOURCE_CHAIN . SOURCE) ; source info
+    (SOURCE_CHAIN . NONCE)
+    SOURCE
     DESTINATION ; destination
     MESSAGE_HASH
 

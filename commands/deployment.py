@@ -287,7 +287,7 @@ async def launch_xch_portal(offer):
     )
 
 @deployment.command()
-@click.option('--for-chain', default="ethereum", help='Source/destination blockchain config entry')
+@click.option('--for-chain', default="eth", help='Source/destination blockchain config entry')
 def get_xch_info(for_chain: str):
     multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))

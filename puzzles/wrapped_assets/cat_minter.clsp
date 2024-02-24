@@ -8,7 +8,8 @@
     CAT_MINT_AND_PAYOUT_MOD_HASH
     CAT_BURNER_PUZZLE_HASH_HASH ; (sha256 1 CAT_BURNER_PUZZLE_HASH)
     CAT_BURN_INNER_MOD_HASH
-    SOURCE_STUFF_HASH ; static = (sha256tree (c SOURCE_CHAIN SOURCE))
+    SOURCE_CHAIN
+    MESSAGE_SOURCE ; [eth token bridge]
     nonce
     message
     my_puzzle_hash
@@ -34,8 +35,11 @@
     (sha256
       (if (= (strlen message_coin_parent_info) 32) message_coin_parent_info (x))
       (curry_hashes MESSAGE_COIN_MOD_HASH
-        (sha256 1 nonce)
-        SOURCE_STUFF_HASH
+        (sha256 2
+          (sha256 1 SOURCE_CHAIN)
+          (sha256 1 nonce)
+        )
+        (sha256 1 MESSAGE_SOURCE)
         (sha256 1 my_puzzle_hash) ; receiver stuff
         (sha256 1 (sha256tree message)); MESSAGE_HASH
       )
