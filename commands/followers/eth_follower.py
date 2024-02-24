@@ -1,5 +1,6 @@
 from commands.models import *
 from commands.config import get_config_item
+from typing import Tuple
 from web3 import Web3
 import time
 import logging
@@ -28,7 +29,13 @@ class EthereumFollower:
 
 
     # returns new block height we should sync to
-    def syncBlockUsingHeight(self, height: int, block=None) -> int: 
+    def syncBlockUsingHeight(
+          self,
+          height: int,
+          block = None,
+          prev_block_hash: bytes = None,
+          check_current_block: bool = True,
+    ) -> Tuple[int, bytes]: # new_height, next prev block hash
         if block is None:
           block = self.web3.eth.get_block(height)
         logging.info(f"Processing block #{self.chain_id.decode()}-{height} with hash {block['hash'].hex()}...")
@@ -39,24 +46,31 @@ class EthereumFollower:
         block_hash = bytes(block['hash'])
         block_prev_hash = bytes(block['parentHash'])
 
-        prev_block = self.db.query(Block).filter(Block.height == block_height - 1 and Block.chain_id == chain_id).first()
-        if prev_block is not None and prev_block.hash != block_prev_hash:
-            self.revertBlock(self.db, self.chain_id, block_height - 1)
-            return block_height - 1
-        elif prev_block is None and block_height != get_config_item(['ethereum', 'min_height']):
-            logging.info(f"Block #{self.chain_id.decode()}-{height-1} not in db - soft reverting.")
-            return block_height - 1
+        if prev_block_hash is None:
+          prev_block = self.db.query(Block).filter(Block.height == block_height - 1 and Block.chain_id == chain_id).first()
+          if prev_block is not None and prev_block.hash != block_prev_hash:
+              prev_block_hash = prev_block.hash
+              self.revertBlock(self.db, self.chain_id, block_height - 1)
+              return block_height - 1, None
+          elif prev_block is None and block_height != get_config_item(['ethereum', 'min_height']):
+              logging.info(f"Block #{self.chain_id.decode()}-{height-1} not in db - soft reverting.")
+              return block_height - 1, None
+        else:
+           if prev_block_hash != block_prev_hash:
+              self.revertBlock(self.db, self.chain_id, block_height - 1)
+              return block_height - 1, None
         
-        current_block = self.db.query(Block).filter(Block.height == block_height and Block.chain_id == self.chain_id).first()
-        if current_block is not None and current_block.hash == block_hash and current_block.prev_hash == block_prev_hash:
-            logging.info(f"Block #{self.chain_id.decode()}-{height} already in db.")
-            return block_height + 1
-        elif current_block is not None:
-            self.revertBlock(block_height)
-            return block_height
+        if check_current_block:
+          current_block = self.db.query(Block).filter(Block.height == block_height and Block.chain_id == self.chain_id).first()
+          if current_block is not None and current_block.hash == block_hash and current_block.prev_hash == block_prev_hash:
+              logging.info(f"Block #{self.chain_id.decode()}-{height} already in db.")
+              return block_height + 1, None
+          elif current_block is not None:
+              self.revertBlock(block_height)
+              return block_height, None
         
         self.addBlock(block_height, block_hash, block_prev_hash)
-        return block_height + 1
+        return block_height + 1, block_hash
     
     async def blockFollower(self):      
       latest_block_in_db = self.db.query(Block).filter(
@@ -70,8 +84,14 @@ class EthereumFollower:
       latest_mined_block = self.web3.eth.block_number
       logging.info(f"Quickly syncing to: {self.chain_id.decode()}-{latest_mined_block}")
 
+      prev_block_hash = None
       while latest_synced_block_height <= latest_mined_block:
-        latest_synced_block_height = self.syncBlockUsingHeight(latest_synced_block_height)
+        latest_synced_block_height, prev_block_hash = self.syncBlockUsingHeight(
+          latest_synced_block_height,
+          block=None,
+          prev_block_hash=prev_block_hash,
+          check_current_block=prev_block_hash is None
+        )
       self.db.commit()
 
       logging.info(f"Quick sync done on {self.chain_id.decode()}. Listening for new blocks using filter.")
@@ -79,9 +99,9 @@ class EthereumFollower:
           for block_hash in block_filter.get_new_entries():
               block = self.web3.eth.get_block(block_hash)
               block_height = block['number']
-              latest_synced_block_height = self.syncBlockUsingHeight(block_height, block)
+              latest_synced_block_height, _ = self.syncBlockUsingHeight(block_height, block)
               while latest_synced_block_height < block_height + 1:
-                  latest_synced_block_height = self.syncBlockUsingHeight(latest_synced_block_height)
+                  latest_synced_block_height, _ = self.syncBlockUsingHeight(latest_synced_block_height)
               self.db.commit()
           time.sleep(1)
 
