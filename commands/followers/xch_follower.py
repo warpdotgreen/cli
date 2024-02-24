@@ -21,12 +21,29 @@ class ChiaFollower:
     chain_id: bytes
     private_key: PrivateKey
     sign_min_height: int
+    unspent_portal_id: bytes
+    unspent_portal_id_lock: asyncio.Lock
 
     def __init__(self, chain: str):
         self.chain = chain
         self.chain_id = chain.encode()
         self.private_key = PrivateKey.from_bytes(bytes.fromhex(get_config_item([chain, "my_hot_private_key"])))
         self.sign_min_height = int(get_config_item([chain, "sign_min_height"]))
+        self.unspent_portal_id = None
+        self.unspent_portal_id_lock = asyncio.Lock()
+
+    async def getUnspentPortalId(self) -> bytes:
+        coin_id = None
+        while coin_id is None:
+            async with self.unspent_portal_id_lock:
+                coin_id = self.unspent_portal_id
+            if coin_id is None:
+                await asyncio.sleep(0.1)
+        return coin_id
+    
+    async def setUnspentPortalId(self, coin_id: bytes):
+        async with self.unspent_portal_id_lock:
+            self.unspent_portal_id = coin_id
 
     def getDb(self):
         return setup_database()
@@ -37,9 +54,22 @@ class ChiaFollower:
 
 
     async def signMessage(self, message: Message):
-            if int(message.nonce.hex(), 16) <= 6: #todo: debug
-                return
-            logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
+        logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
+
+        assert message.destination_chain == self.chain_id
+        msg_bytes: bytes = Program(Program.to([
+            message.source_chain,
+            message.nonce,
+            message.source,
+            message.destination,
+            split_message_contents(message.contents)
+        ])).get_tree_hash()
+
+        portal_id = await self.getUnspentPortalId()
+        msg_bytes = msg_bytes + portal_id + bytes.fromhex(get_config_item([self.chain, "agg_sig_data"]))
+
+        sig = AugSchemeMPL.sign(self.private_key, msg_bytes)
+        logging.info(f"{self.chain}: Signature: {bytes(sig).hex()}")
 
 
     async def signer(self):
@@ -67,45 +97,10 @@ class ChiaFollower:
 
             await asyncio.sleep(5)
 
+            # -----------------------------------------------------------------------------------------------------------------------------------------------
+            logging.error("DEBUG: BLOCKING SIGNER THREAD") # todo: debug
+            await asyncio.sleep(60 * 60 * 24 * 365) # todo: debug
 
-    # async def portalFollower(self):
-    #     db = self.getDb()
-    #     node = await self.getNode()
-
-    #     portal_launcher_id: bytes = bytes.fromhex(get_config_item([self.chain, "portal_launcher_id"]))
-    #     last_synced_portal = db.query(ChiaPortalState).filter(and_(
-    #         ChiaPortalState.chain_id == self.chain_id,
-    #         ChiaPortalState.confirmed_block_height != None
-    #     )).order_by(ChiaPortalState.confirmed_block_height.desc()).first()
-
-    #     if last_synced_portal is None:
-    #         logging.info(f"{self.chain}: No last synced portal found, using launcher...")
-    #         launcher_coin_record = await node.get_coin_record_by_name(portal_launcher_id)
-    #         assert launcher_coin_record.spent_block_index is not None and launcher_coin_record.spent_block_index > 0
-
-    #         launcher_spend = await node.get_puzzle_and_solution(portal_launcher_id, launcher_coin_record.spent_block_index)
-    #         conds = conditions_dict_for_solution(launcher_spend.puzzle_reveal, launcher_spend.solution, INFINITE_COST)
-    #         create_coins = conds[ConditionOpcode.CREATE_COIN]
-    #         assert len(create_coins) == 1 and create_coins[0].vars[1] == b'\x01'
-
-    #         singleton_full_puzzle_hash = create_coins[0].vars[0]
-    #         first_singleton = Coin(
-    #             portal_launcher_id,
-    #             singleton_full_puzzle_hash,
-    #             1
-    #         )
-
-    #         last_synced_portal = ChiaPortalState(
-    #             chain_id=self.chain_id,
-    #             coin_id=first_singleton.name(),
-    #             used_chains_and_nonces=bytes(Program.to([])),
-    #             confirmed_block_height=launcher_coin_record.spent_block_index,
-    #             confimerd_block_hash=launcher_coin_record.spent_block_hash
-    #         )
-    #         db.add(last_synced_portal)
-    #         db.commit()
-
-    #     logging.info(f"Latest portal coin: 0x{last_synced_portal.coin_id.hex()}")
 
     def revertBlock(self, db, height: int):
       block = db.query(Block).filter(and_(Block.height == height, Block.chain_id == self.chain_id)).first()
@@ -118,18 +113,12 @@ class ChiaFollower:
       ).delete()
       portal_states: List[ChiaPortalState] = db.query(ChiaPortalState).filter(and_(
          ChiaPortalState.chain_id == self.chain_id,
-         ChiaPortalState.confirmed_block_height == block_hash
+         ChiaPortalState.confirmed_block_height >= height
       )).all()
       for portal_state in portal_states:
         portal_state.confirmed_block_height = None
       db.delete(block)
       logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
-
-
-    async def signMessage(self, db, message: Message):
-        # message.has_enough_confirmations_for_signing = True
-        logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; signing...")
-        # todo
 
 
     def addBlock(
@@ -154,7 +143,9 @@ class ChiaFollower:
             Message.block_number < height - self.sign_min_height
         )).all()
         for message in messages:
-            self.signMessage(db, message)
+            logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
+            message.has_enough_confirmations_for_signing = True
+
 
     async def syncBlock(self, db, node: FullNodeRpcClient, block_height: int, prev_hash: bytes) -> Tuple[int, bytes]:
         block_record: BlockRecord = await node.get_block_record_by_height(block_height)
@@ -169,7 +160,7 @@ class ChiaFollower:
         if prev_hash is None:
             prev_hash = db.query(Block.hash).filter(and_(
                 Block.height == block_height - 1, Block.chain_id == self.chain_id
-            )).first()[0]
+            )).first()
             if prev_hash is None:
                 if block_height == get_config_item([self.chain, 'min_height']):
                     logging.info(f"Block #{self.chain_id.decode()}-{block_height} is the first block in db.")
@@ -177,6 +168,7 @@ class ChiaFollower:
                     return block_height + 1, block_hash
                 logging.info(f"Block #{self.chain_id.decode()}-{block_height-1} not in db - soft reverting.")
                 return block_height - 1, None
+            prev_hash = prev_hash[0]
         
         if prev_hash != block_record.prev_hash:
             self.revertBlock(db, block_height - 1)
@@ -219,10 +211,120 @@ class ChiaFollower:
         await node.await_closed()
 
 
+    async def syncPortal(
+        self,
+        db,
+        node: FullNodeRpcClient,
+        last_synced_portal: ChiaPortalState
+    ) -> ChiaPortalState:
+        coin_record = await node.get_coin_record_by_name(last_synced_portal.coin_id)
+        if coin_record.spent_block_index == 0:
+            parent_coin_record = await node.get_coin_record_by_name(last_synced_portal.parent_id)
+            if parent_coin_record.spent_block_index == 0:
+                logging.info(f"Portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}: parent is unspent; reverting.")
+                parent_state = db.query(ChiaPortalState).filter(
+                    ChiaPortalState.coin_id == last_synced_portal.parent_id
+                ).first()
+                last_synced_portal.confirmed_block_height = None
+                return parent_state
+            
+            # else, unspent - just wait patiently
+            await self.setUnspentPortalId(last_synced_portal.coin_id)
+            await asyncio.sleep(5)
+            return last_synced_portal
+
+        # spent!
+        spend = await node.get_puzzle_and_solution(last_synced_portal.coin_id, coin_record.spent_block_index)
+        conds = conditions_dict_for_solution(spend.puzzle_reveal, spend.solution, INFINITE_COST)
+        create_coins = conds[ConditionOpcode.CREATE_COIN]
+        new_ph = None
+        for cond in create_coins:
+            if cond.vars[1] == b'\x01':
+                new_ph = cond.vars[0]
+                break
+        if new_ph is None:
+            logging.error(f"Portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}: no singleton found in spend; reverting.")
+
+        raise Exception("I DID NOT EXPECT THIS TO GO SO FAR")
+        # todo: this
+        # warning: look at the thing below carefully; it was generated by copilot
+        # singleton_full_puzzle_hash = create_coins[0].vars[0]
+        # new_singleton = Coin(
+        #     last_synced_portal.coin_id,
+        #     singleton_full_puzzle_hash,
+        #     1
+        # )
+
+        # last_synced_portal = ChiaPortalState(
+        #     chain_id=self.chain_id,
+        #     coin_id=new_singleton.name(),
+        #     parent_id=last_synced_portal.coin_id,
+        #     used_chains_and_nonces=bytes(Program.to([])),
+        #     confirmed_block_height=coin_record.spent_block_index,
+        # )
+        # db.add(last_synced_portal)
+        # db.commit()
+
+        # logging.info(f"New portal coin: 0x{last_synced_portal.coin_id.hex()}")
+
+        # return last_synced_portal
+        # also, make sure to remove other portal states with the same parent_id
+        # also, await self.setUnspentPortalId(last_synced_portal.coin_id) :)
+        # also, resign messages :)
+        # also, add used nonces to list
+    
+
+
+    async def portalFollower(self):
+        db = self.getDb()
+        node = await self.getNode()
+
+        portal_launcher_id: bytes = bytes.fromhex(get_config_item([self.chain, "portal_launcher_id"]))
+        last_synced_portal = db.query(ChiaPortalState).filter(and_(
+            ChiaPortalState.chain_id == self.chain_id,
+            ChiaPortalState.confirmed_block_height != None
+        )).order_by(ChiaPortalState.confirmed_block_height.desc()).first()
+
+        if last_synced_portal is None:
+            logging.info(f"{self.chain}: No last synced portal found, using launcher...")
+            launcher_coin_record = await node.get_coin_record_by_name(portal_launcher_id)
+            assert launcher_coin_record.spent_block_index > 0
+
+            launcher_spend = await node.get_puzzle_and_solution(portal_launcher_id, launcher_coin_record.spent_block_index)
+            conds = conditions_dict_for_solution(launcher_spend.puzzle_reveal, launcher_spend.solution, INFINITE_COST)
+            create_coins = conds[ConditionOpcode.CREATE_COIN]
+            assert len(create_coins) == 1 and create_coins[0].vars[1] == b'\x01'
+
+            singleton_full_puzzle_hash = create_coins[0].vars[0]
+            first_singleton = Coin(
+                portal_launcher_id,
+                singleton_full_puzzle_hash,
+                1
+            )
+
+            last_synced_portal = ChiaPortalState(
+                chain_id=self.chain_id,
+                coin_id=first_singleton.name(),
+                parent_id=portal_launcher_id,
+                used_chains_and_nonces=bytes(Program.to([])),
+                confirmed_block_height=launcher_coin_record.spent_block_index,
+            )
+            db.add(last_synced_portal)
+            db.commit()
+
+        logging.info(f"Latest portal coin: 0x{last_synced_portal.coin_id.hex()}")
+
+        while True:
+            last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
+            db.commit()
+
+        node.close()
+        await node.await_closed()
+
+
     def run(self, loop):
         self.loop = loop
 
-        # self.loop.create_task(self.signer())
-        self.loop.create_task(self.blockFollower())
-        # todo: block follower + message follower task
-        # self.loop.create_task(self.portalFollower())
+        self.loop.create_task(self.signer())
+        # self.loop.create_task(self.blockFollower())
+        self.loop.create_task(self.portalFollower())
