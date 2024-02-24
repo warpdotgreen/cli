@@ -8,10 +8,15 @@ import json
 import asyncio
 
 class EthereumFollower:
-    def __init__(self, chain_name: str, chain_id: bytes):
-        self.chain_name = chain_name
-        self.chain_id = chain_id
-        self.web3 = Web3(Web3.HTTPProvider(get_config_item([chain_name, 'rpc_url'])))
+    chain: str
+    chain_id: bytes
+    web3: any
+    db: any
+    
+    def __init__(self, chain: str):
+        self.chain = chain
+        self.chain_id = chain.encode()
+        self.web3 = Web3(Web3.HTTPProvider(get_config_item([chain, 'rpc_url'])))
         self.db = setup_database()
 
 
@@ -76,7 +81,7 @@ class EthereumFollower:
       latest_block_in_db = self.db.query(Block).filter(
          Block.chain_id == self.chain_id
       ).order_by(Block.height.desc()).first()
-      latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain_name, 'min_height'])
+      latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height'])
       logging.info(f"Synced peak: {self.chain_id.decode()}-{latest_synced_block_height}")
 
       block_filter = self.web3.eth.filter('latest')
@@ -140,7 +145,7 @@ class EthereumFollower:
     
     async def messageFollower(self):
       portal_contract_abi = json.loads(open("artifacts/contracts/Portal.sol/Portal.json", "r").read())["abi"]
-      portal_contract_address = get_config_item([self.chain_name, 'portal_address'])
+      portal_contract_address = get_config_item([self.chain, 'portal_address'])
       
       latest_message_in_db = self.db.query(Message).filter(
          Message.source_chain == self.chain_id
@@ -162,7 +167,7 @@ class EthereumFollower:
         block = self.db.query(Block).filter(
            Block.hash == block_hash and Block.chain_id == self.chain_id
         ).first() if block_hash is not None else None
-        query_start_height = block.height - 1 if block is not None else get_config_item([self.chain_name, 'min_height'])
+        query_start_height = block.height - 1 if block is not None else get_config_item([self.chain, 'min_height'])
         while latest_synced_nonce_int <= last_used_nonce_int:
           event = self.getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
           self.addEventToDb(event)
@@ -191,6 +196,7 @@ class EthereumFollower:
     async def run(self):
       self.block_follower_task = asyncio.create_task(self.blockFollower())
       self.message_follower_task = asyncio.create_task(self.messageFollower())
+      # todo: signer task
 
       await self.block_follower_task
       await self.message_follower_task

@@ -7,12 +7,13 @@ import time
 import logging
 import json
 from commands.followers.eth_follower import EthereumFollower
+from commands.followers.xch_follower import ChiaFollower
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @click.command()
 @async_func
 async def listen():
-    follower = EthereumFollower('ethereum', b'eth')
+    follower = ChiaFollower("xch")
 
     await follower.run()

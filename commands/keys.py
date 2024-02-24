@@ -36,7 +36,7 @@ def generate_xch_key():
     first_wallet_pk = first_wallet_sk.get_g1()
     first_wallet_synthetic_key = calculate_synthetic_public_key(first_wallet_pk, DEFAULT_HIDDEN_PUZZLE_HASH)
     first_puzzle_hash = puzzle_hash_for_synthetic_public_key(first_wallet_synthetic_key)
-    first_address = encode_puzzle_hash(first_puzzle_hash, get_config_item(["chia", "prefix"]))
+    first_address = encode_puzzle_hash(first_puzzle_hash, get_config_item(["xch", "prefix"]))
     click.echo(f"First address: {first_address}")
 
 @keys.command()

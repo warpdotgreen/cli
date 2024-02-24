@@ -15,10 +15,9 @@ def async_func(f):
         return loop.run_until_complete(f(*args, **kwargs))
     return update_wrapper(wrapper, f)
 
-async def get_node_client() -> FullNodeRpcClient:
+async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
     try:  
-        root_path = Path(get_config_item(["chia", "chia_root"]))
-        print("yak", root_path)
+        root_path = Path(get_config_item([chain_name, "chia_root"]))
         config = load_config(root_path, "config.yaml")
         self_hostname = config["self_hostname"]
         rpc_port = config["full_node"]["rpc_port"]
@@ -28,13 +27,15 @@ async def get_node_client() -> FullNodeRpcClient:
         await node_client.healthz()
         return node_client
     except:
-        print("Failed to connect to the full node - check chia_root.")
-        sys.exit(1)
+        return None
 
 def with_node(f):
     @functools.wraps(f)
     async def wrapper(*args, **kwargs):
         node_client = await get_node_client()
+        if node_client is None:
+            print("Failed to connect to the full node - check chia_root.")
+            sys.exit(1)
 
         res = await f(*args, **kwargs, node=node_client)
 

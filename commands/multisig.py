@@ -14,6 +14,7 @@ from typing import List
 from blspy import PrivateKey, AugSchemeMPL, G1Element, G2Element
 from chia.types.spend_bundle import SpendBundle
 from chia.types.blockchain_format.program import INFINITE_COST
+from typing import Tuple
 from drivers.multisig import *
 import json
 
@@ -23,12 +24,12 @@ def multisig():
 
 COIN_ID_SAVE_FILE = "last_spent_multisig_coinid"
 
-async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> [CoinSpend, bytes32]:
+async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> Tuple[CoinSpend, bytes32]:
     last_coin_id: bytes32
     try:
         last_coin_id = bytes.fromhex(open(COIN_ID_SAVE_FILE, "r").read())
     except:
-        last_coin_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
+        last_coin_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
 
     parent_record = None
     coin_record: CoinRecord = await node.get_coin_record_by_name(last_coin_id)
@@ -52,7 +53,7 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
 
 
 def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
-    launcher_id: bytes32 = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
+    launcher_id: bytes32 = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
     coin_id: bytes32 = bytes.fromhex(unsigned_tx["multisig_latest_id"])
     conditions = []
 
@@ -93,8 +94,8 @@ def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
     conditions.append([ConditionOpcode.RESERVE_FEE, fee])
 
     inner_puzzle: Program = get_multisig_inner_puzzle(
-        [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["chia", "multisig_keys"])],
-        get_config_item(["chia", "multisig_threshold"])
+        [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["xch", "multisig_keys"])],
+        get_config_item(["xch", "multisig_threshold"])
     )
     delegated_puzzle: Program = get_multisig_delegated_puzzle_for_conditions(
         coin_id,
@@ -112,12 +113,12 @@ async def start_new_tx(
     payout_structure_file: str
 ):
     click.echo("Finding coins...")
-    launcher_id = get_config_item(["chia", "multisig_launcher_id"])
+    launcher_id = get_config_item(["xch", "multisig_launcher_id"])
     launcher_id: bytes32 = bytes.fromhex(launcher_id)
     p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
     click.echo(f"p2_puzzle_hash: {p2_puzzle_hash.hex()}")
 
-    p2_puzzle_hash_verify = get_config_item(["chia", "bridging_ph"])
+    p2_puzzle_hash_verify = get_config_item(["xch", "bridging_ph"])
     if p2_puzzle_hash.hex() != p2_puzzle_hash_verify:
         click.echo("Oops! p2_puzzle_hash mismatch :(")
         return
@@ -125,7 +126,7 @@ async def start_new_tx(
     coin_records: List[CoinRecord] = await node.get_coin_records_by_puzzle_hash(p2_puzzle_hash, include_spent_coins=False)
 
     # in case someone tries to be funny
-    # filter_amount = get_config_item(["chia", "per_message_fee"])
+    # filter_amount = get_config_item(["xch", "per_message_fee"])
     # coin_records = [cr for cr in coin_records if cr.coin.amount == filter_amount]
 
     if len(coin_records) == 0:
@@ -212,7 +213,7 @@ def sign_tx(
     pk: G1Element = sk.get_g1()
     sig = AugSchemeMPL.sign(sk, message_to_sign)
 
-    pks = get_config_item(["chia", "multisig_keys"])
+    pks = get_config_item(["xch", "multisig_keys"])
     pk_index = pks.index(bytes(pk).hex())
     click.echo(f"Signature: {pk_index}-{bytes(sig).hex()}")
 
@@ -240,10 +241,10 @@ async def broadcast_spend(
 
   delegated_puzzle = get_delegated_puzzle_for_unsigned_tx(unsigned_tx)
   delegated_puzzle_hash: bytes32 = delegated_puzzle.get_tree_hash()
-  multisig_launcher_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
+  multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
 
-  threshold = get_config_item(["chia", "multisig_threshold"])
-  pks = [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["chia", "multisig_keys"])]
+  threshold = get_config_item(["xch", "multisig_threshold"])
+  pks = [G1Element.from_bytes(bytes.fromhex(pk_str)) for pk_str in get_config_item(["xch", "multisig_keys"])]
 
   multisig_inner_puzzle = get_multisig_inner_puzzle(
       pks,

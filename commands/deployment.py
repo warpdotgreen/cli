@@ -207,7 +207,7 @@ async def securely_launch_singleton(
         [launcher_parent_spend],
         just_return_the_fing_key,
         just_return_the_fing_key,
-        bytes.fromhex(get_config_item(["chia", "agg_sig_data"])),
+        bytes.fromhex(get_config_item(["xch", "agg_sig_data"])),
         DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM,
         []
     )
@@ -239,8 +239,8 @@ async def launch_xch_multisig(offer):
         return
     offer = Offer.from_bech32(offer)
 
-    threshold = get_config_item(["chia", "multisig_threshold"])
-    pks = get_config_item(["chia", "multisig_keys"])
+    threshold = get_config_item(["xch", "multisig_threshold"])
+    pks = get_config_item(["xch", "multisig_keys"])
     pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in pks]
     multisig_inner_puzzle = get_multisig_inner_puzzle(pks, threshold)
 
@@ -267,10 +267,10 @@ async def launch_xch_portal(offer):
         return
     offer = Offer.from_bech32(offer)
     
-    portal_threshold = get_config_item(["chia", "portal_threshold"])
-    portal_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["chia", "portal_keys"])]
-    multisig_threshold = get_config_item(["chia", "multisig_threshold"])
-    multisig_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["chia", "multisig_keys"])]
+    portal_threshold = get_config_item(["xch", "portal_threshold"])
+    portal_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["xch", "portal_keys"])]
+    multisig_threshold = get_config_item(["xch", "multisig_threshold"])
+    multisig_pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in get_config_item(["xch", "multisig_keys"])]
 
     def get_portal_receiver_inner_puzzle_pls(launcher_id: bytes32):
         return get_portal_receiver_inner_puzzle(
@@ -289,9 +289,9 @@ async def launch_xch_portal(offer):
 @deployment.command()
 @click.option('--for-chain', default="ethereum", help='Source/destination blockchain config entry')
 def get_xch_info(for_chain: str):
-    multisig_launcher_id = bytes.fromhex(get_config_item(["chia", "multisig_launcher_id"]))
-    portal_launcher_id = bytes.fromhex(get_config_item(["chia", "portal_launcher_id"]))
-    portal_threshold = get_config_item(["chia", "portal_threshold"])
+    multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
+    portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
+    portal_threshold = get_config_item(["xch", "portal_threshold"])
 
     p2_multisig = pay_to_singleton_puzzle(multisig_launcher_id).get_tree_hash()
 
