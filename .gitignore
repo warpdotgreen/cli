@@ -167,3 +167,4 @@ rpc-venv
 rpc-venv/
 data.db
 data.db-journal
+messages.txt

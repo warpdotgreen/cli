@@ -66,7 +66,7 @@ def get_eth_deployment_data(weth_address):
     deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
     create_call_address = get_config_item(["eth", "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how often yakuhito manually changed this salt").digest()
+    salt = hashlib.sha256(b"you cannot imagine how often yakuhito manually changed this salt source").digest()
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],

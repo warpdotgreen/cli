@@ -54,11 +54,6 @@ class ChiaFollower:
 
 
     async def signMessage(self, message: Message):
-        # todo: debug
-        if int(message.nonce.hex(), 16) < 4:
-            logging.error(f"{self.chain}: DEBUG: SKIPPING LOW NONCE FOR DEBUG")
-            return
-        # ------------------------------------------------------------------------------------------------
         logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
 
         assert message.destination_chain == self.chain_id
