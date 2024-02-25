@@ -48,13 +48,13 @@ def decode_signature(enc_sig: str) -> Tuple[
     bytes  # sig
 ]:
     parts = enc_sig.split("-")
-    route_data = convertbits(bech32_decode(parts[0])[1], 5, 8, False)
+    route_data = convertbits(bech32_decode(parts[0], (32 + 3 + 3) * 2)[1], 5, 8, False)
     origin_chain = route_data[:3]
     destination_chain = route_data[3:6]
     nonce = route_data[6:]
 
     coin_id = convertbits(bech32_decode(parts[1])[1], 5, 8, False)
-    sig = convertbits(bech32_decode(parts[-1])[1], 5, 8, False)
+    sig = convertbits(bech32_decode(parts[-1], 96 * 2)[1], 5, 8, False)
 
     return origin_chain, destination_chain, nonce, coin_id, sig
 
