@@ -108,8 +108,6 @@ class ChiaFollower:
             return
         
         for used_chain_and_nonce in Program.from_bytes(portal_state.used_chains_and_nonces).as_iter():
-            print("todo: verify these", used_chain_and_nonce)
-            print(used_chain_and_nonce.first().as_atom(), message.source_chain, used_chain_and_nonce.rest().as_atom(), message.nonce)
             if used_chain_and_nonce.first().as_atom() == message.source_chain and used_chain_and_nonce.rest().as_atom() == message.nonce:
                 logging.error(f"Chain {self.chain}-0x{message.nonce.hex()}: nonce already used. Not signing message.")
                 message.sig = SIG_USED_VALUE
@@ -340,6 +338,9 @@ class ChiaFollower:
             1
         )
 
+        db.query(ChiaPortalState).filter(
+            ChiaPortalState.parent_id == new_singleton.parent_coin_info
+        ).delete()
         new_synced_portal = ChiaPortalState(
             chain_id=self.chain_id,
             coin_id=new_singleton.name(),
@@ -347,13 +348,10 @@ class ChiaFollower:
             used_chains_and_nonces=chains_and_nonces,
             confirmed_block_height=coin_record.spent_block_index,
         )
-        logging.info(f"New portal coin: {self.chain}-0x{new_synced_portal.coin_id.hex()}")
-
-        db.query(ChiaPortalState).filter(
-            ChiaPortalState.parent_id == new_synced_portal.parent_id
-        ).delete()
-        db.add(last_synced_portal)
+        db.add(new_synced_portal)
         db.commit()
+
+        logging.info(f"New portal coin: {self.chain}-0x{new_synced_portal.coin_id.hex()}")
 
         await self.setUnspentPortalId(new_synced_portal.coin_id)
 
@@ -419,6 +417,6 @@ class ChiaFollower:
     def run(self, loop):
         self.loop = loop
 
-        # self.loop.create_task(self.signer())
-        # self.loop.create_task(self.blockFollower())
+        self.loop.create_task(self.signer())
+        self.loop.create_task(self.blockFollower())
         self.loop.create_task(self.portalFollower())
