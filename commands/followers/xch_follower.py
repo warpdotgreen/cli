@@ -8,7 +8,7 @@ from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
-from chia.util.bech32m import bech32_encode, convertbits
+from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from typing import Tuple
 from web3 import Web3
 import logging
@@ -38,6 +38,25 @@ def encode_signature(
     res += bech32_encode("s", convertbits(sig, 8, 5))
 
     return res
+
+
+def decode_signature(enc_sig: str) -> Tuple[
+    bytes,  # origin_chain
+    bytes,  # destination_chain
+    bytes,  # nonce
+    bytes | None,  # coin_id
+    bytes  # sig
+]:
+    parts = enc_sig.split("-")
+    route_data = convertbits(bech32_decode(parts[0])[1], 5, 8, False)
+    origin_chain = route_data[:3]
+    destination_chain = route_data[3:6]
+    nonce = route_data[6:]
+
+    coin_id = convertbits(bech32_decode(parts[1])[1], 5, 8, False)
+    sig = convertbits(bech32_decode(parts[-1])[1], 5, 8, False)
+
+    return origin_chain, destination_chain, nonce, coin_id, sig
 
 
 SIG_USED_VALUE = b"used"
@@ -361,7 +380,9 @@ class ChiaFollower:
             Message.has_enough_confirmations_for_signing.is_(True)
         )).all()
         for message in messages:
-            await self.signMessage(db, message)
+            _, __, ___, coin_id, ____ = decode_signature(message.sig.decode())
+            if coin_id != new_synced_portal.coin_id:
+                await self.signMessage(db, message)
 
         return new_synced_portal
     
