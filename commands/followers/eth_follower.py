@@ -32,7 +32,7 @@ class EthereumFollower:
       db.query(Message).filter(
          and_(
             Message.source_chain == self.chain_id,
-            Message.block_hash == block_hash
+            Message.block_number >= height
           )
       ).delete()
       logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")

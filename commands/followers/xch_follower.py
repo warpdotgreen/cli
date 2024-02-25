@@ -69,6 +69,7 @@ class ChiaFollower:
     sign_min_height: int
     unspent_portal_id: bytes
     unspent_portal_id_lock: asyncio.Lock
+    bridging_puzzle_hash: bytes
 
     def __init__(self, chain: str):
         self.chain = chain
@@ -77,6 +78,7 @@ class ChiaFollower:
         self.sign_min_height = int(get_config_item([chain, "sign_min_height"]))
         self.unspent_portal_id = None
         self.unspent_portal_id_lock = asyncio.Lock()
+        self.bridging_puzzle_hash = bytes.fromhex(get_config_item([chain, "bridging_ph"]))
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -185,7 +187,7 @@ class ChiaFollower:
       db.query(Message).filter(
          and_(
             Message.source_chain == self.chain_id,
-            Message.block_hash == block_hash
+            Message.block_number >= height
           )
       ).delete()
       portal_states: List[ChiaPortalState] = db.query(ChiaPortalState).filter(and_(
@@ -214,7 +216,7 @@ class ChiaFollower:
         ))
         logging.info(f"Block #{self.chain_id.decode()}-{height} added to db.")
 
-        messages = db.query(Message).filter(and_(
+        messages: List[Message] = db.query(Message).filter(and_(
             Message.source_chain == self.chain_id,
             Message.has_enough_confirmations_for_signing.is_(False),
             Message.block_number < height - self.sign_min_height
@@ -435,9 +437,37 @@ class ChiaFollower:
         await node.await_closed()
 
 
+    async def sentMessagesListener(self):
+        db = self.getDb()
+        node = await self.getNode()
+
+        while True:
+            last_message_height = db.query(Message.block_number).filter(
+                Message.source_chain == self.chain_id
+            ).order_by(Message.block_number.desc()).first()
+            if last_message_height is None:
+                last_message_height = get_config_item([self.chain, 'min_height']) - 1
+
+            query_message_height = last_message_height + 1
+            records = await node.get_coin_records_by_puzzle_hash(
+                self.bridging_puzzle_hash,
+                include_spent_coins=True,
+                start_height=query_message_height
+            )
+
+            for coin_record in records:
+                print(coin_record)
+                # todo: get parent spend, turn into message, add to db
+            await asyncio.sleep(10)
+
+        node.close()
+        await node.await_closed()
+
+
     def run(self, loop):
         self.loop = loop
 
         self.loop.create_task(self.signer())
         self.loop.create_task(self.blockFollower())
         self.loop.create_task(self.portalFollower())
+        self.loop.create_task(self.sentMessagesListener())
