@@ -8,60 +8,15 @@ from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
-from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from chia.types.coin_record import CoinRecord
+from commands.followers.sig import encode_signature, decode_signature
 from typing import Tuple
-from web3 import Web3
 import logging
-import json
 import asyncio
 from sqlalchemy import and_
 from blspy import AugSchemeMPL, PrivateKey
 
-def encode_signature(
-    origin_chain: bytes,
-    destination_chain: bytes,
-    nonce: bytes,
-    coin_id: bytes | None,
-    sig: bytes
-) -> str:
-    res = ""
-    route_data = origin_chain + destination_chain + nonce
-    encoded = bech32_encode("r", convertbits(route_data, 8, 5))
-    res += encoded
-    res += "-"
-
-    if coin_id is not None:
-        res += bech32_encode("c", convertbits(coin_id, 8, 5))
-
-    res += "-"
-
-    res += bech32_encode("s", convertbits(sig, 8, 5))
-
-    return res
-
-
-def decode_signature(enc_sig: str) -> Tuple[
-    bytes,  # origin_chain
-    bytes,  # destination_chain
-    bytes,  # nonce
-    bytes | None,  # coin_id
-    bytes  # sig
-]:
-    parts = enc_sig.split("-")
-    route_data = convertbits(bech32_decode(parts[0], (32 + 3 + 3) * 2)[1], 5, 8, False)
-    origin_chain = route_data[:3]
-    destination_chain = route_data[3:6]
-    nonce = route_data[6:]
-
-    coin_id = convertbits(bech32_decode(parts[1])[1], 5, 8, False)
-    sig = convertbits(bech32_decode(parts[-1], 96 * 2)[1], 5, 8, False)
-
-    return origin_chain, destination_chain, nonce, coin_id, sig
-
-
 SIG_USED_VALUE = b"used"
-
 
 class ChiaFollower:
     chain: str
@@ -141,7 +96,7 @@ class ChiaFollower:
         msg_bytes = msg_bytes + portal_id + bytes.fromhex(get_config_item([self.chain, "agg_sig_data"]))
 
         sig = AugSchemeMPL.sign(self.private_key, msg_bytes)
-        logging.info(f"{self.chain}: Raw signature: {bytes(sig).hex()}")
+        logging.info(f"{self.chain}-{message.nonce.hex()}: Raw signature: {bytes(sig).hex()}")
 
         message.sig = encode_signature(
             message.source_chain,
@@ -151,7 +106,7 @@ class ChiaFollower:
             bytes(sig)
         ).encode()
         db.commit()
-        logging.info(f"{self.chain}: Signature: {message.sig.decode()}")
+        logging.info(f"{self.chain}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
         # todo: replace with nostr
         open("messages.txt", "a").write(message.sig.decode() + "\n")

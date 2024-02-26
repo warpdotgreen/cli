@@ -2,6 +2,8 @@ from commands.models import *
 from commands.config import get_config_item
 from sqlalchemy import and_
 from typing import Tuple
+from eth_account.messages import encode_defunct
+from commands.followers.sig import encode_signature, decode_signature
 from web3 import Web3
 import logging
 import json
@@ -11,11 +13,13 @@ class EthereumFollower:
     chain: str
     chain_id: bytes
     sign_min_height: int
+    private_key: str
     
     def __init__(self, chain: str):
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
+        self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
 
 
     def getDb(self):
@@ -60,6 +64,7 @@ class EthereumFollower:
             
             message.has_enough_confirmations_for_signing = True
             logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
+
 
     # returns new block height we should sync to
     def syncBlockUsingHeight(
@@ -112,6 +117,7 @@ class EthereumFollower:
         self.addBlock(db, block_height, block_hash, block_prev_hash, check_messages=not quick_sync)
         return block_height + 1, block_hash
     
+
     async def blockFollower(self): 
       db = self.getDb()
       web3 = self.getWeb3()
@@ -155,6 +161,7 @@ class EthereumFollower:
                   latest_synced_block_height, _ = self.syncBlockUsingHeight(db, web3, latest_synced_block_height)
               db.commit()
           await asyncio.sleep(5)
+
 
     def nonceIntToBytes(self, nonceInt: int) -> bytes:
       s = hex(nonceInt)[2:]
@@ -203,6 +210,7 @@ class EthereumFollower:
       )
       return one_event_filter.get_all_entries()[0]
     
+
     async def messageFollower(self):
       db = self.getDb()
       web3 = self.getWeb3()
@@ -257,9 +265,81 @@ class EthereumFollower:
               db.commit()
           await asyncio.sleep(5)
 
+
+    async def signMessage(self, db, web3: Web3, message: Message):
+      encoded_message = web3.solidity_keccak(
+          ['bytes32', 'bytes3', 'bytes32', 'address', 'bytes32[]'],
+          [
+              message.nonce,
+              message.source_chain,
+              message.source,
+              Web3.to_checksum_address("0x" + message.destination[-40:].hex()),
+              split_message_contents(message.contents)
+          ]
+      )
+      signed_message = web3.eth.account.sign_message(
+         encode_defunct(encoded_message),
+         self.private_key
+      )
+      
+      # uint8(v), bytes32(r), bytes32(s)
+      v = bytes.fromhex(hex(signed_message.v)[2:])
+      assert len(v) == 1
+      r = bytes.fromhex(hex(signed_message.r)[2:])
+      if len(r) < 32:
+         r = (32 - len(r)) * b"\x00" + r
+      s = bytes.fromhex(hex(signed_message.s)[2:])
+      if len(s) < 32:
+          s = (32 - len(s)) * b"\x00" + s
+      sig = v + r + s
+
+      logging.info(f"{self.chain}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
+
+      message.sig = encode_signature(
+          message.source_chain,
+          message.destination_chain,
+          message.nonce,
+          None,
+          sig
+      ).encode()
+      db.commit()
+      logging.info(f"{self.chain}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
+
+      # todo: replace with nostr
+      open("messages.txt", "a").write(message.sig.decode() + "\n")
+
+
+    async def messageSigner(self):
+      db = self.getDb()
+      web3 = self.getWeb3()
+
+      while True:
+          messages = []
+          try:
+              messages = db.query(Message).filter(and_(
+                  Message.destination_chain == self.chain_id,
+                  Message.sig == b'',
+                  Message.has_enough_confirmations_for_signing.is_(True)
+              )).all()
+          except Exception as e:
+              logging.error(f"Error querying messages: {e}")
+              logging.error(e)
+              pass
+
+          for message in messages:
+              try:
+                  await self.signMessage(db, web3, message)
+                  db.commit()
+              except Exception as e:
+                  logging.error(f"Error signing message {message.nonce.hex()}: {e}")
+                  logging.error(e)
+
+          await asyncio.sleep(5)
+
+
     def run(self, loop):
       self.loop = loop
 
-      self.loop.create_task(self.blockFollower())
-      self.loop.create_task(self.messageFollower())
-      # todo: signer task
+      # self.loop.create_task(self.blockFollower())
+      # self.loop.create_task(self.messageFollower())
+      self.loop.create_task(self.messageSigner())
