@@ -283,17 +283,18 @@ class EthereumFollower:
       )
       
       # uint8(v), bytes32(r), bytes32(s)
-      v = bytes.fromhex(hex(signed_message.v)[2:])
-      assert len(v) == 1
-      r = bytes.fromhex(hex(signed_message.r)[2:])
-      if len(r) < 32:
-         r = (32 - len(r)) * b"\x00" + r
-      s = bytes.fromhex(hex(signed_message.s)[2:])
-      if len(s) < 32:
-          s = (32 - len(s)) * b"\x00" + s
-      sig = v + r + s
+      v = hex(signed_message.v)[2:]
+      if len(v) < 2:
+          v = "0" * (2 - len(v)) + v
+      r = hex(signed_message.r)[2:]
+      if len(r) < 64:
+         r = (64 - len(r)) * "0" + r
+      s = hex(signed_message.s)[2:]
+      if len(s) < 64:
+          s = (64 - len(s)) * "0" + s
+      sig = bytes.fromhex(v + r + s)
 
-      logging.info(f"{self.chain}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
+      logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
 
       message.sig = encode_signature(
           message.source_chain,
@@ -303,7 +304,7 @@ class EthereumFollower:
           sig
       ).encode()
       db.commit()
-      logging.info(f"{self.chain}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
+      logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
       # todo: replace with nostr
       open("messages.txt", "a").write(message.sig.decode() + "\n")
@@ -331,7 +332,7 @@ class EthereumFollower:
                   await self.signMessage(db, web3, message)
                   db.commit()
               except Exception as e:
-                  logging.error(f"Error signing message {message.nonce.hex()}: {e}")
+                  logging.error(f"{self.chain} Signer - Error signing message {message.nonce.hex()}: {e}")
                   logging.error(e)
 
           await asyncio.sleep(5)
@@ -340,6 +341,6 @@ class EthereumFollower:
     def run(self, loop):
       self.loop = loop
 
-      # self.loop.create_task(self.blockFollower())
-      # self.loop.create_task(self.messageFollower())
+      self.loop.create_task(self.blockFollower())
+      self.loop.create_task(self.messageFollower())
       self.loop.create_task(self.messageSigner())

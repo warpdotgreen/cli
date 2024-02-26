@@ -96,7 +96,7 @@ class ChiaFollower:
         msg_bytes = msg_bytes + portal_id + bytes.fromhex(get_config_item([self.chain, "agg_sig_data"]))
 
         sig = AugSchemeMPL.sign(self.private_key, msg_bytes)
-        logging.info(f"{self.chain}-{message.nonce.hex()}: Raw signature: {bytes(sig).hex()}")
+        logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {bytes(sig).hex()}")
 
         message.sig = encode_signature(
             message.source_chain,
@@ -106,7 +106,7 @@ class ChiaFollower:
             bytes(sig)
         ).encode()
         db.commit()
-        logging.info(f"{self.chain}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
+        logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
         # todo: replace with nostr
         open("messages.txt", "a").write(message.sig.decode() + "\n")
@@ -485,7 +485,7 @@ class ChiaFollower:
                     created_amount = condition.at('rrf').as_int()
 
                     if created_ph == self.bridging_puzzle_hash and created_amount >= self.per_message_fee:
-                        coin = Coin(coin_record.coin.name(), created_ph, created_amount)
+                        coin = Coin(parent_record.coin.name(), created_ph, created_amount)
                         try:
                             memo = condition.at('rrrf')
                         except:
