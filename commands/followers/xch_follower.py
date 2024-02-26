@@ -9,6 +9,7 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
+from chia.types.coin_record import CoinRecord
 from typing import Tuple
 from web3 import Web3
 import logging
@@ -70,6 +71,7 @@ class ChiaFollower:
     unspent_portal_id: bytes
     unspent_portal_id_lock: asyncio.Lock
     bridging_puzzle_hash: bytes
+    per_message_fee: bytes
 
     def __init__(self, chain: str):
         self.chain = chain
@@ -79,6 +81,7 @@ class ChiaFollower:
         self.unspent_portal_id = None
         self.unspent_portal_id_lock = asyncio.Lock()
         self.bridging_puzzle_hash = bytes.fromhex(get_config_item([chain, "bridging_ph"]))
+        self.per_message_fee = int(get_config_item([chain, "per_message_fee"]))
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -222,6 +225,14 @@ class ChiaFollower:
             Message.block_number < height - self.sign_min_height
         )).all()
         for message in messages:
+            msg_block: Block = db.query(Block).filter(and_(
+                Block.height == message.block_number,
+                Block.chain_id == self.chain_id
+            )).first()
+            if msg_block is None or msg_block.hash != message.block_hash:
+                logging.error(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} - message block hash different from block hash in db. Not signing.")
+                continue
+            
             logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
             message.has_enough_confirmations_for_signing = True
 
@@ -437,6 +448,111 @@ class ChiaFollower:
         await node.await_closed()
 
 
+    async def createMessageFromMemo(
+            self,
+            db,
+            node: FullNodeRpcClient,
+            nonce: bytes,
+            source: bytes,
+            created_height: int,
+            memo: Program
+    ):
+        try:
+            destination_chain = memo.first().as_atom()
+            destination = memo.rest().first().as_atom()
+            contents_unparsed = memo.rest().rest()
+        except:
+            logging.info(f"Coin {self.chain}-{nonce.hex()}: error when parsing memo; skipping")
+            return
+        
+        contents = []
+        for content in contents_unparsed.as_iter():
+            c = content.as_atom()
+            if len(c) < 32:
+                c = b'\x00' * (32 - len(c)) + c
+            if len(c) > 32:
+                c = c[:32]
+            contents.append(c)
+        
+        block_in_db: Block = db.query(Block).filter(and_(
+            Block.chain_id == self.chain_id,
+            Block.height == created_height
+        )).first()
+        while block_in_db is None:
+            logging.info(f"Coin {self.chain}-{nonce.hex()}: block {created_height} not in db; retrying in 20s...")
+            await asyncio.sleep(20)
+            block_in_db = db.query(Block).filter(and_(
+                Block.chain_id == self.chain_id,
+                Block.height == created_height
+            )).first()
+
+        msg_in_db = db.query(Message).filter(and_(
+            Message.nonce == nonce,
+            Message.source_chain == self.chain_id
+        )).first()
+        if msg_in_db is not None:
+            logging.info(f"Coin {self.chain}-{nonce.hex()}: message already in db; skipping")
+            return
+        
+        msg = Message(
+            nonce=nonce,
+            source_chain=self.chain_id,
+            source=source,
+            destination_chain=destination_chain,
+            destination=destination,
+            contents=join_message_contents(contents),
+            block_hash=block_in_db.hash,
+            block_number=created_height,
+            has_enough_confirmations_for_signing=False,
+            sig=b''
+        )
+        db.add(msg)
+        db.commit()
+        logging.info(f"Message {self.chain}-{nonce.hex()} added to db.")
+
+
+    async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
+        if coin_record.coin.amount < self.per_message_fee:
+            logging.info(f"Coin {self.chain}-{coin_record.coin.name().hex()} - amount {coin_record.coin.amount} too low; not parsing message.")
+            return
+        
+        parent_record = await node.get_coin_record_by_name(coin_record.coin.parent_coin_info)
+        parent_spend = await node.get_puzzle_and_solution(
+            coin_record.coin.parent_coin_info,
+            parent_record.spent_block_index
+        )
+
+        try:
+            _, output = parent_spend.puzzle_reveal.run_with_cost(INFINITE_COST, parent_spend.solution)
+            for condition in output.as_iter():
+                if condition.first().as_int() == 51: # CREATE_COIN
+                    created_ph = condition.at('rf').as_atom()
+                    created_amount = condition.at('rrf').as_int()
+
+                    if created_ph == self.bridging_puzzle_hash and created_amount >= self.per_message_fee:
+                        coin = Coin(coin_record.coin.name(), created_ph, created_amount)
+                        try:
+                            memo = condition.at('rrrf')
+                        except:
+                            logging.error(f"Coin {self.chain}-{coin.name().hex()} - error when parsing memo; skipping")
+                            continue
+
+                        try:
+                            await self.createMessageFromMemo(
+                                db,
+                                node,
+                                coin.name(),
+                                parent_record.coin.puzzle_hash,
+                                parent_record.spent_block_index,
+                                memo
+                            )
+                        except Exception as e:
+                            logging.error(f"Coin {self.chain}-{coin.name().hex()} - error when parsing memo to create message; skipping even though we shouldn't")
+                            logging.error(e)
+        except Exception as e:
+            logging.error(f"Coin {self.chain}-{coin_record.coin.name().hex()} - error when parsing output; skipping")
+
+
     async def sentMessagesListener(self):
         db = self.getDb()
         node = await self.getNode()
@@ -446,9 +562,9 @@ class ChiaFollower:
                 Message.source_chain == self.chain_id
             ).order_by(Message.block_number.desc()).first()
             if last_message_height is None:
-                last_message_height = get_config_item([self.chain, 'min_height']) - 1
+                last_message_height = [get_config_item([self.chain, 'min_height']) - 1]
 
-            query_message_height = last_message_height + 1
+            query_message_height = last_message_height[0] + 1
             records = await node.get_coin_records_by_puzzle_hash(
                 self.bridging_puzzle_hash,
                 include_spent_coins=True,
@@ -456,8 +572,8 @@ class ChiaFollower:
             )
 
             for coin_record in records:
-                print(coin_record)
-                # todo: get parent spend, turn into message, add to db
+                await self.processCoinRecord(db, node, coin_record)
+
             await asyncio.sleep(10)
 
         node.close()

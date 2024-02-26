@@ -43,12 +43,21 @@ class EthereumFollower:
       logging.info(f"Block #{self.chain_id.decode()}-{height} added to db.")
 
       if check_messages:
-         messages = db.query(Message).filter(and_(
+         messages: List[Message] = db.query(Message).filter(and_(
             Message.source_chain == self.chain_id,
             Message.has_enough_confirmations_for_signing.is_(False),
             Message.block_number < height - self.sign_min_height
          )).all()
+         
          for message in messages:
+            msg_block: Block = db.query(Block).filter(and_(
+                Block.height == message.block_number,
+                Block.chain_id == self.chain_id
+            )).first()
+            if msg_block is None or msg_block.hash != message.block_hash:
+                logging.error(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} - message block hash different from block hash in db. Not signing.")
+                continue
+            
             message.has_enough_confirmations_for_signing = True
             logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
 
@@ -151,10 +160,27 @@ class EthereumFollower:
       s = hex(nonceInt)[2:]
       return (64 - len(s)) * "0" + s
     
-    def addEventToDb(self, db, event):
+    async def addEventToDb(self, db, event):
       source = bytes.fromhex(event['args']['source'][2:])
       nonce = event['args']['nonce']
 
+      block_from_db = db.query(Block).filter(and_(
+         Block.hash == event['blockHash'],
+          Block.chain_id == self.chain_id
+      )).first()
+      while block_from_db is None:
+        db_peak = db.query(Block).filter(Block.chain_id == self.chain_id).order_by(Block.height.desc()).first()
+        if db_peak is not None and db_peak.height >= event['blockNumber']:
+           logging.error(f"Another peak in db, but block for message {self.chain}-{int(event['args']['nonce'].hex(), 16)} still not found - abandoning.")
+           return
+        
+        logging.info(f"Block {self.chain}-{event['blockHash'].hex()} not in db yet; waiting 20s and retrying.")
+        await asyncio.sleep(20)
+        block_from_db = db.query(Block.height).filter(and_(
+         Block.hash == event['blockHash'],
+          Block.chain_id == self.chain_id
+      )).first()
+         
       db.add(Message(
           nonce=nonce,
           source_chain=self.chain_id,
@@ -163,7 +189,7 @@ class EthereumFollower:
           destination=event['args']['destination'],
           contents=join_message_contents(event['args']['contents']),
           block_hash=event['blockHash'],
-          block_number=db.query(Block).filter(Block.hash == event['blockHash']).first().height,
+          block_number=block_from_db.height,
           has_enough_confirmations_for_signing=False,
           sig=b'',
       ))
@@ -208,7 +234,7 @@ class EthereumFollower:
         query_start_height = block.height - 1 if block is not None else get_config_item([self.chain, 'min_height'])
         while latest_synced_nonce_int <= last_used_nonce_int:
           event = self.getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
-          self.addEventToDb(db, event)
+          await self.addEventToDb(db, event)
           latest_synced_nonce_int += 1
         db.commit()
 
@@ -224,10 +250,10 @@ class EthereumFollower:
               
               while latest_synced_nonce_int + 1 < event_nonce_int:
                   prev_event = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, query_start_height)
-                  self.addEventToDb(db, prev_event)
+                  await self.addEventToDb(db, prev_event)
                   latest_synced_nonce_int += 1
 
-              self.addEventToDb(db, event)
+              await self.addEventToDb(db, event)
               db.commit()
           await asyncio.sleep(5)
 

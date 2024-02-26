@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import asyncio
 from functools import update_wrapper
+import logging
 
 def async_func(f):
     f = asyncio.coroutine(f)
@@ -26,8 +27,11 @@ async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
         )
         await node_client.healthz()
         return node_client
-    except:
-        return None
+    except Exception as e:
+        logging.error("Failed to get node; retrying in 5 s. Error:")
+        logging.error(e)
+        await asyncio.sleep(5)
+        return get_node_client(chain_name)
 
 def with_node(f):
     @functools.wraps(f)
