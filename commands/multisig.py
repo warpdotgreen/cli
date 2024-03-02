@@ -11,7 +11,7 @@ from chia.types.blockchain_format.coin import Coin
 from commands.keys import mnemonic_to_validator_pk
 from chia.util.bech32m import decode_puzzle_hash
 from typing import List
-from blspy import PrivateKey, AugSchemeMPL, G1Element, G2Element
+from chia_rs import PrivateKey, AugSchemeMPL, G1Element, G2Element
 from chia.types.spend_bundle import SpendBundle
 from chia.types.blockchain_format.program import INFINITE_COST
 from typing import Tuple
@@ -313,7 +313,7 @@ def get_cold_key_signature(
         # this was the previous mechanism
         # since then, cold keys moved to hardware wallets!
         mnemo = input("To sign, input your 12-word cold mnemonic: ")
-        sk: PrivateKey = mnemonic_to_validator_pk(mnemo.strip())
+        sk = mnemonic_to_validator_pk(mnemo.strip())
         sig = AugSchemeMPL.sign(sk, message_to_sign)
         click.echo(f"Signature: {validator_index}-{bytes(sig).hex()}")
         return

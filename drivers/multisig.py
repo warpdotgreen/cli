@@ -5,7 +5,7 @@ from chia.wallet.puzzles.p2_m_of_n_delegate_direct import puzzle_for_m_of_public
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.coin_spend import CoinSpend
-from blspy import G1Element
+from chia_rs import G1Element
 from typing import List
 
 def get_multisig_inner_puzzle(

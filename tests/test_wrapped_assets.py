@@ -1,6 +1,6 @@
 from chia.rpc.wallet_rpc_client import WalletRpcClient
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
-from blspy import AugSchemeMPL
+from chia_rs import AugSchemeMPL
 from chia.util.bech32m import encode_puzzle_hash
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \

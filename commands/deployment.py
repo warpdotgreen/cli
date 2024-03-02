@@ -19,7 +19,7 @@ from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle
 from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk, solution_for_conditions
 from commands.config import get_config_item
-from blspy import G1Element, AugSchemeMPL
+from chia_rs import G1Element, AugSchemeMPL
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from typing import Tuple
 import hashlib

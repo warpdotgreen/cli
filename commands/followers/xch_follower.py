@@ -14,7 +14,7 @@ from typing import Tuple
 import logging
 import asyncio
 from sqlalchemy import and_
-from blspy import AugSchemeMPL, PrivateKey
+from chia_rs import AugSchemeMPL, PrivateKey
 
 SIG_USED_VALUE = b"used"
 
