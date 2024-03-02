@@ -1,0 +1,65 @@
+; rekey_portal.clsp by yakuhito
+;; this puzzle can be used as as an upgrade delegated puzzle for portal_receiver.clsp
+;; it allows upgrading the portal receiver in a way that is neither re-playable nor
+;; dependent on coin id (assuming same key set is only used once)
+(mod (
+    PORTAL_SINGLETON_STRUCT
+    PORTAL_RECEIVER_MOD_HASH
+    MESSAGE_COIN_MOD_HASH_HASH ; (sha256 1 (puzzle hash after 1st curry))
+    CURRENT_VALIDATOR_INFO
+    NEW_VALIDATOR_INFO
+    CURRENT_UPDATE_PUZZLE_HASH_HASH ; m of n
+    NEW_UPDATE_PUZZLE_HASH_HASH ; m of n
+    last_chains_and_nonces
+  )
+  (include sha256tree.clib)
+  (include curry.clib)
+  (include condition_codes.clib)
+
+  (defun get_portal_inner_puzzle_hash (
+    PORTAL_RECEIVER_MOD_HASH
+    MESSAGE_COIN_MOD_HASH_HASH
+    validator_info
+    update_puzzle_hash_hash
+    last_chains_and_nonces
+  )
+    (curry_hashes
+      (curry_hashes PORTAL_RECEIVER_MOD_HASH
+        MESSAGE_COIN_MOD_HASH_HASH
+        update_puzzle_hash_hash
+      ) ; 1st curry puzzle is curried again
+      (sha256 1
+        (curry_hashes PORTAL_RECEIVER_MOD_HASH
+          MESSAGE_COIN_MOD_HASH_HASH
+          update_puzzle_hash_hash
+        )
+      ) ; SELF_HASH
+      (sha256tree last_chains_and_nonces)
+    )
+  )
+
+  (list
+    (list ASSERT_MY_PUZZLEHASH
+      (curry_hashes (f PORTAL_SINGLETON_STRUCT)
+        (sha256tree PORTAL_SINGLETON_STRUCT)
+        (get_portal_inner_puzzle_hash
+          PORTAL_RECEIVER_MOD_HASH
+          MESSAGE_COIN_MOD_HASH_HASH
+          CURRENT_VALIDATOR_INFO
+          CURRENT_UPDATE_PUZZLE_HASH_HASH
+          last_chains_and_nonces
+        )
+      )
+    )
+    (list CREATE_COIN
+      (get_portal_inner_puzzle_hash
+        PORTAL_RECEIVER_MOD_HASH
+        MESSAGE_COIN_MOD_HASH_HASH
+        NEW_VALIDATOR_INFO
+        NEW_UPDATE_PUZZLE_HASH_HASH
+        ()
+      )
+      1
+    )
+  )
+)
