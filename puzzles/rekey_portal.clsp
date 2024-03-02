@@ -6,11 +6,11 @@
     PORTAL_RECEIVER_MOD_HASH
     PORTAL_SINGLETON_STRUCT
     MESSAGE_COIN_MOD_HASH_HASH ; (sha256 1 (puzzle hash after 1st curry))
-    CURRENT_VALIDATOR_INFO
+    CURRENT_VALIDATOR_INFO_HASH
     NEW_VALIDATOR_INFO
     CURRENT_UPDATE_PUZZLE_HASH_HASH ; m of n
-    NEW_UPDATE_PUZZLE_HASH_HASH ; m of n
-    last_chains_and_nonces
+    NEW_UPDATE_PUZZLE_HASH ; m of n
+    last_chains_and_nonces_hash
   )
   (include sha256tree.clib)
   (include curry.clib)
@@ -19,22 +19,24 @@
   (defun get_portal_inner_puzzle_hash (
     PORTAL_RECEIVER_MOD_HASH
     MESSAGE_COIN_MOD_HASH_HASH
-    validator_info
+    validator_info_hash
     update_puzzle_hash_hash
-    last_chains_and_nonces
+    last_chains_and_nonces_hash
   )
     (curry_hashes
       (curry_hashes PORTAL_RECEIVER_MOD_HASH
+        validator_info_hash
         MESSAGE_COIN_MOD_HASH_HASH
         update_puzzle_hash_hash
       ) ; 1st curry puzzle is curried again
       (sha256 1
         (curry_hashes PORTAL_RECEIVER_MOD_HASH
+          validator_info_hash
           MESSAGE_COIN_MOD_HASH_HASH
           update_puzzle_hash_hash
         )
       ) ; SELF_HASH
-      (sha256tree last_chains_and_nonces)
+      last_chains_and_nonces_hash
     )
   )
 
@@ -45,9 +47,9 @@
         (get_portal_inner_puzzle_hash
           PORTAL_RECEIVER_MOD_HASH
           MESSAGE_COIN_MOD_HASH_HASH
-          CURRENT_VALIDATOR_INFO
+          CURRENT_VALIDATOR_INFO_HASH
           CURRENT_UPDATE_PUZZLE_HASH_HASH
-          last_chains_and_nonces
+          last_chains_and_nonces_hash
         )
       )
     )
@@ -55,9 +57,9 @@
       (get_portal_inner_puzzle_hash
         PORTAL_RECEIVER_MOD_HASH
         MESSAGE_COIN_MOD_HASH_HASH
-        NEW_VALIDATOR_INFO
-        NEW_UPDATE_PUZZLE_HASH_HASH
-        ()
+        (sha256tree NEW_VALIDATOR_INFO)
+        (sha256 1 NEW_UPDATE_PUZZLE_HASH)
+        (sha256 1) ; (sha256tree ())
       )
       1
     )

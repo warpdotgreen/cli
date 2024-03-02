@@ -143,7 +143,7 @@ class TestPortal:
             portal_launcher_id,
             VALIDATOR_THRESHOLD,
             validator_pks,
-            one_puzzle_hash,
+            portal_updater_puzzle_hash,
             last_chains_and_nonces=[(SOURCE_CHAIN, NONCE)]
         )
         new_portal_puzzle_hash: bytes32 = puzzle_for_singleton(
@@ -290,21 +290,13 @@ class TestPortal:
         portal_update_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
 
         sigs = get_validator_set_sigs(
-            portal_updater_puzzle.get_tree_hash(),
+            updater_delegated_puzzle.get_tree_hash(),
             validator_sks,
             VALIDATOR_SIG_SWITCHES
         )
         portal_update_spend_bundle = SpendBundle([portal_update_spend], AugSchemeMPL.aggregate(sigs))
 
-        # todo: debug
-        open("/tmp/dp", "w").write(bytes(updater_delegated_puzzle).hex())
-        open("/tmp/ds", "w").write(bytes(updater_delegated_solution).hex())
-        open("/tmp/up", "w").write(bytes(portal_updater_puzzle).hex())
-        open("/tmp/us", "w").write(bytes(portal_updater_solution).hex())
-        open("/tmp/p", "w").write(bytes(new_portal_inner_puzzle).hex())
-        open("/tmp/s", "w").write(bytes(portal_inner_solution).hex())
-        open("/tmp/sb.json", "w").write(json.dumps(portal_update_spend_bundle.to_json_dict(), indent=2))
-        # todo: debug
-
         await node.push_tx(portal_update_spend_bundle)
         await wait_for_coin(node, new_portal, also_wait_for_spent=True)
+
+        # 5. Test that the new portal can receive messages

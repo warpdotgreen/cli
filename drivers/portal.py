@@ -129,19 +129,18 @@ def get_portal_rekey_delegated_puzzle(
        b"\x01",
        get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash()
     ]), # MESSAGE_COIN_MOD_HASH_HASH
-    (current_signature_treshold, current_signature_pubkeys), # CURRENT_VALIDATOR_INFO
+    Program.to((current_signature_treshold, current_signature_pubkeys)).get_tree_hash(), # CURRENT_VALIDATOR_INFO_HASH
     (new_signature_treshold, new_signature_pubkeys), # NEW_VALIDATOR_INFO
     raw_hash([
        b"\x01",
-       get_multisig_inner_puzzle(current_multisig_threshold, current_multisig_pubkeys).get_tree_hash()
+       get_multisig_inner_puzzle(current_multisig_pubkeys, current_multisig_threshold).get_tree_hash()
     ]), # CURRENT_UPDATE_PUZZLE_HASH_HASH
-    raw_hash([
-       b"\x01",
-       get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_pubkeys).get_tree_hash()
-    ]) # NEW_UPDATE_PUZZLE_HASH_HASH
+    get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_pubkeys).get_tree_hash() # NEW_UPDATE_PUZZLE_HASH
   )
 
 def get_portal_rekey_delegated_solution(
       last_chains_and_nonces: List[Tuple[bytes, bytes32]],
 ) -> Program:
-  return Program.to(last_chains_and_nonces)
+  return Program.to([
+     Program.to(last_chains_and_nonces).get_tree_hash()
+  ])
