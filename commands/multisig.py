@@ -184,8 +184,12 @@ async def start_new_tx(
 
 @multisig.command()
 @click.option('--unsigned-tx-file', required=True, help='JSON file containing unsigned tx details')
+@click.option('--validator-index', required=True, help='Your validator index')
+@click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
 def sign_tx(
-    unsigned_tx_file: str
+    unsigned_tx_file: str,
+    validator_index: int,
+    use_debug_method: bool
 ):
     unsigned_tx = json.loads(open(unsigned_tx_file, "r").read())
     click.echo("Parsing unsigned tx...")
@@ -206,40 +210,9 @@ def sign_tx(
         click.echo(f"{address}: {mojo_amount / 10 ** 12} XCH ({mojo_amount} mojos - {share * 10000 // total_share / 100}%)")
     
     message_to_sign: bytes32 = get_delegated_puzzle_for_unsigned_tx(unsigned_tx).get_tree_hash()
-    click.echo(f"Message to sign: {message_to_sign.hex()}")
 
     click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
-
-    pks: List[str] = get_config_item(["xch", "multisig_keys"])
-    pk = get_config_item(["xch", "my_cold_public_key"])
-    pk_index = pks.index(pk)
-
-    # this was the previous mechanism
-    # since then, cold keys moved to hardware wallets!
-    # mnemo = input("To sign, input your 12-word cold mnemonic: ")
-    # sk: PrivateKey = mnemonic_to_validator_pk(mnemo.strip())
-    # pk_e: G1Element = sk.get_g1()
-    # assert bytes(pk_e).hex() == pk
-    # sig = AugSchemeMPL.sign(sk, message_to_sign)
-    # click.echo(f"Signature: {pk_index}-{bytes(sig).hex()}")
-
-    j = {"validator_index": pk_index, "message": message_to_sign.hex()}
-    j_str = json.dumps(j)
-    click.echo(f"QR code data: {j_str}")
-
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(j_str)
-    qr.make(fit=True)
-
-    img = qr.make_image(fill_color="black", back_color="white")
-    img.save("qr.png")
-    qr.print_tty()
-    click.echo("QR code also saved to qr.png")
+    get_cold_key_signature(message_to_sign, int(validator_index), use_debug_method)
         
 
 @multisig.command()
@@ -326,3 +299,39 @@ async def broadcast_spend(
 
   node.close()
   await node.await_closed()
+
+
+def get_cold_key_signature(
+        message_to_sign: bytes32,
+        validator_index: int,
+        use_debug_method: bool
+):
+    click.echo(f"Message to sign: {message_to_sign.hex()}")
+    click.echo(f"Your validator index: {validator_index}")
+
+    if use_debug_method:
+        # this was the previous mechanism
+        # since then, cold keys moved to hardware wallets!
+        mnemo = input("To sign, input your 12-word cold mnemonic: ")
+        sk: PrivateKey = mnemonic_to_validator_pk(mnemo.strip())
+        sig = AugSchemeMPL.sign(sk, message_to_sign)
+        click.echo(f"Signature: {validator_index}-{bytes(sig).hex()}")
+        return
+
+    j = {"validator_index": validator_index, "message": message_to_sign.hex()}
+    j_str = json.dumps(j)
+    click.echo(f"QR code data: {j_str}")
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(j_str)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+    img.save("qr.png")
+    qr.print_tty()
+    click.echo("QR code also saved to qr.png")
