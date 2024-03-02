@@ -22,7 +22,7 @@ from drivers.portal import get_portal_rekey_delegated_puzzle
 from commands.multisig import get_cold_key_signature
 from chia.wallet.lineage_proof import LineageProof
 
-PORTAL_COIN_ID_SAVE_FILE = "last_spent_portla_coinid"
+PORTAL_COIN_ID_SAVE_FILE = "last_spent_portal_coinid"
 
 async def get_latest_portal_coin_data(node: FullNodeRpcClient) -> Tuple[
     CoinSpend,
@@ -124,6 +124,7 @@ def sign_tx(
 @click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
 @click.option('--new-update-threshold', required=True, help='New threshold required for updates')
 @click.option('--sigs', required=True, help='Signature list - in the form: list of {validator_index-sig}, elements separated by comma (,)')
+@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
 @async_func
 @with_node
 async def broadcast_spend(
@@ -132,8 +133,15 @@ async def broadcast_spend(
     new_update_keys: str,
     new_update_threshold: int,
     sigs: str,
-    node: FullNodeRpcClient
+    node: FullNodeRpcClient,
+    offer: str
 ):
+    if offer == "help":
+        click.echo("Oops, you forgot --offer!")
+        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
+        return
+    offer = Offer.from_bech32(offer)
+
     new_message_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_message_keys.split(',')]
     new_update_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_update_keys.split(',')]
     new_message_threshold = int(new_message_threshold)
@@ -160,4 +168,4 @@ async def broadcast_spend(
     updater_delegated_puzzle_hash = updater_delegated_puzzle.get_tree_hash()
 
     parent_record, coin_id, last_used_chains_and_nonces, lineage_proof = await get_latest_portal_coin_data(node)
-    print(f"Portal coin id: {coin_id.hex()}")
+    print(f"Latest portal coin id: {coin_id.hex()}")
