@@ -185,10 +185,10 @@ class ChiaFollower:
                 Block.chain_id == self.chain_id
             )).first()
             if msg_block is None or msg_block.hash != message.block_hash:
-                logging.error(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} - message block hash different from block hash in db. Not signing.")
+                logging.error(f"Message {self.chain_id.decode()}-{message.nonce.hex()} - message block hash different from block hash in db. Not signing.")
                 continue
             
-            logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
+            logging.info(f"Message {self.chain_id.decode()}-{message.nonce.hex()} has enough confirmations; marked for signing.")
             message.has_enough_confirmations_for_signing = True
 
 

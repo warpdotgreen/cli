@@ -69,12 +69,14 @@ protobuf==4.25.2
 psutil==5.9.4
 pycparser==2.21
 pycryptodome==3.20.0
+pypng==0.20220715.0
 pytest==7.4.4
 pytest-asyncio==0.23.3
 python-dateutil==2.8.2
 pytimeparse==1.1.8
 pyunormalize==15.1.0
 PyYAML==6.0.1
+qrcode==7.4.2
 referencing==0.33.0
 regex==2023.12.25
 requests==2.31.0
