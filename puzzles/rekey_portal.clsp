@@ -3,8 +3,8 @@
 ;; it allows upgrading the portal receiver in a way that is neither re-playable nor
 ;; dependent on coin id (assuming same key set is only used once)
 (mod (
-    PORTAL_SINGLETON_STRUCT
     PORTAL_RECEIVER_MOD_HASH
+    PORTAL_SINGLETON_STRUCT
     MESSAGE_COIN_MOD_HASH_HASH ; (sha256 1 (puzzle hash after 1st curry))
     CURRENT_VALIDATOR_INFO
     NEW_VALIDATOR_INFO

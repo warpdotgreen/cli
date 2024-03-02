@@ -1,4 +1,4 @@
-from drivers.utils import load_clvm_hex
+from drivers.utils import load_clvm_hex, raw_hash
 from chia.types.blockchain_format.program import Program
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     SINGLETON_LAUNCHER_HASH
@@ -10,9 +10,11 @@ from typing import List
 from chia.types.blockchain_format.coin import Coin
 import dataclasses
 from typing import Tuple
+from drivers.multisig import get_multisig_inner_puzzle
 
 MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
+REKEY_PORTAL_MOD = load_clvm_hex("puzzles/rekey_portal.clsp")
 
 def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> Program:
     return MESSAGE_COIN_MOD.curry(
@@ -107,3 +109,34 @@ def get_message_coin_solution(
       (parent_parent_info, parent_inner_puzzle_hash),
       message_coin_id
     ])
+
+
+def get_portal_rekey_delegated_puzzle(
+    portal_receiver_launcher_id: bytes32,
+    current_signature_treshold: int,
+    current_signature_pubkeys: List[G1Element],
+    new_signature_treshold: int,
+    new_signature_pubkeys: List[G1Element],
+    current_multisig_threshold: int,
+    current_multisig_pubkeys: List[G1Element],
+    new_multisig_threshold: int,
+    new_multisig_pubkeys: List[G1Element],
+) -> Program:
+  return REKEY_PORTAL_MOD.curry(
+    PORTAL_RECEIVER_MOD.get_tree_hash(),
+    (SINGLETON_MOD_HASH, (portal_receiver_launcher_id, SINGLETON_LAUNCHER_HASH)), # PORTAL_SINGLETON_STRUCT
+    raw_hash([
+       b"\x01",
+       get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash()
+    ]), # MESSAGE_COIN_MOD_HASH_HASH
+    (current_signature_treshold, current_signature_pubkeys), # CURRENT_VALIDATOR_INFO
+    (new_signature_treshold, new_signature_pubkeys), # NEW_VALIDATOR_INFO
+    raw_hash([
+       b"\x01",
+       get_multisig_inner_puzzle(current_multisig_threshold, current_multisig_pubkeys).get_tree_hash()
+    ]), # CURRENT_UPDATE_PUZZLE_HASH_HASH
+    raw_hash([
+       b"\x01",
+       get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_pubkeys).get_tree_hash()
+    ]) # NEW_UPDATE_PUZZLE_HASH_HASH
+  )
