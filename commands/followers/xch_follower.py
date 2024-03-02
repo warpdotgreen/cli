@@ -297,13 +297,12 @@ class ChiaFollower:
 
         inner_solution: Program = Program.from_bytes(bytes(spend.solution)).at("rrf")
         update_package = inner_solution.at("f")
-        assert bytes(update_package) == bytes(Program.to(0))
 
         prev_used_chains_and_nonces = Program.from_bytes(last_synced_portal.used_chains_and_nonces).as_python()
         if len(prev_used_chains_and_nonces) == 0:
             prev_used_chains_and_nonces = []
         
-        chains_and_nonces = inner_solution.at("rf").as_iter()
+        chains_and_nonces = inner_solution.at("rf").as_iter() if bytes(update_package) == bytes(Program.to(0)) else []
         for cn in chains_and_nonces:
             source_chain = cn.first().as_atom()
             nonce = cn.rest().as_atom()

@@ -237,13 +237,13 @@ async def broadcast_spend(
         current_update_threshold,
     )
 
-    selectors = [False for _ in range(current_update_threshold)]
+    selectors = [False for _ in current_update_keys]
     for sig_idx in signature_validator_indexes:
         selectors[sig_idx] = True
     portal_updater_solution = get_multisig_inner_solution(
         current_update_threshold,
         selectors,
-        updater_delegated_puzzle_hash,
+        updater_delegated_puzzle,
         updater_delegated_solution
     )
 
