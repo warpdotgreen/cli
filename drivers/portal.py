@@ -135,7 +135,7 @@ def get_portal_rekey_delegated_puzzle(
        b"\x01",
        get_multisig_inner_puzzle(current_multisig_pubkeys, current_multisig_threshold).get_tree_hash()
     ]), # CURRENT_UPDATE_PUZZLE_HASH_HASH
-    get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_pubkeys).get_tree_hash() # NEW_UPDATE_PUZZLE_HASH
+    get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_threshold).get_tree_hash() # NEW_UPDATE_PUZZLE_HASH
   )
 
 def get_portal_rekey_delegated_solution(

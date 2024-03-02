@@ -300,3 +300,128 @@ class TestPortal:
         await wait_for_coin(node, new_portal, also_wait_for_spent=True)
 
         # 5. Test that the new portal can receive messages
+        portal_updater_puzzle = get_multisig_inner_puzzle(
+            new_validator_pks,
+            NEW_VALIDATOR_THRESHOLD,
+        )
+        portal_updater_puzzle_hash = portal_updater_puzzle.get_tree_hash()
+
+        portal_inner_puzzle = get_portal_receiver_inner_puzzle(
+            portal_launcher_id,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks,
+            portal_updater_puzzle_hash
+        )
+        portal_full_puzzle = puzzle_for_singleton(
+            portal_launcher_id,
+            portal_inner_puzzle,
+        )
+        portal_full_puzzle_hash = portal_full_puzzle.get_tree_hash()
+        new_portal: Coin
+        portal = Coin(new_portal.name(), portal_full_puzzle_hash, 1)
+        # run -d '(mod () (x))'
+        target = Program.from_bytes(bytes.fromhex("ff0880")).get_tree_hash()
+        msg = PortalMessage(
+            nonce=NONCE + 1,
+            validator_sig_switches=NEW_VALIDATOR_SIG_SWITCHES,
+            source_chain=SOURCE_CHAIN,
+            source=SOURCE,
+            destination=target,
+            message=MESSAGE
+        )
+        portal_inner_solution = get_portal_receiver_inner_solution(
+            [msg]
+        )
+        portal_solution = solution_for_singleton(
+            lineage_proof_for_coinsol(portal_update_spend),
+            1,
+            portal_inner_solution
+        )
+
+        # nonce source_chain source destination message
+        message_to_sign: bytes = Program(Program.to([
+            SOURCE_CHAIN,
+            NONCE + 1,
+            SOURCE,
+            target,
+            MESSAGE
+        ])).get_tree_hash()
+        message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
+        message_signature = AugSchemeMPL.aggregate(
+            get_validator_set_sigs(
+                message_to_sign,
+                new_validator_sks,
+                NEW_VALIDATOR_SIG_SWITCHES
+            )
+        )
+
+        portal_spend_bundle = SpendBundle(
+            [
+                CoinSpend(portal, portal_full_puzzle, portal_solution)
+            ],
+            message_signature
+        )
+
+        await node.push_tx(portal_spend_bundle)
+        await wait_for_coin(node, portal, also_wait_for_spent=True)
+
+        # 6. Update again, to verify initial updater puzzle update :)
+        # update from new set -> old set
+        updater_delegated_puzzle = get_portal_rekey_delegated_puzzle(
+            portal_launcher_id,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks,
+            VALIDATOR_THRESHOLD,
+            validator_pks,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks,
+            VALIDATOR_THRESHOLD,
+            validator_pks
+        
+        )
+        updater_delegated_solution = get_portal_rekey_delegated_solution(
+            [(SOURCE_CHAIN, NONCE + 1)]
+        )
+
+        portal_updater_solution = get_multisig_inner_solution(
+            NEW_VALIDATOR_THRESHOLD,
+            NEW_VALIDATOR_SIG_SWITCHES,
+            updater_delegated_puzzle,
+            updater_delegated_solution
+        )
+
+        portal_inner_solution = get_portal_receiver_inner_solution(
+            [],
+            update_puzzle_reveal=portal_updater_puzzle,
+            update_puzzle_solution=portal_updater_solution
+        )
+        portal_solution = solution_for_singleton(
+            lineage_proof_for_coinsol(portal_spend_bundle.coin_spends[0]),
+            1,
+            portal_inner_solution
+        )
+
+        portal_inner_puzzle = get_portal_receiver_inner_puzzle(
+            portal_launcher_id,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks,
+            portal_updater_puzzle_hash,
+            last_chains_and_nonces=[(SOURCE_CHAIN, NONCE + 1)]
+        )
+        portal_puzzle = puzzle_for_singleton(
+            portal_launcher_id,
+            portal_inner_puzzle,
+        )
+
+        portal = Coin(portal.name(), portal_puzzle.get_tree_hash(), 1)
+        portal_update_spend2 = CoinSpend(portal, portal_puzzle, portal_solution)
+
+        sigs = get_validator_set_sigs(
+            updater_delegated_puzzle.get_tree_hash(),
+            new_validator_sks,
+            NEW_VALIDATOR_SIG_SWITCHES
+        )
+        portal_update_spend_bundle2 = SpendBundle([portal_update_spend2], AugSchemeMPL.aggregate(sigs))
+
+        await node.push_tx(portal_update_spend_bundle2)
+        await wait_for_coin(node, new_portal, also_wait_for_spent=True)
