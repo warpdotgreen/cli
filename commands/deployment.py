@@ -27,6 +27,18 @@ import secrets
 import json
 from commands.cli_wrappers import async_func
 
+def print_spend_instructions(
+    sb: SpendBundle,
+    spent_coin_id: bytes
+):
+    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
+
+    click.echo("SpendBundle created and saved to sb.json")
+    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
+    click.echo("To follow in mempool: chia rpc full_node get_mempool_items_by_coin_name '{\"coin_name\": \"" + spent_coin_id.hex() + "\"}'")
+    click.echo("To confirm: chia rpc full_node get_coin_record_by_name '{\"name\": \"" + spent_coin_id.hex() + "\"}'")
+
 @click.group()
 def deployment():
     pass
@@ -217,13 +229,7 @@ async def securely_launch_singleton(
         coin_spends,
         AugSchemeMPL.aggregate([offer_sb.aggregated_signature, sig])
     )
-    open("sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
-    open("push_request.json", "w").write(json.dumps({"spend_bundle": sb.to_json_dict()}, indent=4))
-
-    click.echo("SpendBundle created and saved to sb.json")
-    click.echo("To spend: chia rpc full_node push_tx -j push_request.json")
-    click.echo("To follow in mempool: chia rpc full_node get_mempool_items_by_coin_name '{\"coin_name\": \"" + launcher_id.hex() + "\"}'")
-    click.echo("To confirm: chia rpc full_node get_coin_record_by_name '{\"name\": \"" + launcher_id.hex() + "\"}'")
+    print_spend_instructions(sb, launcher_coin.name())
 
     return [launcher_id, sb]
 
