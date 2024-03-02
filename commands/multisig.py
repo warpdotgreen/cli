@@ -211,8 +211,8 @@ def sign_tx(
     click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
 
     pks: List[str] = get_config_item(["xch", "multisig_keys"])
-    pk = get_config_item(["xch", "multisig_keys"])
-    pk_index = pks.index(bytes(pk).hex())
+    pk = get_config_item(["xch", "my_cold_public_key"])
+    pk_index = pks.index(pk)
 
     # this was the previous mechanism
     # since then, cold keys moved to hardware wallets!
@@ -238,7 +238,8 @@ def sign_tx(
 
     img = qr.make_image(fill_color="black", back_color="white")
     img.save("qr.png")
-    click.echo("QR code saved to qr.png")
+    qr.print_tty()
+    click.echo("QR code also saved to qr.png")
         
 
 @multisig.command()
