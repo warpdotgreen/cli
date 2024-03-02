@@ -9,6 +9,9 @@ from chia.types.coin_spend import CoinSpend
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.util.bech32m import decode_puzzle_hash
+from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
+from commands.keys import mnemonic_to_validator_pk
+import secrets
 import pytest
 import pytest_asyncio
 import random
@@ -17,19 +20,23 @@ import json
 
 from tests.utils import *
 from drivers.portal import *
+from drivers.multisig import *
 
-VALIDATOR_TRESHOLD = 7
+VALIDATOR_THRESHOLD = 7
 VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]
+NEW_VALIDATOR_THRESHOLD = 6
+NEW_VALIDATOR_SIG_SWITCHES = [1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0]
 NONCE = 1337
 SOURCE_CHAIN = 'eth'
 SOURCE = to_eth_address("sender")
 MESSAGE = Program.to(["yaku", "hito", 1337])
 
 assert len(VALIDATOR_SIG_SWITCHES) == 11
-assert sum(VALIDATOR_SIG_SWITCHES) == VALIDATOR_TRESHOLD
+assert sum(VALIDATOR_SIG_SWITCHES) == VALIDATOR_THRESHOLD
+assert len(NEW_VALIDATOR_SIG_SWITCHES) == 11
+assert sum(NEW_VALIDATOR_SIG_SWITCHES) == NEW_VALIDATOR_THRESHOLD
 
-@pytest_asyncio.fixture(scope="function")
-async def validator_set():
+async def get_validator_set():
     validator_sks: List[PrivateKey] = []
     validator_pks: List[G1Element] = []
     for i in range(11):
@@ -37,6 +44,10 @@ async def validator_set():
         validator_sks.append(sk)
         validator_pks.append(sk.get_g1())
     return validator_sks, validator_pks
+
+@pytest_asyncio.fixture(scope="function")
+async def validator_set():
+    return await get_validator_set()
 
 def get_validator_set_sigs(
     message: bytes,
@@ -68,7 +79,7 @@ class TestPortal:
         assert wallet_resp['success']
 
     @pytest.mark.asyncio
-    async def test_receive_message(self, setup, validator_set):
+    async def test_receive_message_and_upgrade(self, setup, validator_set):
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
@@ -81,6 +92,12 @@ class TestPortal:
         one_puzzle_hash: bytes32 = Program(one_puzzle).get_tree_hash()
         one_address = encode_puzzle_hash(one_puzzle_hash, "txch")
 
+        portal_updater_puzzle = get_multisig_inner_puzzle(
+            validator_pks,
+            VALIDATOR_THRESHOLD,
+        )
+        portal_updater_puzzle_hash = portal_updater_puzzle.get_tree_hash()
+
         tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
         portal_launcher_parent: Coin = tx_record.additions[0]
         await wait_for_coin(node, portal_launcher_parent)
@@ -90,9 +107,9 @@ class TestPortal:
 
         portal_inner_puzzle = get_portal_receiver_inner_puzzle(
             portal_launcher_id,
-            VALIDATOR_TRESHOLD,
+            VALIDATOR_THRESHOLD,
             validator_pks,
-            one_puzzle_hash
+            portal_updater_puzzle_hash
         )
         portal_full_puzzle = puzzle_for_singleton(
             portal_launcher_id,
@@ -124,7 +141,7 @@ class TestPortal:
         # 2. Send message via portal (to the '1' puzzle)
         new_portal_inner_puzzle = get_portal_receiver_inner_puzzle(
             portal_launcher_id,
-            VALIDATOR_TRESHOLD,
+            VALIDATOR_THRESHOLD,
             validator_pks,
             one_puzzle_hash,
             last_chains_and_nonces=[(SOURCE_CHAIN, NONCE)]
@@ -230,17 +247,35 @@ class TestPortal:
         await node.push_tx(message_claim_bundle)
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
 
-        # 4. Close down portal via updater
-        update_puzzle = one_puzzle
-        update_solution = Program.to([
-            [ConditionOpcode.CREATE_COIN, 0, -113], # melt singleton
-            [ConditionOpcode.RESERVE_FEE, 1]
-        ])
+        # 4. Update portal key set
+        new_validator_sks, new_validator_pks = await get_validator_set()
+        updater_delegated_puzzle = get_portal_rekey_delegated_puzzle(
+            portal_launcher_id,
+            VALIDATOR_THRESHOLD,
+            validator_pks,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks,
+            VALIDATOR_THRESHOLD,
+            validator_pks,
+            NEW_VALIDATOR_THRESHOLD,
+            new_validator_pks
+        
+        )
+        updater_delegated_solution = get_portal_rekey_delegated_solution(
+            [(SOURCE_CHAIN, NONCE)]
+        )
+
+        portal_updater_solution = get_multisig_inner_solution(
+            VALIDATOR_THRESHOLD,
+            VALIDATOR_SIG_SWITCHES,
+            updater_delegated_puzzle,
+            updater_delegated_solution
+        )
 
         portal_inner_solution = get_portal_receiver_inner_solution(
             [],
-            update_puzzle_reveal=update_puzzle,
-            update_puzzle_solution=update_solution
+            update_puzzle_reveal=portal_updater_puzzle,
+            update_puzzle_solution=portal_updater_solution
         )
         portal_solution = solution_for_singleton(
             lineage_proof_for_coinsol(portal_spend_bundle.coin_spends[0]),
@@ -252,8 +287,24 @@ class TestPortal:
             portal_launcher_id,
             new_portal_inner_puzzle,
         )
-        portal_melt_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
-        portal_melt_spend_bundle = SpendBundle([portal_melt_spend], AugSchemeMPL.aggregate([]))
+        portal_update_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
 
-        await node.push_tx(portal_melt_spend_bundle)
+        sigs = get_validator_set_sigs(
+            portal_updater_puzzle.get_tree_hash(),
+            validator_sks,
+            VALIDATOR_SIG_SWITCHES
+        )
+        portal_update_spend_bundle = SpendBundle([portal_update_spend], AugSchemeMPL.aggregate(sigs))
+
+        # todo: debug
+        open("/tmp/dp", "w").write(bytes(updater_delegated_puzzle).hex())
+        open("/tmp/ds", "w").write(bytes(updater_delegated_solution).hex())
+        open("/tmp/up", "w").write(bytes(portal_updater_puzzle).hex())
+        open("/tmp/us", "w").write(bytes(portal_updater_solution).hex())
+        open("/tmp/p", "w").write(bytes(new_portal_inner_puzzle).hex())
+        open("/tmp/s", "w").write(bytes(portal_inner_solution).hex())
+        open("/tmp/sb.json", "w").write(json.dumps(portal_update_spend_bundle.to_json_dict(), indent=2))
+        # todo: debug
+
+        await node.push_tx(portal_update_spend_bundle)
         await wait_for_coin(node, new_portal, also_wait_for_spent=True)

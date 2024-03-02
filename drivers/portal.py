@@ -140,3 +140,8 @@ def get_portal_rekey_delegated_puzzle(
        get_multisig_inner_puzzle(new_multisig_pubkeys, new_multisig_pubkeys).get_tree_hash()
     ]) # NEW_UPDATE_PUZZLE_HASH_HASH
   )
+
+def get_portal_rekey_delegated_solution(
+      last_chains_and_nonces: List[Tuple[bytes, bytes32]],
+) -> Program:
+  return Program.to(last_chains_and_nonces)
