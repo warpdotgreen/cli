@@ -145,7 +145,7 @@ async def start_new_payout_tx(
 
     click.echo(f"In total, there are {len(coin_records)} coins with a total value of {sum([cr.coin.amount for cr in coin_records]) / 10 ** 12} XCH.")
 
-    value = input("In XCH, how much would you like to collect? ")
+    value = input("In XCH, how much would you like to collect? (excluding tx fee) ")
     value = int(float(value) * 10 ** 12)
 
     fee = input("In XCH, what fee should the claim tx have? ")
@@ -297,6 +297,7 @@ async def broadcast_payout_spend(
       coin_spends.append(spend)
 
   spend_bundle = SpendBundle(coin_spends, AugSchemeMPL.aggregate(parsed_sigs))
+
   print_spend_instructions(spend_bundle, multisig_coin_spend.coin.name())
 
 
