@@ -128,7 +128,7 @@ def sign_tx(
 @click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
 @click.option('--new-update-threshold', required=True, help='New threshold required for updates')
 @click.option('--sigs', required=True, help='Signature list - in the form: list of {validator_index-sig}, elements separated by comma (,)')
-@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
+@click.option('--offer', default="help", help='Offer to use as fee source (must offer  exactly 1 mojo + include min network fee)')
 @async_func
 @with_node
 async def broadcast_spend(

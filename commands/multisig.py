@@ -14,10 +14,14 @@ from typing import List
 from chia_rs import PrivateKey, AugSchemeMPL, G1Element, G2Element
 from chia.types.spend_bundle import SpendBundle
 from chia.types.blockchain_format.program import INFINITE_COST
+from chia.util.condition_tools import conditions_dict_for_solution
+from chia.wallet.trading.offer import OFFER_MOD
+from chia.wallet.trading.offer import OFFER_MOD_HASH
 from typing import Tuple
 from drivers.multisig import *
 import json
 import qrcode
+from commands.deployment import print_spend_instructions
 
 @click.group()
 def multisig():
@@ -34,6 +38,7 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
 
     parent_record = None
     coin_record: CoinRecord = await node.get_coin_record_by_name(last_coin_id)
+    cs: CoinSpend
     while coin_record.spent_block_index != 0:
         cs: CoinSpend = await node.get_puzzle_and_solution(
             coin_record.coin.name(), coin_record.spent_block_index
@@ -50,7 +55,7 @@ async def get_latest_multisig_coin_spend_and_new_id(node: FullNodeRpcClient) -> 
         coin_record: CoinRecord = await node.get_coin_record_by_name(new_coin.name())
 
     open(COIN_ID_SAVE_FILE, "w").write(coin_record.coin.parent_coin_info.hex())
-    return parent_record, coin_record.coin.name()
+    return cs, coin_record.coin.name()
 
 
 def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
@@ -109,7 +114,7 @@ def get_delegated_puzzle_for_unsigned_tx(unsigned_tx) -> Program:
 @click.option('--payout-structure-file', required=True, help='JSON file containing {address: share}')
 @async_func
 @with_node
-async def start_new_tx(
+async def start_new_payout_tx(
     node: FullNodeRpcClient,
     payout_structure_file: str
 ):
@@ -186,7 +191,7 @@ async def start_new_tx(
 @click.option('--unsigned-tx-file', required=True, help='JSON file containing unsigned tx details')
 @click.option('--validator-index', required=True, help='Your validator index')
 @click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
-def sign_tx(
+def sign_payout_tx(
     unsigned_tx_file: str,
     validator_index: int,
     use_debug_method: bool
@@ -220,7 +225,7 @@ def sign_tx(
 @click.option('--sigs', required=True, help='Signatures, separated by commas')
 @async_func
 @with_node
-async def broadcast_spend(
+async def broadcast_payout_spend(
     node: FullNodeRpcClient,
     unsigned_tx_file: str,
     sigs: str
@@ -292,13 +297,7 @@ async def broadcast_spend(
       coin_spends.append(spend)
 
   spend_bundle = SpendBundle(coin_spends, AugSchemeMPL.aggregate(parsed_sigs))
-  open("sb.json", "w").write(json.dumps(spend_bundle.to_json_dict(), indent=4))
-  open("push_request.json", "w").write(json.dumps({"spend_bundle": spend_bundle.to_json_dict()}, indent=4))
-  click.echo("Spend bundle constructed and saved to sb.json")
-  click.echo("To send, use: chia rpc full_node push_tx -j push_request.json")
-
-  node.close()
-  await node.await_closed()
+  print_spend_instructions(spend_bundle, multisig_coin_spend.coin.name())
 
 
 def get_cold_key_signature(
@@ -335,3 +334,186 @@ def get_cold_key_signature(
     img.save("qr.png")
     qr.print_tty()
     click.echo("QR code also saved to qr.png")
+
+
+def get_rekey_delegated_puzzle(
+        current_coin_name: bytes32,
+        multisig_launcher_id: bytes32,
+        current_threshold: int,
+        current_keys: List[G1Element],
+        new_threshold: int,
+        new_keys: List[G1Element]
+) -> Program:
+    current_inner_puzzle = get_multisig_inner_puzzle(current_keys, current_threshold)
+    new_inner_puzzle = get_multisig_inner_puzzle(new_keys, new_threshold)
+
+    current_puzzle = puzzle_for_singleton(
+        multisig_launcher_id,
+        current_inner_puzzle
+    )
+    
+    return Program.to((1, [
+        [ConditionOpcode.ASSERT_MY_COIN_ID, current_coin_name],
+        [ConditionOpcode.CREATE_COIN, new_inner_puzzle.get_tree_hash(), 1],
+        [ConditionOpcode.ASSERT_MY_PUZZLEHASH, current_puzzle.get_tree_hash()] # just to make sure data is up-to-date
+    ]))
+
+
+@multisig.command()
+@click.option('--new-keys', required=True, help='New set of cold keys, separated by commas')
+@click.option('--new-threshold', required=True, help='New signature threshold required for transactions')
+@click.option('--validator-index', required=True, help='Your validator index')
+@click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
+@async_func
+@with_node
+async def sign_rekey_tx(
+    new_keys: str,
+    new_threshold: int,
+    validator_index: int,
+    use_debug_method: bool,
+    node: FullNodeRpcClient
+):
+    new_threshold = int(new_threshold)
+    new_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_keys.split(",")]
+
+    click.echo("Finding latest multisig coin spend...")
+    _, coin_id = await get_latest_multisig_coin_spend_and_new_id(node)
+    click.echo(f"Latest multisig coin: {coin_id.hex()}")
+
+    current_multisig_threshold = int(get_config_item(["xch", "multisig_threshold"]))
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+
+    multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
+
+    message_to_sign: bytes32 = get_rekey_delegated_puzzle(
+        coin_id,
+        multisig_launcher_id,
+        current_multisig_threshold,
+        current_multisig_keys,
+        new_threshold,
+        new_keys
+    ).get_tree_hash()
+
+    get_cold_key_signature(message_to_sign, int(validator_index), use_debug_method)
+
+
+@multisig.command()
+@click.option('--new-keys', required=True, help='New set of cold keys, separated by commas')
+@click.option('--new-threshold', required=True, help='New signature threshold required for transactions')
+@click.option('--sigs', required=True, help='Signatures, separated by commas')
+@click.option('--offer', default="help", help='Offer to use as fee soruce (must offer  exactly 1 mojo + include min network fee)')
+@async_func
+@with_node
+async def broadcast_rekey_spend(
+    new_keys: str,
+    new_threshold: int,
+    sigs: str,
+    node: FullNodeRpcClient,
+    offer: str
+):
+    if offer == "help":
+        click.echo("Oops, you forgot --offer!")
+        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
+        return
+    offer: Offer = Offer.from_bech32(offer)
+
+    new_threshold = int(new_threshold)
+    new_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_keys.split(",")]
+
+    click.echo("Finding latest multisig coin spend...")
+    parent_spend, coin_id = await get_latest_multisig_coin_spend_and_new_id(node)
+    click.echo(f"Latest multisig coin: {coin_id.hex()}")
+
+    current_multisig_threshold = int(get_config_item(["xch", "multisig_threshold"]))
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+    multisig_launcher_id: bytes32 = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
+
+    sig_indexes = [int(sig.split("-")[0]) for sig in sigs.split(",")]
+    parsed_sigs = [G2Element.from_bytes(bytes.fromhex(sig.split("-")[1])) for sig in sigs.split(",")]
+
+    # 1. Locate xch source, spend it
+    offer_sb: SpendBundle = offer.to_spend_bundle()
+    coin_spends = offer_sb.coin_spends
+    
+    source_xch_coin = None
+    for coin_spend in offer_sb.coin_spends:
+        cond_dict = conditions_dict_for_solution(
+            coin_spend.puzzle_reveal,
+            coin_spend.solution,
+            INFINITE_COST
+        )
+        create_coins = cond_dict[ConditionOpcode.CREATE_COIN]
+
+        for cc_cond in create_coins:
+            if cc_cond.vars[0] == OFFER_MOD_HASH and cc_cond.vars[1] == b'\x01':
+                source_xch_coin = Coin(coin_spend.coin.name(), OFFER_MOD_HASH, 1)
+                break
+
+    assert source_xch_coin is not None
+
+    security_coin_puzzle = Program.to((1, [
+        [ConditionOpcode.RESERVE_FEE, 1],
+        [ConditionOpcode.ASSERT_CONCURRENT_SPEND, coin_id]
+    ]))
+    security_coin_puzzle_hash = security_coin_puzzle.get_tree_hash()
+
+    source_xch_coin_solution = Program.to([
+        [source_xch_coin.name(), [security_coin_puzzle_hash, 1]]
+    ])
+
+    source_xch_coin_spend = CoinSpend(
+        source_xch_coin,
+        OFFER_MOD,
+        source_xch_coin_solution
+    )
+    coin_spends.append(source_xch_coin_spend)
+
+    # 2. Spend security coin
+    security_coin = Coin(source_xch_coin.name(), security_coin_puzzle_hash, 1)
+
+    security_coin_solution = Program.to([])
+
+    security_coin_spend = CoinSpend(security_coin, security_coin_puzzle, security_coin_solution)
+    coin_spends.append(security_coin_spend)
+
+    # 3. Spend multisig
+
+    current_inner_puzzle = get_multisig_inner_puzzle(current_multisig_keys, current_multisig_threshold)
+    current_puzzle = puzzle_for_singleton(
+        multisig_launcher_id,
+        current_inner_puzzle
+    )
+
+    multisig_coin = Coin(parent_spend.coin.name(), current_puzzle.get_tree_hash(), 1)
+
+    delegated_puzzle = get_rekey_delegated_puzzle(
+        coin_id,
+        multisig_launcher_id,
+        current_multisig_threshold,
+        current_multisig_keys,
+        new_threshold,
+        new_keys
+    )
+
+    selectors = [False for _ in current_multisig_keys]
+    for i in sig_indexes:
+        selectors[i] = True
+    multisig_solution = get_multisig_solution(
+        parent_spend,
+        current_multisig_threshold,
+        selectors,
+        delegated_puzzle,
+        Program.to([])
+    )
+
+    multisig_spend = CoinSpend(multisig_coin, current_puzzle, multisig_solution)
+    coin_spends.append(multisig_spend)
+
+    # 5. Build spend bundle
+
+    spend_bundle = SpendBundle(coin_spends, AugSchemeMPL.aggregate(
+        parsed_sigs + [
+            offer_sb.aggregated_signature
+        ]
+    ))
+    print_spend_instructions(spend_bundle, multisig_coin.name())
