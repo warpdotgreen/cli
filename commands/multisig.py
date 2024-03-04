@@ -4,8 +4,11 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton, pay_to_singleton_puzzle
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
+from chia.util.bech32m import bech32_encode
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 from chia.types.coin_spend import CoinSpend, compute_additions
+from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk
+from chia.util.bech32m import encode_puzzle_hash
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
 from commands.keys import mnemonic_to_validator_pk
@@ -196,6 +199,7 @@ def sign_payout_tx(
     validator_index: int,
     use_debug_method: bool
 ):
+    validator_index = int(validator_index)
     unsigned_tx = json.loads(open(unsigned_tx_file, "r").read())
     click.echo("Parsing unsigned tx...")
 
@@ -217,7 +221,10 @@ def sign_payout_tx(
     message_to_sign: bytes32 = get_delegated_puzzle_for_unsigned_tx(unsigned_tx).get_tree_hash()
 
     click.echo(f"The claim transaction will also include a fee of {fee // 10 ** 12} XCH ({fee} mojos).")
-    get_cold_key_signature(message_to_sign, int(validator_index), use_debug_method)
+
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+
+    get_cold_key_signature(message_to_sign, validator_index, current_multisig_keys[validator_index], use_debug_method)
         
 
 @multisig.command()
@@ -304,6 +311,7 @@ async def broadcast_payout_spend(
 def get_cold_key_signature(
         message_to_sign: bytes32,
         validator_index: int,
+        validator_pubkey: G1Element,
         use_debug_method: bool
 ):
     click.echo(f"Message to sign: {message_to_sign.hex()}")
@@ -314,11 +322,28 @@ def get_cold_key_signature(
         # since then, cold keys moved to hardware wallets!
         mnemo = input("To sign, input your 12-word cold mnemonic: ")
         sk = mnemonic_to_validator_pk(mnemo.strip())
+        pk = sk.get_g1()
+        if pk.to_bytes() != validator_pubkey.to_bytes():
+            click.echo("Wrong cold key :(")
+            return
         sig = AugSchemeMPL.sign(sk, message_to_sign)
         click.echo(f"Signature: {validator_index}-{bytes(sig).hex()}")
         return
 
-    j = {"validator_index": validator_index, "message": message_to_sign.hex()}
+    print(f"Validator public key: {validator_pubkey.to_bytes().hex()}")
+
+    validator_ph = puzzle_for_pk(validator_pubkey).get_tree_hash()
+    print(f"Validator puzzle hash: {validator_ph.hex()}")
+    validator_address = encode_puzzle_hash(
+        validator_ph, "xch"
+    )
+    print(f"Validator address: {validator_address}")
+    j = {
+        "validator_index": validator_index,
+        "address": validator_address,
+        "message": "0x" + message_to_sign.hex(),
+        "bridge": True
+    }
     j_str = json.dumps(j)
     click.echo(f"QR code data: {j_str}")
 
@@ -333,8 +358,8 @@ def get_cold_key_signature(
 
     img = qr.make_image(fill_color="black", back_color="white")
     img.save("qr.png")
-    qr.print_tty()
-    click.echo("QR code also saved to qr.png")
+    # qr.print_tty()
+    click.echo("QR code saved to qr.png")
 
 
 def get_rekey_delegated_puzzle(
@@ -374,6 +399,7 @@ async def sign_rekey_tx(
     use_debug_method: bool,
     node: FullNodeRpcClient
 ):
+    validator_index = int(validator_index)
     new_threshold = int(new_threshold)
     new_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_keys.split(",")]
 
@@ -395,7 +421,7 @@ async def sign_rekey_tx(
         new_keys
     ).get_tree_hash()
 
-    get_cold_key_signature(message_to_sign, int(validator_index), use_debug_method)
+    get_cold_key_signature(message_to_sign, validator_index, current_multisig_keys[validator_index], use_debug_method)
 
 
 @multisig.command()

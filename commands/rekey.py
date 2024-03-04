@@ -94,6 +94,7 @@ def sign_tx(
     validator_index: int,
     use_debug_method: bool
 ):
+    validator_index = int(validator_index)
     new_message_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_message_keys.split(',')]
     new_update_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_update_keys.split(',')]
     new_message_threshold = int(new_message_threshold)
@@ -119,7 +120,9 @@ def sign_tx(
     )
     message_to_sign = updater_delegated_puzzle.get_tree_hash()
 
-    get_cold_key_signature(message_to_sign, validator_index, use_debug_method)
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+
+    get_cold_key_signature(message_to_sign, validator_index, current_multisig_keys[validator_index], use_debug_method)
 
 
 @rekey.command()
