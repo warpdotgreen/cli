@@ -40,7 +40,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     ) public onlyOwner {
         require(
             chiaSideBurnPuzzle == bytes32(0) &&
-                chiaSideBurnPuzzle == bytes32(0),
+                chiaSideMintPuzzle == bytes32(0),
             "nope"
         );
         chiaSideBurnPuzzle = _chiaSideBurnPuzzle;
