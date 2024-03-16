@@ -20,16 +20,19 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     uint256 public fee = 30; // initial fee - 0.3%
     address public portal;
     address public iweth;
+    uint256 public iwethRatio; // 'iwethRatio' WETH for 1 eth - used to support MilliETH if needed
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
 
     constructor(
         address _portal,
         address _feeManager,
-        address _iweth
+        address _iweth,
+        uint256 _iwethRatio
     ) Ownable(_feeManager) {
         portal = _portal;
         iweth = _iweth;
+        iwethRatio = _iwethRatio;
         chiaSideBurnPuzzle = bytes32(0);
         chiaSideMintPuzzle = bytes32(0);
     }
@@ -82,7 +85,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             SafeERC20.safeTransfer(IERC20(assetContract), receiver, amount);
         } else {
             IWETH(iweth).withdraw(amount);
-            payable(receiver).transfer(amount);
+            payable(receiver).transfer(amount / iwethRatio);
         }
     }
 
@@ -106,17 +109,22 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     }
 
     function bridgeEtherToChia(bytes32 _receiver) public payable {
-        uint256 factor = 1 ether / 1000;
+        uint256 factor = 1 ether / 1000 / iwethRatio;
         uint256 messageFee = IPortal(portal).messageFee();
-        require(msg.value - messageFee >= factor, "!fee");
 
-        IWETH(iweth).deposit{value: msg.value - messageFee}();
+        uint256 amountAfterFee = msg.value - messageFee;
+        require(
+            amountAfterFee >= factor && amountAfterFee % factor == 0,
+            "!amount"
+        );
+
+        IWETH(iweth).deposit{value: amountAfterFee}();
 
         _handleBridging(
             iweth,
             false,
             _receiver,
-            (msg.value - messageFee) / factor,
+            amountAfterFee / factor,
             messageFee,
             factor
         );
@@ -205,9 +213,29 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         }
     }
 
+    function withdrawEther(
+        address[] memory _receivers,
+        uint256[] memory _amounts,
+        uint256 totalAmount
+    ) public onlyOwner {
+        require(_receivers.length == _amounts.length, "!length");
+
+        uint256 amount = 0;
+        for (uint256 i = 0; i < _amounts.length; i++) {
+            fees[_assetContract] -= _amounts[i] * iwethRatio;
+            amount += _amounts[i];
+        }
+
+        IWETH(iweth).withdraw(amount * iwethRatio);
+
+        for (uint256 i = 0; i < _receivers.length; i++) {
+            payable(receiver).transfer(_amounts[i]);
+        }
+    }
+
     function rescueEther() public onlyOwner {
         uint256 amount = address(this).balance;
-        fees[iweth] += amount;
+        fees[iweth] += amount * iwethRatio;
 
         IWETH(iweth).deposit{value: amount}();
     }

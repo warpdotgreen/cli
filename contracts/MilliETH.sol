@@ -3,8 +3,9 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./interfaces/IWETH.sol";
 
-contract MilliETH is ERC20 {
+contract MilliETH is ERC20, IWETH {
     constructor() ERC20("milliETH", "mETH") {}
 
     function decimals() public pure returns (uint8) {
