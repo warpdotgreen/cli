@@ -5,8 +5,8 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { getSig } from "./Portal";
 
 const tokens = [
-  { name: "WETHMock", decimals: 18n, multiplier: 1n, multiplierFactor: 0n,  type: "WETHMock" },
-  { name: "MilliETH", decimals: 3n, multiplier: 1000n, multiplierFactor: 3n, type: "MilliETH" }
+  { name: "WETHMock", decimals: 18n, wethToEthRatio: 1n,  type: "WETHMock" },
+  { name: "MilliETH", decimals: 3n, wethToEthRatio: 10n ** 12n, type: "MilliETH" }
 ];
 
 tokens.forEach(token => {
@@ -22,7 +22,6 @@ tokens.forEach(token => {
         
         const messageFee = ethers.parseEther("0.001");
         const initialFee = 30n; // 0.3%
-        const ethToWETHAmountFactor = 10n ** (18n - token.decimals - token.multiplierFactor);
         const chiaToERC20AmountFactor = 10n ** 15n; // CATs have 3 decimals, 18 - 3 = 15
         const nonce1 = ethers.encodeBytes32String("nonce1");
         const chiaSideBurnPuzzle = ethers.encodeBytes32String("chia-burn-puzzle");
@@ -45,7 +44,7 @@ tokens.forEach(token => {
 
             const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
             ethTokenBridge = await EthTokenBridgeFactory.deploy(
-                portalAddress, owner.address, weth.target, token.multiplier
+                portalAddress, owner.address, weth.target, token.wethToEthRatio
             );
 
             await ethTokenBridge.initializePuzzleHashes(chiaSideBurnPuzzle, chiaSideMintPuzzle)
@@ -74,7 +73,7 @@ tokens.forEach(token => {
             });
 
             it("Should revert if the new fee is too high", async function () {
-                const newFee = 600; // 6%
+                const newFee = 1100; // 11%
                 await expect(ethTokenBridge.updateFee(newFee))
                     .to.be.revertedWith("fee too high");
             });
@@ -231,13 +230,74 @@ tokens.forEach(token => {
             });
         });
 
+        describe("withdrawEtherFees", function () {
+            const amountWETHMojo = ethers.parseUnits("1337", 3);
+            const expectedFeeMojo = amountWETHMojo * initialFee / 10000n;
+
+            beforeEach(async function () {
+                const message = [
+                    ethers.zeroPadValue(weth.target.toString(), 32),
+                    ethers.zeroPadValue(user.address, 32),
+                    ethers.zeroPadValue("0x" + amountWETHMojo.toString(16), 32)
+                ]
+
+                var etherValue = amountWETHMojo * 10n ** 15n;
+                var amountWETH = etherValue;
+                if (token.type === "MilliETH") {
+                    etherValue = amountWETHMojo * 10n ** 12n;
+                    amountWETH = amountWETHMojo;
+                }
+                await weth.deposit({ value: etherValue });
+                await weth.transfer(ethTokenBridge.target, amountWETH);
+
+                const sig = await getSig(
+                    nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
+                    [signer]
+                );
+                await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig)
+                
+                var expectedFee = expectedFeeMojo;
+                if (token.type !== "MilliETH") {
+                    expectedFee = expectedFeeMojo * 10n ** 15n;
+                }
+
+                const newBridgeBalance = await weth.balanceOf(ethTokenBridge.target);
+                expect(newBridgeBalance).to.equal(expectedFee);
+
+                const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
+                expect(bridgeFeeAmount).to.equal(expectedFee);
+            });
+
+            it("Should allow the owner to withdraw fees", async function () {
+                var expectedFee = expectedFeeMojo;
+                if (token.type !== "MilliETH") {
+                    expectedFee = expectedFeeMojo * 10n ** 15n;
+                }
+
+                await expect(
+                    ethTokenBridge.withdrawEtherFees([owner.address], [expectedFee])
+                ).to.changeEtherBalances(
+                    [owner, weth], [expectedFee * token.wethToEthRatio, -expectedFee * token.wethToEthRatio]
+                )
+
+                expect(
+                    await ethTokenBridge.fees(weth.target)
+                ).to.equal(0);
+            });
+
+            it("Should fail if non-owner tries to withdraw fees", async function () {
+                await expect(ethTokenBridge.connect(user).withdrawEtherFees([owner.address], [expectedFeeMojo]))
+                    .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
+            });
+        });
+
 
         describe("bridgeEtherToChia", function () {
             it("Should correctly bridge ETH and deduct fees", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const ethToSend = ethers.parseEther("1");
-                const expectedCATs = ethToSend / ethToWETHAmountFactor;
-                const expectedFeeInCAT = expectedCATs * initialFee / 10000n;
+                const expectedCATs = ethToSend / token.wethToEthRatio;
+                let expectedFeeInCAT = expectedCATs * initialFee / 10000n;
 
                 await expect(
                     ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee })
@@ -282,14 +342,14 @@ tokens.forEach(token => {
                 const feesBefore = await ethTokenBridge.fees(weth.target);
                 expect(feesBefore).to.equal(0);
 
-                await expect(ethTokenBridge.rescueEther(contractEthBalance / ethToWETHAmountFactor)).to.not.be.reverted;
+                await expect(ethTokenBridge.rescueEther(contractEthBalance / token.wethToEthRatio)).to.not.be.reverted;
 
                 expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(
-                    contractEthBalance / ethToWETHAmountFactor
+                    contractEthBalance / token.wethToEthRatio
                 );
 
                 const feesAfter = await ethTokenBridge.fees(weth.target);
-                expect(feesAfter).to.equal(contractEthBalance / ethToWETHAmountFactor);
+                expect(feesAfter).to.equal(contractEthBalance / token.wethToEthRatio);
             });
 
             it("Should revert if non-owner tries to rescue Ether", async function () {

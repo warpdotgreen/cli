@@ -20,7 +20,9 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     uint256 public fee = 30; // initial fee - 0.3%
     address public portal;
     address public iweth;
-    uint256 public iwethRatio; // 'iwethRatio' WETH for 1 eth - used to support MilliETH if needed
+    uint256 public wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
+    // for example: 1000 milliETH = 1 ETH, so 10^(3+3) wei milliETH (3 decimals) translates to 10^18 wei -> ratio is 10^12
+
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
 
@@ -28,11 +30,11 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         address _portal,
         address _feeManager,
         address _iweth,
-        uint256 _iwethRatio
+        uint256 _wethToEthRatio
     ) Ownable(_feeManager) {
         portal = _portal;
         iweth = _iweth;
-        iwethRatio = _iwethRatio;
+        wethToEthRatio = _wethToEthRatio;
         chiaSideBurnPuzzle = bytes32(0);
         chiaSideMintPuzzle = bytes32(0);
     }
@@ -50,9 +52,9 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         chiaSideMintPuzzle = _chiaSideMintPuzzle;
     }
 
-    // fee between 0% and 5%
+    // fee between 0% and 10%
     function updateFee(uint256 _newFee) public onlyOwner {
-        require(_newFee < 500, "fee too high");
+        require(_newFee <= 1000, "fee too high");
         fee = _newFee;
     }
 
@@ -72,12 +74,9 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         address receiver = address(uint160(uint256(_contents[1])));
         uint256 amount = uint256(_contents[2]);
 
-        uint256 chiaToEthFactor = 10 **
-            ERC20Decimals(assetContract).decimals() /
-            1000;
-        amount = amount * chiaToEthFactor;
-        uint256 transferFee = (amount * fee) / 10000;
+        amount = (amount * 10 ** (ERC20Decimals(assetContract).decimals() - 3)); // transform from mojos to ETH wei
 
+        uint256 transferFee = (amount * fee) / 10000;
         fees[assetContract] += transferFee;
         amount -= transferFee;
 
@@ -85,7 +84,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             SafeERC20.safeTransfer(IERC20(assetContract), receiver, amount);
         } else {
             IWETH(iweth).withdraw(amount);
-            payable(receiver).transfer(amount / iwethRatio);
+            payable(receiver).transfer(amount * wethToEthRatio);
         }
     }
 
@@ -109,24 +108,26 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     }
 
     function bridgeEtherToChia(bytes32 _receiver) public payable {
-        uint256 factor = 1 ether / 1000 / iwethRatio;
         uint256 messageFee = IPortal(portal).messageFee();
 
         uint256 amountAfterFee = msg.value - messageFee;
         require(
-            amountAfterFee >= factor && amountAfterFee % factor == 0,
+            amountAfterFee >= wethToEthRatio &&
+                amountAfterFee % wethToEthRatio == 0,
             "!amount"
         );
 
         IWETH(iweth).deposit{value: amountAfterFee}();
 
+        uint256 wethToMojosFactor = 10 ** (ERC20Decimals(iweth).decimals() - 3);
+
         _handleBridging(
             iweth,
             false,
             _receiver,
-            amountAfterFee / factor,
+            amountAfterFee / wethToEthRatio / wethToMojosFactor,
             messageFee,
-            10 ** (ERC20Decimals(iweth).decimals() - 3)
+            wethToMojosFactor
         );
     }
 
@@ -213,31 +214,28 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
         }
     }
 
-    function withdrawEther(
+    function withdrawEtherFees(
         address[] memory _receivers,
-        uint256[] memory _amounts
+        uint256[] memory _wethAmounts
     ) public onlyOwner {
-        require(_receivers.length == _amounts.length, "!length");
+        require(_receivers.length == _wethAmounts.length, "!length");
 
-        uint256 amount = 0;
-        for (uint256 i = 0; i < _amounts.length; i++) {
-            fees[iweth] -= _amounts[i] * iwethRatio;
-            amount += _amounts[i];
+        uint256 wethAmount = 0;
+        for (uint256 i = 0; i < _wethAmounts.length; i++) {
+            fees[iweth] -= _wethAmounts[i];
+            wethAmount += _wethAmounts[i];
         }
 
-        IWETH(iweth).withdraw(amount * iwethRatio);
+        IWETH(iweth).withdraw(wethAmount);
 
         for (uint256 i = 0; i < _receivers.length; i++) {
-            payable(_receivers[i]).transfer(_amounts[i]);
+            payable(_receivers[i]).transfer(_wethAmounts[i] * wethToEthRatio);
         }
     }
 
     function rescueEther(uint256 amount) public onlyOwner {
         fees[iweth] += amount;
 
-        IWETH(iweth).deposit{
-            value: (amount * 10 ** (18 - ERC20Decimals(iweth).decimals())) /
-                iwethRatio
-        }();
+        IWETH(iweth).deposit{value: amount * wethToEthRatio}();
     }
 }
