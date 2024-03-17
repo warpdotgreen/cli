@@ -126,7 +126,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
             _receiver,
             amountAfterFee / factor,
             messageFee,
-            factor
+            10 ** (ERC20Decimals(iweth).decimals() - 3)
         );
     }
 
@@ -233,8 +233,11 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     }
 
     function rescueEther(uint256 amount) public onlyOwner {
-        fees[iweth] += amount * iwethRatio;
+        fees[iweth] += amount;
 
-        IWETH(iweth).deposit{value: amount}();
+        IWETH(iweth).deposit{
+            value: (amount * 10 ** (18 - ERC20Decimals(iweth).decimals())) /
+                iwethRatio
+        }();
     }
 }

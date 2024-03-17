@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { MilliETH } from "../typechain-types";
 
-describe.only("MilliETH", function () {
+describe("MilliETH", function () {
     let milliETH: MilliETH;
     let deployer: any;
     let user: any;

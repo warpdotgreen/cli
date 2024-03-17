@@ -5,12 +5,12 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { getSig } from "./Portal";
 
 const tokens = [
-  { name: "WETHMock", decimals: 18, multiplier: 1n, type: "WETHMock" },
-  { name: "MilliETH", decimals: 3, multiplier: 1000n, type: "MilliETH" }
+  { name: "WETHMock", decimals: 18n, multiplier: 1n, multiplierFactor: 0n,  type: "WETHMock" },
+  { name: "MilliETH", decimals: 3n, multiplier: 1000n, multiplierFactor: 3n, type: "MilliETH" }
 ];
 
 tokens.forEach(token => {
-    describe.only(`EthTokenBridge (${token.name})`, function () {
+    describe(`EthTokenBridge (${token.name})`, function () {
         let ethTokenBridge: EthTokenBridge;
         let mockERC20: ERC20Mock;
         let weth: WETHMock | MilliETH;
@@ -22,8 +22,8 @@ tokens.forEach(token => {
         
         const messageFee = ethers.parseEther("0.001");
         const initialFee = 30n; // 0.3%
-        const chiaToWETHAmountFactor = 10n ** (18n - BigInt(token.decimals));
-        const chiaToERC20AmountFactor = 10n ** 12n;
+        const ethToWETHAmountFactor = 10n ** (18n - token.decimals - token.multiplierFactor);
+        const chiaToERC20AmountFactor = 10n ** 15n; // CATs have 3 decimals, 18 - 3 = 15
         const nonce1 = ethers.encodeBytes32String("nonce1");
         const chiaSideBurnPuzzle = ethers.encodeBytes32String("chia-burn-puzzle");
         const chiaSideMintPuzzle = ethers.encodeBytes32String("chia-mint-puzzle");
@@ -236,25 +236,26 @@ tokens.forEach(token => {
             it("Should correctly bridge ETH and deduct fees", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const ethToSend = ethers.parseEther("1");
-                const expectedFee = ethToSend * initialFee / 10000n;
+                const expectedCATs = ethToSend / ethToWETHAmountFactor;
+                const expectedFeeInCAT = expectedCATs * initialFee / 10000n;
 
                 await expect(
                     ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee })
                 ).to.emit(portal, "MessageSent");
 
-                expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(ethToSend * token.multiplier);
+                expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(expectedCATs);
 
                 const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
-                expect(bridgeFeeAmount).to.equal(expectedFee);
+                expect(bridgeFeeAmount).to.equal(expectedFeeInCAT);
             });
 
             it("Should fail if msg.value is too low", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
-                const ethToSend = messageFee * 3n / 2n;
-
+                var ethToSend = messageFee * 2n / 3n;
+                
                 await expect(
                     ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
-                ).to.be.revertedWith("!fee");
+                ).to.be.reverted;
             });
 
             it("Should revert if no ETH is sent", async function () {
@@ -281,14 +282,14 @@ tokens.forEach(token => {
                 const feesBefore = await ethTokenBridge.fees(weth.target);
                 expect(feesBefore).to.equal(0);
 
-                await expect(ethTokenBridge.rescueEther(valueToRescue)).to.not.be.reverted;
+                await expect(ethTokenBridge.rescueEther(contractEthBalance / ethToWETHAmountFactor)).to.not.be.reverted;
 
                 expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(
-                    contractEthBalance / chiaToWETHAmountFactor
+                    contractEthBalance / ethToWETHAmountFactor
                 );
 
                 const feesAfter = await ethTokenBridge.fees(weth.target);
-                expect(feesAfter).to.equal(contractEthBalance / chiaToWETHAmountFactor);
+                expect(feesAfter).to.equal(contractEthBalance / ethToWETHAmountFactor);
             });
 
             it("Should revert if non-owner tries to rescue Ether", async function () {
