@@ -161,6 +161,45 @@ tokens.forEach(token => {
                 expect(newBalance).to.equal(amount * chiaToERC20AmountFactor - expectedFee);
             });
 
+            it("Should correctly process received messages and transfer ether", async function () {
+                const receiver = user.address;
+                const CATAmount = ethers.parseUnits("1.234", 3);
+                const message = [
+                    ethers.zeroPadValue(weth.target.toString(), 32),
+                    ethers.zeroPadValue(receiver, 32),
+                    ethers.zeroPadValue("0x" + CATAmount.toString(16).padStart(4, "0"), 32)
+                ]
+                const chiaToWETHFactor = token.type === "MilliETH" ? 1n : 10n ** 15n;
+
+                const wethAmount = CATAmount * chiaToWETHFactor;
+                const expectedFee = CATAmount * chiaToWETHFactor * initialFee / 10000n;
+
+                await weth.deposit({ value: wethAmount * token.wethToEthRatio });
+                await weth.transfer(ethTokenBridge.target, wethAmount);
+
+                const sig = await getSig(
+                    nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
+                    [signer]
+                );
+                await expect(
+                    portal.receiveMessage(
+                        nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig
+                    )
+                ).to.changeEtherBalances(
+                    [weth, receiver],
+                    [
+                        -(wethAmount - expectedFee) * token.wethToEthRatio,
+                        (wethAmount - expectedFee) * token.wethToEthRatio
+                    ]
+                )
+                
+                const newBridgeBalance = await weth.balanceOf(ethTokenBridge.target);
+                expect(newBridgeBalance).to.equal(expectedFee);
+
+                const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
+                expect(bridgeFeeAmount).to.equal(expectedFee);
+            });
+
             it("Should fail if sender is not the portal", async function () {
                 const message = [
                     ethers.zeroPadValue(mockERC20.target.toString(), 32),

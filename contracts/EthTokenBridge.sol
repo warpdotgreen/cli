@@ -22,6 +22,7 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     address public iweth;
     uint256 public wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
     // for example: 1000 milliETH = 1 ETH, so 10^(3+3) wei milliETH (3 decimals) translates to 10^18 wei -> ratio is 10^12
+    // amount_weth * wethToEthRatio = eth amount to pay out
 
     bytes32 public chiaSideBurnPuzzle;
     bytes32 public chiaSideMintPuzzle;
