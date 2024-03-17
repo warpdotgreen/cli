@@ -14,14 +14,14 @@ contract MilliETH is ERC20, IWETH {
 
     function deposit() public payable {
         // msg.value will have 18 decimals; we want 6 (1000 milliETH:1 ETH ratio + 3 decimals for 1 milliETH token)
-        require(msg.value > 0 && msg.value % 10e12 == 0, "!msg.value");
-        _mint(msg.sender, msg.value / 10e12);
+        require(msg.value > 0 && msg.value % 1e12 == 0, "!msg.value");
+        _mint(msg.sender, msg.value / 1e12);
     }
 
     function withdraw(uint256 amount) public {
         require(amount > 0, "!amount");
         _burn(msg.sender, amount);
-        (bool sent, ) = msg.sender.call{value: amount * 10e12}("");
+        (bool sent, ) = msg.sender.call{value: amount * 1e12}("");
         require(sent, "!sent");
     }
 
