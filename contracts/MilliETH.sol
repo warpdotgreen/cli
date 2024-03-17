@@ -8,7 +8,7 @@ import "./interfaces/IWETH.sol";
 contract MilliETH is ERC20, IWETH {
     constructor() ERC20("milliETH", "mETH") {}
 
-    function decimals() public pure returns (uint8) {
+    function decimals() public pure override returns (uint8) {
         return 3;
     }
 

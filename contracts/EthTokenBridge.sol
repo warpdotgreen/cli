@@ -215,21 +215,20 @@ contract EthTokenBridge is IPortalMessageReceiver, Ownable {
 
     function withdrawEther(
         address[] memory _receivers,
-        uint256[] memory _amounts,
-        uint256 totalAmount
+        uint256[] memory _amounts
     ) public onlyOwner {
         require(_receivers.length == _amounts.length, "!length");
 
         uint256 amount = 0;
         for (uint256 i = 0; i < _amounts.length; i++) {
-            fees[_assetContract] -= _amounts[i] * iwethRatio;
+            fees[iweth] -= _amounts[i] * iwethRatio;
             amount += _amounts[i];
         }
 
         IWETH(iweth).withdraw(amount * iwethRatio);
 
         for (uint256 i = 0; i < _receivers.length; i++) {
-            payable(receiver).transfer(_amounts[i]);
+            payable(_receivers[i]).transfer(_amounts[i]);
         }
     }
 
