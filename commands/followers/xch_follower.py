@@ -62,6 +62,76 @@ class ChiaFollower:
         return await get_node_client(self.chain)
 
 
+    # to save space, used_chains_and_nonces has a special format:
+    # [([chain] [a] [nonce1] [nonce2]), ...]
+    # the above would say that [chain] used all consecutive nonces from 1 to [a] (i.e., 1, 2, 3, ..., a) AND nonce1 AND nonce2
+    def check_already_used_chain_and_nonce(
+        self,
+        used_data: bytes,
+        source_chain: bytes,
+        nonce: bytes
+    ) -> bool:
+        used_data: Program = Program.from_bytes(used_data)
+        used_data_for_chain = None
+        for used_chain_and_nonce in used_data.as_iter():
+            if used_chain_and_nonce.first().as_atom() == source_chain:
+                used_data_for_chain = used_chain_and_nonce.rest()
+                break
+
+        if used_data_for_chain is None:
+            return False
+        
+        nonce: int = int(nonce.hex(), 16)
+        if used_data_for_chain.first().as_int() >= nonce:
+            return True
+        
+        for used_nonce in used_data_for_chain.rest().as_iter():
+            if used_nonce.as_int() == nonce:
+                return True
+        return False
+
+
+    # for format, see note of function above
+    def add_chain_and_nonce(
+        base_data: Program,
+        source_chain: bytes,
+        nonce: bytes
+    ) -> Program:
+        nonce: int = int(nonce.hex(), 16)
+
+        chain_data_parts = []
+        found = False
+
+        for chain_data in base_data.as_iter():
+            if chain_data.first() != source_chain:
+                chain_data_parts.append(chain_data)
+                continue
+
+            # to add an item: treat all nonces (including [a]) as an integer list
+            # add nonce, sort the list
+            # then, if a == nonce1 - 1, a = nonce1, pop nonce1 - up until the first time the condition is false
+            found = True
+            chain_data_ints = [_.as_int() for _ in chain_data.rest().as_iter()]
+
+            assert chain_data_ints[0] < nonce and nonce not in chain_data_ints
+            chain_data_ints.append(nonce)
+            chain_data_ints.sort()
+
+            while len(chain_data_ints) > 1 and chain_data_ints[0] + 1 == chain_data_ints[1]:
+                chain_data_ints[0] += 1
+                chain_data_ints.pop(1)
+
+            chain_data_parts.append(Program.to([source_chain] + chain_data_ints))
+
+        if not found:
+            if nonce == 1:
+                chain_data_parts.append(Program.to([source_chain, nonce]))
+            else:
+                chain_data_parts.append(Program.to([source_chain, 0, nonce]))
+
+        return Program.to(chain_data_parts)
+
+
     async def signMessage(self, db, message: Message):
         logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
 
@@ -86,12 +156,15 @@ class ChiaFollower:
             logging.error(f"Portal coin {self.chain}-0x{portal_id.hex()}: not found in db. Not signing message.")
             return
         
-        for used_chain_and_nonce in Program.from_bytes(portal_state.used_chains_and_nonces).as_iter():
-            if used_chain_and_nonce.first().as_atom() == message.source_chain and used_chain_and_nonce.rest().as_atom() == message.nonce:
-                logging.error(f"Chain {self.chain}-0x{message.nonce.hex()}: nonce already used. Not signing message.")
-                message.sig = SIG_USED_VALUE
-                db.commit()
-                return
+        if self.check_already_used_chain_and_nonce(
+            portal_state.used_chains_and_nonces,
+            message.source_chain,
+            message.nonce
+        ):
+            logging.error(f"Chain {self.chain}-0x{message.nonce.hex()}: nonce already used. Not signing message.")
+            message.sig = SIG_USED_VALUE
+            db.commit()
+            return     
         
         msg_bytes = msg_bytes + portal_id + bytes.fromhex(get_config_item([self.chain, "agg_sig_data"]))
 
@@ -298,16 +371,18 @@ class ChiaFollower:
         inner_solution: Program = Program.from_bytes(bytes(spend.solution)).at("rrf")
         update_package = inner_solution.at("f")
 
-        prev_used_chains_and_nonces = Program.from_bytes(last_synced_portal.used_chains_and_nonces).as_python()
-        if len(prev_used_chains_and_nonces) == 0:
-            prev_used_chains_and_nonces = []
+        prev_used_chains_and_nonces = Program.from_bytes(last_synced_portal.used_chains_and_nonces)
+        if len(prev_used_chains_and_nonces.as_python()) == 0:
+            prev_used_chains_and_nonces = Program.to([])
         
         chains_and_nonces = inner_solution.at("rf").as_iter() if bytes(update_package) == bytes(Program.to(0)) else []
         for cn in chains_and_nonces:
             source_chain = cn.first().as_atom()
             nonce = cn.rest().as_atom()
-            prev_used_chains_and_nonces.append(
-                (source_chain, nonce)
+            prev_used_chains_and_nonces = self.add_chain_and_nonce(
+                prev_used_chains_and_nonces,
+                source_chain,
+                nonce
             )
 
             msg = db.query(Message).filter(and_(
