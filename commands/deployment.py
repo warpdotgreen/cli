@@ -58,13 +58,22 @@ def predict_create2_address(sender, salt, init_code):
     return contract_address
 
 @deployment.command()
-@click.option('--weth-address', required=True, help='WETH contract address to be used by the bridge')
+@click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
 def get_eth_deployment_data(weth_address):
+    deploy_meth = weth_address == "meth" 
+
+    if deploy_meth:
+        weth_address = None
+        click.echo("Will also deploy mETH contract! :)")
+
     click.echo("Constructing txes based on config...")
     wei_per_message_fee = get_config_item(["eth", "wei_per_message_fee"])
 
     w3 = Web3(Web3.HTTPProvider(get_config_item(["eth", "rpc_url"])))
 
+    millieth_artifact = json.loads(
+        open('artifacts/contracts/MilliETH.sol/MilliETH.json', 'r').read()
+      )
     portal_artifact = json.loads(
         open('artifacts/contracts/Portal.sol/Portal.json', 'r').read()
       )
@@ -78,7 +87,14 @@ def get_eth_deployment_data(weth_address):
     deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
     create_call_address = get_config_item(["eth", "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how often yakuhito manually changed this salt source").digest()
+    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string").digest()
+
+    meth_contract = w3.eth.contract(
+        abi=millieth_artifact['abi'],
+        bytecode=millieth_artifact['bytecode']
+    )
+    meth_constructor_data = meth_contract.constructor().build_transaction()['data']
+    open("millieth.data", "w").write(meth_constructor_data)
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
@@ -118,7 +134,8 @@ def get_eth_deployment_data(weth_address):
     ).constructor(
         Web3.to_bytes(hexstr=portal_address),
         Web3.to_bytes(hexstr=deployer_safe_address),
-        Web3.to_bytes(hexstr=weth_address)
+        Web3.to_bytes(hexstr=weth_address),
+        10 ** 12 if deploy_meth else 1
     ).build_transaction({
         'gas': 5000000000
     })['data']
@@ -126,8 +143,18 @@ def get_eth_deployment_data(weth_address):
 
     print("")
     print("")
-    print("Deployment batch #1")
+    print("Deployment batch")
     print("-------------------")
+
+    if deploy_meth:
+        print("Tx 0: deploy MilliETH")
+        print(f"\t To: {create_call_address}")
+        print(f"\t Contract method selector: performCreate2")
+        print(f"\t Value: 0")
+        print(f"\t Data: see millieth.data")
+        print(f"\t Salt: 0x{salt.hex()}")
+        print(f"\t Predicted address: {weth_address}")
+
     print("Tx 1: deploy Portal")
     print(f"\t To: {create_call_address}")
     print(f"\t Contract method selector: performCreate2")
