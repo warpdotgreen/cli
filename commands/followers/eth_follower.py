@@ -122,33 +122,6 @@ class EthereumFollower:
       db = self.getDb()
       web3 = self.getWeb3()
 
-      latest_block_in_db = db.query(Block).filter(
-         Block.chain_id == self.chain_id
-      ).order_by(Block.height.desc()).first()
-      latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height'])
-      logging.info(f"Synced peak: {self.chain_id.decode()}-{latest_synced_block_height}")
-
-      latest_mined_block = web3.eth.block_number
-      logging.info(f"Quickly syncing to: {self.chain_id.decode()}-{latest_mined_block}")
-
-      prev_block_hash = None
-      iters = 0
-      while latest_synced_block_height <= latest_mined_block:
-        latest_synced_block_height, prev_block_hash = self.syncBlockUsingHeight(
-          db, web3,
-          latest_synced_block_height,
-          block=None,
-          prev_block_hash=prev_block_hash,
-          quick_sync=prev_block_hash is not None
-        )
-        iters += 1
-        if iters >= 200:
-          logging.info(f"{self.chain_id.decode()}: over 200 iters; saving progress...")
-          db.commit()
-          iters = 0
-          latest_mined_block = web3.eth.block_number
-      db.commit()
-
       block_filter = web3.eth.filter('latest')
 
       logging.info(f"Quick sync done on {self.chain_id.decode()}. Listening for new blocks using filter.")
@@ -336,6 +309,42 @@ class EthereumFollower:
                   logging.error(e)
 
           await asyncio.sleep(5)
+
+    async def catchUp(self) -> bool: # false if we're already at peak 
+      db = self.getDb()
+      web3 = self.getWeb3()
+
+      latest_block_in_db = db.query(Block).filter(
+        Block.chain_id == self.chain_id
+      ).order_by(Block.height.desc()).first()
+      latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height'])
+      logging.info(f"Synced peak: {self.chain_id.decode()}-{latest_synced_block_height}")
+
+      latest_mined_block = web3.eth.block_number
+      if latest_mined_block == latest_block_in_db:
+        logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_mined_block}")
+        return False
+      
+      logging.info(f"Quickly catching up to: {self.chain_id.decode()}-{latest_mined_block}")
+
+      prev_block_hash = None
+      iters = 0
+      while latest_synced_block_height <= latest_mined_block:
+        latest_synced_block_height, prev_block_hash = self.syncBlockUsingHeight(
+          db, web3,
+          latest_synced_block_height,
+          block=None,
+          prev_block_hash=prev_block_hash,
+          quick_sync=prev_block_hash is not None
+        )
+        iters += 1
+        if iters >= 200:
+          logging.info(f"{self.chain_id.decode()}: over 200 iters; saving progress...")
+          db.commit()
+          iters = 0
+          latest_mined_block = web3.eth.block_number
+      db.commit()
+      return True
 
 
     def run(self, loop):

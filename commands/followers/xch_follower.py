@@ -354,8 +354,8 @@ class ChiaFollower:
         return new_synced_portal
     
 
-
-    async def portalFollower(self):
+    # important: if loop=False, this function should just sync the portal to its latest state
+    async def portalFollower(self, loop = True):
         db = self.getDb()
         node = await self.getNode()
 
@@ -395,7 +395,11 @@ class ChiaFollower:
         logging.info(f"Latest portal coin: {self.chain}-0x{last_synced_portal.coin_id.hex()}")
 
         while True:
-            last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
+            new_synced_portal = await self.syncPortal(db, node, last_synced_portal)
+            if not loop and new_synced_portal.parent_id == last_synced_portal.parent_id:
+                break
+
+            last_synced_portal = new_synced_portal
             db.commit()
 
         node.close()
@@ -532,6 +536,31 @@ class ChiaFollower:
 
         node.close()
         await node.await_closed()
+
+
+    async def catchUp(self) -> bool: # false if we're already at peak 
+        db = self.getDb()
+        node = await self.getNode()
+
+        latest_block_in_db = db.query(Block).filter(
+            Block.chain_id == self.chain_id
+        ).order_by(Block.height.desc()).first()
+        latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height']) - 1
+        logging.info(f"Sync peak: {self.chain_id.decode()}-{latest_synced_block_height}")
+
+        peak_height = await node.get_blockchain_state()["blockchain_state"]["peak"]["height"]
+        if latest_synced_block_height == peak_height:
+            logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_synced_block_height}")
+            return False
+
+        next_block_height = latest_synced_block_height + 1
+        prev_hash = None
+        while next_block_height <= peak_height:
+            next_block_height, prev_hash = await self.syncBlock(db, node, next_block_height, prev_hash)
+            db.commit()
+
+        await self.portalFollower(loop=False)
+        return True
 
 
     def run(self, loop):
