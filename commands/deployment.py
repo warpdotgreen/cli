@@ -96,6 +96,8 @@ def get_eth_deployment_data(weth_address):
     meth_constructor_data = meth_contract.constructor().build_transaction()['data']
     open("millieth.data", "w").write(meth_constructor_data)
 
+    weth_address = predict_create2_address(create_call_address, salt, meth_constructor_data)
+
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
         bytecode=portal_artifact['bytecode']
