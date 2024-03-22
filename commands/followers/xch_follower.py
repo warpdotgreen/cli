@@ -93,6 +93,7 @@ class ChiaFollower:
 
     # for format, see note of function above
     def add_chain_and_nonce(
+        self,
         base_data: Program,
         source_chain: bytes,
         nonce: bytes
@@ -623,9 +624,11 @@ class ChiaFollower:
         latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height']) - 1
         logging.info(f"Sync peak: {self.chain_id.decode()}-{latest_synced_block_height}")
 
-        peak_height = await node.get_blockchain_state()["blockchain_state"]["peak"]["height"]
+        peak_height = (await node.get_blockchain_state())["peak"].height
         if latest_synced_block_height == peak_height:
             logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_synced_block_height}")
+            node.close()
+            await node.await_closed()
             return False
 
         next_block_height = latest_synced_block_height + 1
@@ -635,6 +638,9 @@ class ChiaFollower:
             db.commit()
 
         await self.portalFollower(loop=False)
+
+        node.close()
+        await node.await_closed()
         return True
 
 

@@ -39,6 +39,8 @@ class EthereumFollower:
             Message.block_number >= height
           )
       ).delete()
+      db.delete(block)
+      db.commit()
       logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
 
 
@@ -321,7 +323,7 @@ class EthereumFollower:
       logging.info(f"Synced peak: {self.chain_id.decode()}-{latest_synced_block_height}")
 
       latest_mined_block = web3.eth.block_number
-      if latest_mined_block == latest_block_in_db:
+      if latest_mined_block == latest_block_in_db.height:
         logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_mined_block}")
         return False
       
@@ -329,10 +331,11 @@ class EthereumFollower:
 
       prev_block_hash = None
       iters = 0
-      while latest_synced_block_height <= latest_mined_block:
-        latest_synced_block_height, prev_block_hash = self.syncBlockUsingHeight(
+      block_to_sync = latest_synced_block_height + +1
+      while block_to_sync <= latest_mined_block:
+        block_to_sync, prev_block_hash = self.syncBlockUsingHeight(
           db, web3,
-          latest_synced_block_height,
+          block_to_sync,
           block=None,
           prev_block_hash=prev_block_hash,
           quick_sync=prev_block_hash is not None
@@ -343,6 +346,7 @@ class EthereumFollower:
           db.commit()
           iters = 0
           latest_mined_block = web3.eth.block_number
+
       db.commit()
       return True
 
