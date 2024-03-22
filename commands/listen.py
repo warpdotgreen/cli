@@ -20,8 +20,8 @@ async def listen():
 
     catch_up = True
     while catch_up:
-        catch_up = await eth_follower.catch_up()
-        catch_up = (await xch_follower.catch_up()) or catch_up
+        catch_up = await eth_follower.catchUp()
+        catch_up = (await xch_follower.catchUp()) or catch_up
 
     loop = asyncio.get_event_loop()
     xch_follower.run(loop)

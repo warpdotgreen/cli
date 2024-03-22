@@ -8,6 +8,7 @@ from chia.util.bech32m import encode_puzzle_hash
 from commands.config import get_config_item
 from eth_account import Account
 from web3.auto import w3
+from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Filter, Metadata, Nip46Signer, init_logger, LogLevel
 
 @click.group()
 def keys():
@@ -48,3 +49,23 @@ def generate_eth_key():
     click.echo(f"Private Key: {account.key.hex()}")
     click.echo(f"Public Key: {account._key_obj.public_key}")
     click.echo(f"Address: {w3.to_checksum_address(account.address)}")
+
+
+# https://github.com/nostr-protocol/nips/blob/master/06.md
+@keys.command()
+def generate_nostr_key():
+    click.echo("Generating Nostr key...")
+
+    entropy = secrets.token_bytes(16)
+    mnemonic = bytes_to_mnemonic(entropy)
+    mnemonic = "what bleak badge arrange retreat wolf trade produce cricket blur garlic valid proud rude strong choose busy staff weather area salt hollow arm fade"
+    click.echo(f"Mnemonic: {mnemonic}")
+
+    keys = Keys.from_mnemonic(mnemonic, None)
+    pk = keys.public_key()
+    sk = keys.secret_key()
+
+    click.echo(f"Private Key (hex): {sk.to_hex()}")
+    click.echo(f"nsec: {sk.to_bech32()}")
+    click.echo(f"Public Key (hex): {pk.to_hex()}")
+    click.echo(f"npub: {pk.to_bech32()}")
