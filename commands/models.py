@@ -20,17 +20,9 @@ class Message(Base):
     destination_chain = Column(BLOB(3))
     destination = Column(BLOB)
     contents = Column(BLOB)
-    block_hash = Column(BLOB)
     block_number = Column(Integer)
-    has_enough_confirmations_for_signing = Column(Boolean)
+    confirmed_for_signing = Column(Boolean)
     sig = Column(BLOB)
-
-class Block(Base):
-    __tablename__ = 'blocks'
-    chain_id = Column(BLOB(3), primary_key=True)
-    height = Column(Integer, primary_key=True)
-    hash = Column(BLOB)
-    prev_hash = Column(BLOB)
 
 class ChiaPortalState(Base):
     __tablename__ = 'xch_portal_states'
