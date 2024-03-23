@@ -13,20 +13,14 @@ import asyncio
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @click.command()
-@async_func
-async def listen():
+def listen():
     eth_follower = EthereumFollower("eth")
     xch_follower = ChiaFollower("xch")
-
-    catch_up = True
-    while catch_up:
-        catch_up = await eth_follower.catchUp()
-        catch_up = (await xch_follower.catchUp()) or catch_up
 
     loop = asyncio.get_event_loop()
     xch_follower.run(loop)
     eth_follower.run(loop)
-    # loop.run_forever()
+    loop.run_forever()
     
     while True:
-        await asyncio.sleep(5)
+        time.sleep(5)

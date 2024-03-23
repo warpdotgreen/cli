@@ -30,163 +30,42 @@ class EthereumFollower:
        return Web3(Web3.HTTPProvider(get_config_item([self.chain, 'rpc_url'])))
     
 
-    def revertBlock(self, db, height: int):
-      block = db.query(Block).filter(and_(Block.height == height, Block.chain_id == self.chain_id)).first()
-      block_hash = block.hash
-      db.query(Message).filter(
-         and_(
-            Message.source_chain == self.chain_id,
-            Message.block_number >= height
-          )
-      ).delete()
-      db.delete(block)
-      db.commit()
-      logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
-
-
-    def addBlock(self, db, height: int, hash: bytes, prev_hash: bytes, check_messages: bool = True):
-      db.add(Block(height=height, hash=hash, chain_id=self.chain_id, prev_hash=prev_hash))
-      logging.info(f"Block #{self.chain_id.decode()}-{height} added to db.")
-
-      if check_messages:
-         messages: List[Message] = db.query(Message).filter(and_(
-            Message.source_chain == self.chain_id,
-            Message.has_enough_confirmations_for_signing.is_(False),
-            Message.block_number < height - self.sign_min_height
-         )).all()
-         
-         for message in messages:
-            msg_block: Block = db.query(Block).filter(and_(
-                Block.height == message.block_number,
-                Block.chain_id == self.chain_id
-            )).first()
-            if msg_block is None or msg_block.hash != message.block_hash:
-                logging.error(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} - message block hash different from block hash in db. Not signing.")
-                continue
-            
-            message.has_enough_confirmations_for_signing = True
-            logging.info(f"Message {self.chain_id.decode()}-{int(message.nonce.hex(), 16)} has enough confirmations; marked for signing.")
-
-
-    # returns new block height we should sync to
-    def syncBlockUsingHeight(
-          self,
-          db,
-          web3,
-          height: int,
-          block = None,
-          prev_block_hash: bytes = None,
-          quick_sync: bool = False,
-    ) -> Tuple[int, bytes]: # new_height, next prev block hash
-        if block is None:
-          block = web3.eth.get_block(height)
-        logging.info(f"Processing block #{self.chain_id.decode()}-{height} with hash {block['hash'].hex()}...")
-
-        block_height = block['number']
-        assert block_height == height
-
-        block_hash = bytes(block['hash'])
-        block_prev_hash = bytes(block['parentHash'])
-
-        if prev_block_hash is None:
-          prev_block = db.query(Block).filter(and_(
-             Block.height == block_height - 1, Block.chain_id == self.chain_id
-          )).first()
-          if prev_block is not None and prev_block.hash != block_prev_hash:
-              prev_block_hash = prev_block.hash
-              self.revertBlock(db, block_height - 1)
-              return block_height - 1, None
-          elif prev_block is None and block_height != get_config_item([self.chain, 'min_height']):
-              logging.info(f"Block #{self.chain_id.decode()}-{height-1} not in db - soft reverting.")
-              return block_height - 1, None
-        else:
-           if prev_block_hash != block_prev_hash:
-              self.revertBlock(db, block_height - 1)
-              return block_height - 1, None
-        
-        if not quick_sync:
-          current_block = db.query(Block).filter(and_(
-             Block.height == block_height and Block.chain_id == self.chain_id
-          )).first()
-          if current_block is not None and current_block.hash == block_hash and current_block.prev_hash == block_prev_hash:
-              logging.info(f"Block #{self.chain_id.decode()}-{height} already in db.")
-              return block_height + 1, None
-          elif current_block is not None:
-              logging.info(f"Another block #{self.chain_id.decode()}-{height} in db - reverting.")
-              self.revertBlock(db, block_height)
-              return block_height, None
-        
-        self.addBlock(db, block_height, block_hash, block_prev_hash, check_messages=not quick_sync)
-        return block_height + 1, block_hash
-    
-
-    async def blockFollower(self): 
-      db = self.getDb()
-      web3 = self.getWeb3()
-
-      block_filter = web3.eth.filter('latest')
-
-      logging.info(f"Quick sync done on {self.chain_id.decode()}. Listening for new blocks using filter.")
-      while True:
-          for block_hash in block_filter.get_new_entries():
-              block = web3.eth.get_block(block_hash)
-              block_height = block['number']
-              latest_synced_block_height, _ = self.syncBlockUsingHeight(db, web3, block_height, block)
-              while latest_synced_block_height < block_height + 1:
-                  latest_synced_block_height, _ = self.syncBlockUsingHeight(db, web3, latest_synced_block_height)
-              db.commit()
-          await asyncio.sleep(5)
-
-
     def nonceIntToBytes(self, nonceInt: int) -> bytes:
       s = hex(nonceInt)[2:]
       return (64 - len(s)) * "0" + s
     
-    async def addEventToDb(self, db, event):
-      source = bytes.fromhex(event['args']['source'][2:])
-      nonce = event['args']['nonce']
 
-      block_from_db = db.query(Block).filter(and_(
-         Block.hash == event['blockHash'],
-          Block.chain_id == self.chain_id
-      )).first()
-      while block_from_db is None:
-        db_peak = db.query(Block).filter(Block.chain_id == self.chain_id).order_by(Block.height.desc()).first()
-        if db_peak is not None and db_peak.height >= event['blockNumber']:
-           logging.error(f"Another peak in db, but block for message {self.chain}-{int(event['args']['nonce'].hex(), 16)} still not found - abandoning.")
-           return
-        
-        logging.info(f"Block {self.chain}-{event['blockHash'].hex()} not in db yet; waiting 20s and retrying.")
-        await asyncio.sleep(20)
-        block_from_db = db.query(Block.height).filter(and_(
-         Block.hash == event['blockHash'],
-          Block.chain_id == self.chain_id
-      )).first()
-         
-      db.add(Message(
-          nonce=nonce,
+    def eventObjectToMessage(self, event) -> Message:
+      source = bytes.fromhex(event['args']['source'][2:])
+
+      return Message(
+          nonce=event['args']['nonce'],
           source_chain=self.chain_id,
           source=b"\x00" * (64 - len(source)) + source,
           destination_chain=event['args']['destination_chain'],
           destination=event['args']['destination'],
           contents=join_message_contents(event['args']['contents']),
-          block_hash=event['blockHash'],
-          block_number=block_from_db.height,
-          has_enough_confirmations_for_signing=False,
+          block_number=event['blockNumber'],
+          confirmed_for_signing=True,
           sig=b'',
-      ))
-      logging.info(f"Message {self.chain_id.decode()}-{int(event['args']['nonce'].hex(), 16)} added to db.")
+      )
 
+    
     def getEventByIntNonce(self, contract, nonce: int, start_height: int):
       one_event_filter = contract.events.MessageSent.create_filter(
           fromBlock=start_height,
           toBlock='latest',
           argument_filters={'nonce': "0x" + self.nonceIntToBytes(nonce)}
       )
-      return one_event_filter.get_all_entries()[0]
+      entries = one_event_filter.get_all_entries()
+
+      if len(entries) == 0:
+          return None
+      
+      return entries[0]
     
 
-    async def messageFollower(self):
+    async def messageListener(self):
       db = self.getDb()
       web3 = self.getWeb3()
 
@@ -196,51 +75,59 @@ class EthereumFollower:
       latest_message_in_db = db.query(Message).filter(
          Message.source_chain == self.chain_id
       ).order_by(Message.nonce.desc()).first()
+
       latest_synced_nonce_int: int = int(latest_message_in_db.nonce.hex()[2:], 16) if latest_message_in_db is not None else 0
+      last_synced_height: int = latest_message_in_db.block_number if latest_message_in_db is not None else get_config_item([self.chain, 'min_height'])
+      
       logging.info(f"Last synced nonce: {self.chain_id.decode()}-{latest_synced_nonce_int}")
 
       contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
 
-      event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
-
-      last_used_nonce_int: int = contract.functions.ethNonce().call()
-      logging.info(f"Quickly syncing nonce to: {self.chain_id.decode()}-{last_used_nonce_int}")
-
-      query_start_height = get_config_item([self.chain, 'min_height'])
-      if latest_synced_nonce_int < last_used_nonce_int:
-        latest_synced_nonce_int += 1
-
-        block_hash = latest_message_in_db.block_hash if latest_message_in_db is not None else None
-        block = db.query(Block).filter(and_(
-           Block.hash == block_hash and Block.chain_id == self.chain_id
-        )).first() if block_hash is not None else None
-        query_start_height = block.height - 1 if block is not None else get_config_item([self.chain, 'min_height'])
-        while latest_synced_nonce_int <= last_used_nonce_int:
-          event = self.getEventByIntNonce(contract, latest_synced_nonce_int, query_start_height)
-          await self.addEventToDb(db, event)
-          latest_synced_nonce_int += 1
-        db.commit()
-
-      logging.info(f"Quick sync done on {self.chain_id.decode()}. Listening for new messages using live filter.")
       while True:
-          for event in event_filter.get_new_entries():
-              event_nonce_int = int(event['args']['nonce'].hex(), 16)
+         next_message_event = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
-              latest_message_in_db = db.query(Message).filter(
-                 Message.source_chain == self.chain_id
-              ).order_by(Message.nonce.desc()).first()
-              latest_synced_nonce_int: int = int(latest_message_in_db.nonce.hex()[2:], 16) if latest_message_in_db is not None else 0
+         if next_message_event is None:
+            logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
+            
+            event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
+            new_message_found = False
+            while not new_message_found:
+              for _ in event_filter.get_new_entries():
+                  new_message_found = True
               
-              while latest_synced_nonce_int + 1 < event_nonce_int:
-                  prev_event = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, query_start_height)
-                  await self.addEventToDb(db, prev_event)
-                  latest_synced_nonce_int += 1
+              await asyncio.sleep(30)
 
-              await self.addEventToDb(db, event)
-              db.commit()
-          await asyncio.sleep(5)
+            event_filter.uninstall()
+            continue
 
+         event_block_number = next_message_event['blockNumber']
+         eth_block_number = web3.eth.block_number
 
+         while event_block_number + self.sign_min_height > eth_block_number:
+            await asyncio.sleep(5)
+            eth_block_number = web3.eth.block_number
+
+         next_message_event_copy = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+         if next_message_event_copy is None:
+            logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
+            last_synced_height -= 1000
+            continue
+         
+         next_message = self.eventObjectToMessage(next_message_event)
+         next_message_copy = self.eventObjectToMessage(next_message_event_copy)
+
+         if next_message.nonce != next_message_copy.nonce or next_message.source != next_message_copy.source or next_message.destination_chain != next_message_copy.destination_chain or next_message.destination != next_message_copy.destination or next_message.contents != next_message_copy.contents or next_message.block_number != next_message_copy.block_number: 
+            logging.info(f"{self.chain_id.decode()} message listener: message event mismatch; assuming reorg and retrying...")
+            continue
+         
+         logging.info(f"{self.chain_id.decode()} message listener: Adding message #{self.chain_id.decode()}-{next_message.nonce.hex()}")
+         db.add(next_message)
+         db.commit()
+
+         latest_synced_nonce_int += 1
+         last_synced_height = event_block_number
+
+  
     async def signMessage(self, db, web3: Web3, message: Message):
       encoded_message = web3.solidity_keccak(
           ['bytes32', 'bytes3', 'bytes32', 'address', 'bytes32[]'],
@@ -291,69 +178,21 @@ class EthereumFollower:
 
       while True:
           messages = []
-          try:
-              messages = db.query(Message).filter(and_(
-                  Message.destination_chain == self.chain_id,
-                  Message.sig == b'',
-                  Message.has_enough_confirmations_for_signing.is_(True)
-              )).all()
-          except Exception as e:
-              logging.error(f"Error querying messages: {e}")
-              logging.error(e)
-              pass
+          messages = db.query(Message).filter(and_(
+              Message.destination_chain == self.chain_id,
+              Message.sig == b'',
+              Message.confirmed_for_signing.is_(True)
+          )).all()
 
           for message in messages:
-              try:
-                  await self.signMessage(db, web3, message)
-                  db.commit()
-              except Exception as e:
-                  logging.error(f"{self.chain} Signer - Error signing message {message.nonce.hex()}: {e}")
-                  logging.error(e)
+              await self.signMessage(db, web3, message)
+              db.commit()
 
           await asyncio.sleep(5)
-
-    async def catchUp(self) -> bool: # false if we're already at peak 
-      db = self.getDb()
-      web3 = self.getWeb3()
-
-      latest_block_in_db = db.query(Block).filter(
-        Block.chain_id == self.chain_id
-      ).order_by(Block.height.desc()).first()
-      latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height'])
-      logging.info(f"Synced peak: {self.chain_id.decode()}-{latest_synced_block_height}")
-
-      latest_mined_block = web3.eth.block_number
-      if latest_mined_block == latest_block_in_db.height:
-        logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_mined_block}")
-        return False
-      
-      logging.info(f"Quickly catching up to: {self.chain_id.decode()}-{latest_mined_block}")
-
-      prev_block_hash = None
-      iters = 0
-      block_to_sync = latest_synced_block_height + +1
-      while block_to_sync <= latest_mined_block:
-        block_to_sync, prev_block_hash = self.syncBlockUsingHeight(
-          db, web3,
-          block_to_sync,
-          block=None,
-          prev_block_hash=prev_block_hash,
-          quick_sync=prev_block_hash is not None
-        )
-        iters += 1
-        if iters >= 200:
-          logging.info(f"{self.chain_id.decode()}: over 200 iters; saving progress...")
-          db.commit()
-          iters = 0
-          latest_mined_block = web3.eth.block_number
-
-      db.commit()
-      return True
 
 
     def run(self, loop):
       self.loop = loop
 
-      self.loop.create_task(self.blockFollower())
-      self.loop.create_task(self.messageFollower())
+      self.loop.create_task(self.messageListener())
       self.loop.create_task(self.messageSigner())
