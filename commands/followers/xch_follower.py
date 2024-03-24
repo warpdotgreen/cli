@@ -186,7 +186,7 @@ class ChiaFollower:
         open("messages.txt", "a").write(message.sig.decode() + "\n")
 
 
-    async def signer(self):
+    async def messageSigner(self):
         db = self.getDb()
 
         while True:
@@ -196,7 +196,6 @@ class ChiaFollower:
                     Message.destination_chain == self.chain_id,
                     Message.sig == b'',
                     Message.sig != SIG_USED_VALUE,
-                    Message.has_enough_confirmations_for_signing.is_(True)
                 )).all()
             except Exception as e:
                 logging.error(f"Error querying messages: {e}")
@@ -213,102 +212,6 @@ class ChiaFollower:
 
             await asyncio.sleep(5)
 
-    def revertBlock(self, db, height: int):
-      block = db.query(Block).filter(and_(Block.height == height, Block.chain_id == self.chain_id)).first()
-      block_hash = block.hash
-      db.query(Message).filter(
-         and_(
-            Message.source_chain == self.chain_id,
-            Message.block_number >= height
-          )
-      ).delete()
-      portal_states: List[ChiaPortalState] = db.query(ChiaPortalState).filter(and_(
-         ChiaPortalState.chain_id == self.chain_id,
-         ChiaPortalState.confirmed_block_height >= height
-      )).all()
-      for portal_state in portal_states:
-        portal_state.confirmed_block_height = None
-      db.delete(block)
-      logging.info(f"Block #{self.chain_id.decode()}-{height} reverted.")
-
-
-    def addBlock(
-        self,
-        db,
-        node: FullNodeRpcClient,
-        height: int,
-        block_hash: bytes,
-        prev_hash: bytes,
-    ):
-        db.add(Block(
-            chain_id=self.chain_id,
-            height=height,
-            hash=block_hash,
-            prev_hash=prev_hash
-        ))
-        logging.info(f"Block #{self.chain_id.decode()}-{height} added to db.")
-
-        messages: List[Message] = db.query(Message).filter(and_(
-            Message.source_chain == self.chain_id,
-            Message.has_enough_confirmations_for_signing.is_(False),
-            Message.block_number < height - self.sign_min_height
-        )).all()
-        for message in messages:
-            msg_block: Block = db.query(Block).filter(and_(
-                Block.height == message.block_number,
-                Block.chain_id == self.chain_id
-            )).first()
-            if msg_block is None or msg_block.hash != message.block_hash:
-                logging.error(f"Message {self.chain_id.decode()}-{message.nonce.hex()} - message block hash different from block hash in db. Not signing.")
-                continue
-            
-            logging.info(f"Message {self.chain_id.decode()}-{message.nonce.hex()} has enough confirmations; marked for signing.")
-            message.has_enough_confirmations_for_signing = True
-
-
-    async def syncBlock(self, db, node: FullNodeRpcClient, block_height: int, prev_hash: bytes) -> Tuple[int, bytes]:
-        block_record: BlockRecord = await node.get_block_record_by_height(block_height)
-        if block_record is None:
-            await asyncio.sleep(10)
-            return block_height, prev_hash
-
-        # check prev hash and if it matches the info we have from db
-        # if not, revert the block
-        block_hash = block_record.header_hash
-        logging.info(f"Processing block #{self.chain_id.decode()}-{block_height} with hash {block_hash.hex()}...")
-        if prev_hash is None:
-            prev_hash = db.query(Block.hash).filter(and_(
-                Block.height == block_height - 1, Block.chain_id == self.chain_id
-            )).first()
-            if prev_hash is None:
-                if block_height == get_config_item([self.chain, 'min_height']):
-                    logging.info(f"Block #{self.chain_id.decode()}-{block_height} is the first block in db.")
-                    self.addBlock(db, node, block_height, block_hash, block_record.prev_hash)
-                    return block_height + 1, block_hash
-                logging.info(f"Block #{self.chain_id.decode()}-{block_height-1} not in db - soft reverting.")
-                return block_height - 1, None
-            prev_hash = prev_hash[0]
-        
-        if prev_hash != block_record.prev_hash:
-            self.revertBlock(db, block_height - 1)
-            return block_height - 1, None
-        
-        # check if a block with the same height is already in db
-        current_block = db.query(Block).filter(and_(
-            Block.height == block_height, Block.chain_id == self.chain_id
-        )).first()
-        if current_block is not None:
-            if current_block.hash != block_hash or current_block.prev_hash != block_record.prev_hash:
-                logging.info(f"Another block #{self.chain_id.decode()}-{block_height} in db - reverting.")
-                self.revertBlock(db, block_height)
-                return block_height, None
-            
-            logging.info(f"Block #{self.chain_id.decode()}-{block_height} already in db.")
-            return block_height + 1, None
-
-        # yep, let's add this block to the db!
-        self.addBlock(db, node, block_height, block_hash, block_record.prev_hash)
-        return block_height + 1, block_hash
     
     async def blockFollower(self):
         db = self.getDb()
@@ -419,8 +322,7 @@ class ChiaFollower:
 
         messages = db.query(Message).filter(and_(
             Message.destination_chain == self.chain_id,
-            Message.sig != SIG_USED_VALUE,
-            Message.has_enough_confirmations_for_signing.is_(True)
+            Message.sig != SIG_USED_VALUE
         )).all()
         for message in messages:
             _, __, ___, coin_id, ____ = decode_signature(message.sig.decode())
@@ -485,7 +387,6 @@ class ChiaFollower:
     async def createMessageFromMemo(
             self,
             db,
-            node: FullNodeRpcClient,
             nonce: bytes,
             source: bytes,
             created_height: int,
@@ -508,18 +409,6 @@ class ChiaFollower:
                 c = c[:32]
             contents.append(c)
         
-        block_in_db: Block = db.query(Block).filter(and_(
-            Block.chain_id == self.chain_id,
-            Block.height == created_height
-        )).first()
-        while block_in_db is None:
-            logging.info(f"Coin {self.chain}-{nonce.hex()}: block {created_height} not in db; retrying in 20s...")
-            await asyncio.sleep(20)
-            block_in_db = db.query(Block).filter(and_(
-                Block.chain_id == self.chain_id,
-                Block.height == created_height
-            )).first()
-
         msg_in_db = db.query(Message).filter(and_(
             Message.nonce == nonce,
             Message.source_chain == self.chain_id
@@ -535,9 +424,7 @@ class ChiaFollower:
             destination_chain=destination_chain,
             destination=destination,
             contents=join_message_contents(contents),
-            block_hash=block_in_db.hash,
             block_number=created_height,
-            has_enough_confirmations_for_signing=False,
             sig=b''
         )
         db.add(msg)
@@ -546,10 +433,6 @@ class ChiaFollower:
 
 
     async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
-        if coin_record.coin.amount < self.per_message_fee:
-            logging.info(f"Coin {self.chain}-{coin_record.coin.name().hex()} - amount {coin_record.coin.amount} too low; not parsing message.")
-            return
-        
         parent_record = await node.get_coin_record_by_name(coin_record.coin.parent_coin_info)
         parent_spend = await node.get_puzzle_and_solution(
             coin_record.coin.parent_coin_info,
@@ -574,7 +457,6 @@ class ChiaFollower:
                         try:
                             await self.createMessageFromMemo(
                                 db,
-                                node,
                                 coin.name(),
                                 parent_record.coin.puzzle_hash,
                                 parent_record.spent_block_index,
@@ -587,67 +469,86 @@ class ChiaFollower:
             logging.error(f"Coin {self.chain}-{coin_record.coin.name().hex()} - error when parsing output; skipping")
 
 
-    async def sentMessagesListener(self):
+    async def get_current_height(self, node: FullNodeRpcClient) -> int:
+        try:
+            return (await node.get_blockchain_state())["peak"].height
+        except Exception as e:
+            logging.error(f"Error getting current height for {self.chain}; sleeping 5s and making it appear everything is unconfirmed", exc_info=True)
+            await asyncio.sleep(5)
+            return 0
+
+
+    async def messageListener(self):
         db = self.getDb()
         node = await self.getNode()
 
         while True:
-            last_message_height = db.query(Message.block_number).filter(
+            last_synced_height = db.query(Message.block_number).filter(
                 Message.source_chain == self.chain_id
             ).order_by(Message.block_number.desc()).first()
-            if last_message_height is None:
-                last_message_height = [get_config_item([self.chain, 'min_height']) - 1]
 
-            query_message_height = last_message_height[0] + 1
-            records = await node.get_coin_records_by_puzzle_hash(
+            if last_synced_height is None:
+                last_synced_height = get_config_item([self.chain, 'min_height'])
+            else:
+                last_synced_height = last_synced_height[0]
+
+            unfiltered_coin_records = await node.get_coin_records_by_puzzle_hash(
                 self.bridging_puzzle_hash,
                 include_spent_coins=True,
-                start_height=query_message_height
+                start_height=last_synced_height - 1
             )
+            if unfiltered_coin_records is None:
+                await asyncio.sleep(30)
+                continue
 
-            for coin_record in records:
-                await self.processCoinRecord(db, node, coin_record)
+            # because get_coin_records_by_puzzle_hash can be quite resource exensive, we'll process all results
+            # instead of only one and calling again
+            skip_coin_ids = []
+            while True:
+                earliest_unprocessed_coin_record = None
+                for coin_record in unfiltered_coin_records:
+                    nonce = coin_record.coin.name()
+                    if nonce in skip_coin_ids:
+                        continue
 
-            await asyncio.sleep(10)
+                    if coin_record.coin.amount < self.per_message_fee:
+                        skip_coin_ids.append(nonce)
+                        continue
+
+                    message_in_db = db.query(Message).filter(and_(
+                        Message.nonce == nonce,
+                        Message.source_chain == self.chain_id
+                    )).first()
+                    if message_in_db is not None:
+                        skip_coin_ids.append(nonce)
+                        continue
+
+                    if earliest_unprocessed_coin_record is None or coin_record.confirmed_block_index < earliest_unprocessed_coin_record.confirmed_block_index:
+                        earliest_unprocessed_coin_record = coin_record
+
+                if earliest_unprocessed_coin_record is None:
+                    break
+
+                # wait for this to actually be confirmed :)
+                while earliest_unprocessed_coin_record.confirmed_block_index + self.sign_min_height > (await self.get_current_height(node)):
+                    await asyncio.sleep(10)
+
+                coin_record_copy = await node.get_coin_record_by_name(earliest_unprocessed_coin_record.coin.name())
+                if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
+                    logging.info(f"{self.chain} message follower: Coin {self.chain}-0x{earliest_unprocessed_coin_record.coin.name().hex()}: possible reorg; re-processing")
+
+                await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
+
+                skip_coin_ids.append(nonce)
+
 
         node.close()
         await node.await_closed()
-
-
-    async def catchUp(self) -> bool: # false if we're already at peak 
-        db = self.getDb()
-        node = await self.getNode()
-
-        latest_block_in_db = db.query(Block).filter(
-            Block.chain_id == self.chain_id
-        ).order_by(Block.height.desc()).first()
-        latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height']) - 1
-        logging.info(f"Sync peak: {self.chain_id.decode()}-{latest_synced_block_height}")
-
-        peak_height = (await node.get_blockchain_state())["peak"].height
-        if latest_synced_block_height == peak_height:
-            logging.info(f"Already at peak: {self.chain_id.decode()}-{latest_synced_block_height}")
-            node.close()
-            await node.await_closed()
-            return False
-
-        next_block_height = latest_synced_block_height + 1
-        prev_hash = None
-        while next_block_height <= peak_height:
-            next_block_height, prev_hash = await self.syncBlock(db, node, next_block_height, prev_hash)
-            db.commit()
-
-        await self.portalFollower(loop=False)
-
-        node.close()
-        await node.await_closed()
-        return True
 
 
     def run(self, loop):
         self.loop = loop
 
-        self.loop.create_task(self.signer())
-        self.loop.create_task(self.blockFollower())
+        self.loop.create_task(self.messageSigner())
         self.loop.create_task(self.portalFollower())
-        self.loop.create_task(self.sentMessagesListener())
+        self.loop.create_task(self.messageListener())

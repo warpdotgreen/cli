@@ -21,7 +21,6 @@ class Message(Base):
     destination = Column(BLOB)
     contents = Column(BLOB)
     block_number = Column(Integer)
-    confirmed_for_signing = Column(Boolean)
     sig = Column(BLOB)
 
 class ChiaPortalState(Base):

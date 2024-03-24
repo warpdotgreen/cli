@@ -46,7 +46,6 @@ class EthereumFollower:
           destination=event['args']['destination'],
           contents=join_message_contents(event['args']['contents']),
           block_number=event['blockNumber'],
-          confirmed_for_signing=True,
           sig=b'',
       )
 
@@ -97,7 +96,6 @@ class EthereumFollower:
               
               await asyncio.sleep(30)
 
-            event_filter.uninstall()
             continue
 
          event_block_number = next_message_event['blockNumber']
@@ -180,8 +178,7 @@ class EthereumFollower:
           messages = []
           messages = db.query(Message).filter(and_(
               Message.destination_chain == self.chain_id,
-              Message.sig == b'',
-              Message.confirmed_for_signing.is_(True)
+              Message.sig == b''
           )).all()
 
           for message in messages:
