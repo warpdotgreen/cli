@@ -1,5 +1,12 @@
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
-from typing import Tuple
+from typing import Tuple, List
+from commands.config import get_config_item
+from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag
+import logging
+import time
+
+relays = get_config_item(["nostr", "relays"])
+my_private_key = Keys.from_mnemonic(get_config_item(["nostr", "my_mnemonic"]), None)
 
 def encode_signature(
     origin_chain: bytes,
@@ -41,3 +48,41 @@ def decode_signature(enc_sig: str) -> Tuple[
     sig = convertbits(bech32_decode(parts[-1], 96 * 2)[1], 5, 8, False)
 
     return origin_chain, destination_chain, nonce, coin_id, sig
+
+
+def send_signature(
+    sig: str,
+    retries: int = 0
+):
+    # keep log locally
+    try:
+        open("messages.txt", "a").write(sig + "\n")
+    except:
+        open("messages.txt", "w").write(sig + "\n")
+
+    try:
+        [route_data, coin_data, sig_data] = sig.split("-")
+
+        signer = NostrSigner.keys(my_private_key)
+        client = Client(signer)
+        
+        client.add_relays(relays)
+        client.connect()
+
+        text_note_builder = EventBuilder.text_note(sig_data, [
+            Tag.parse(["route", route_data]),
+            Tag.parse(["coin", coin_data])
+        ])
+
+        event_id = client.send_event_builder(text_note_builder)
+        logging.info(f"Nostr: sent event {event_id.to_bech32()} to relays.")
+
+        client.disconnect()
+    except:
+        if retries < 3:
+            retries += 1
+            logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exec_info=True)
+            time.sleep(3)
+            send_signature(sig, retries)
+        else:
+            logging.error(f"Nostr: failed to send signature to relays: {sig}", exec_info=True)

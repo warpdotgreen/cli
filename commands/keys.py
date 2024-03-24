@@ -8,7 +8,7 @@ from chia.util.bech32m import encode_puzzle_hash
 from commands.config import get_config_item
 from eth_account import Account
 from web3.auto import w3
-from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Filter, Metadata, Nip46Signer, init_logger, LogLevel
+from nostr_sdk import Keys
 
 @click.group()
 def keys():
@@ -58,7 +58,6 @@ def generate_nostr_key():
 
     entropy = secrets.token_bytes(16)
     mnemonic = bytes_to_mnemonic(entropy)
-    mnemonic = "what bleak badge arrange retreat wolf trade produce cricket blur garlic valid proud rude strong choose busy staff weather area salt hollow arm fade"
     click.echo(f"Mnemonic: {mnemonic}")
 
     keys = Keys.from_mnemonic(mnemonic, None)

@@ -3,7 +3,7 @@ from commands.config import get_config_item
 from sqlalchemy import and_
 from typing import Tuple
 from eth_account.messages import encode_defunct
-from commands.followers.sig import encode_signature, decode_signature
+from commands.followers.sig import encode_signature, decode_signature, send_signature
 from web3 import Web3
 import logging
 import json
@@ -166,8 +166,7 @@ class EthereumFollower:
       db.commit()
       logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
-      # todo: replace with nostr
-      open("messages.txt", "a").write(message.sig.decode() + "\n")
+      send_signature(message.sig.decode())
 
 
     async def messageSigner(self):

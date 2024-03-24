@@ -9,7 +9,7 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
 from chia.types.coin_record import CoinRecord
-from commands.followers.sig import encode_signature, decode_signature
+from commands.followers.sig import encode_signature, decode_signature, send_signature
 from typing import Tuple
 import logging
 import asyncio
@@ -182,8 +182,7 @@ class ChiaFollower:
         db.commit()
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
-        # todo: replace with nostr
-        open("messages.txt", "a").write(message.sig.decode() + "\n")
+        send_signature(message.sig.decode())
 
 
     async def messageSigner(self):
