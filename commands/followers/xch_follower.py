@@ -197,39 +197,16 @@ class ChiaFollower:
                     Message.sig != SIG_USED_VALUE,
                 )).all()
             except Exception as e:
-                logging.error(f"Error querying messages: {e}")
-                logging.error(e)
-                pass
+                logging.error(f"Error querying messages: {e}", exec_info=True)
 
             for message in messages:
                 try:
                     await self.signMessage(db, message)
                     db.commit()
                 except Exception as e:
-                    logging.error(f"Error signing message {message.nonce.hex()}: {e}")
-                    logging.error(e)
+                    logging.error(f"Error signing message {message.nonce.hex()}: {e}", exec_info=True)
 
             await asyncio.sleep(5)
-
-    
-    async def blockFollower(self):
-        db = self.getDb()
-        node = await self.getNode()
-
-        latest_block_in_db = db.query(Block).filter(
-            Block.chain_id == self.chain_id
-        ).order_by(Block.height.desc()).first()
-        latest_synced_block_height: int = latest_block_in_db.height if latest_block_in_db is not None else get_config_item([self.chain, 'min_height']) - 1
-        logging.info(f"Sync peak: {self.chain_id.decode()}-{latest_synced_block_height}")
-
-        next_block_height = latest_synced_block_height + 1
-        prev_hash = None
-        while True:
-            next_block_height, prev_hash = await self.syncBlock(db, node, next_block_height, prev_hash)
-            db.commit()
-
-        node.close()
-        await node.await_closed()
 
 
     async def syncPortal(
@@ -331,8 +308,7 @@ class ChiaFollower:
         return new_synced_portal
     
 
-    # important: if loop=False, this function should just sync the portal to its latest state
-    async def portalFollower(self, loop = True):
+    async def portalFollower(self):
         db = self.getDb()
         node = await self.getNode()
 
@@ -372,11 +348,7 @@ class ChiaFollower:
         logging.info(f"Latest portal coin: {self.chain}-0x{last_synced_portal.coin_id.hex()}")
 
         while True:
-            new_synced_portal = await self.syncPortal(db, node, last_synced_portal)
-            if not loop and new_synced_portal.parent_id == last_synced_portal.parent_id:
-                break
-
-            last_synced_portal = new_synced_portal
+            last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
             db.commit()
 
         node.close()
@@ -503,7 +475,8 @@ class ChiaFollower:
             # because get_coin_records_by_puzzle_hash can be quite resource exensive, we'll process all results
             # instead of only one and calling again
             skip_coin_ids = []
-            while True:
+            reorg = False
+            while not reorg:
                 earliest_unprocessed_coin_record = None
                 for coin_record in unfiltered_coin_records:
                     nonce = coin_record.coin.name()
@@ -526,6 +499,7 @@ class ChiaFollower:
                         earliest_unprocessed_coin_record = coin_record
 
                 if earliest_unprocessed_coin_record is None:
+                    reorg = True
                     break
 
                 # wait for this to actually be confirmed :)
@@ -539,6 +513,9 @@ class ChiaFollower:
                 await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
 
                 skip_coin_ids.append(nonce)
+
+            if not reorg:
+                await asyncio.sleep(30)
 
 
         node.close()
