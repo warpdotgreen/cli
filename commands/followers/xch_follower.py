@@ -499,7 +499,6 @@ class ChiaFollower:
                         earliest_unprocessed_coin_record = coin_record
 
                 if earliest_unprocessed_coin_record is None:
-                    reorg = True
                     break
 
                 # wait for this to actually be confirmed :)
@@ -509,6 +508,8 @@ class ChiaFollower:
                 coin_record_copy = await node.get_coin_record_by_name(earliest_unprocessed_coin_record.coin.name())
                 if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
                     logging.info(f"{self.chain} message follower: Coin {self.chain}-0x{earliest_unprocessed_coin_record.coin.name().hex()}: possible reorg; re-processing")
+                    reorg = True
+                    break
 
                 await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
 
