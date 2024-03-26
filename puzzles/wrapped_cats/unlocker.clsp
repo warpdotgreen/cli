@@ -1,6 +1,7 @@
 ; unlocker.clsp by yakuhito
 ;; used to unlock CATs that were previously bridged
 (mod (
+  CAT_MOD_HASH
   P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
   MESSAGE_COIN_FIRST_CURRY_HASH
   MESSAGE_SOURCE_CHAIN
@@ -12,6 +13,7 @@
   asset_amount_b32
   my_puzzle_hash
   my_id
+  locked_coin_proofs ; (list (locked_coin_parent_info . locked_coin_amount) ...)
 )
   (include "condition_codes.clib")
   (include "curry.clib")
@@ -31,12 +33,83 @@
     )
   )
 
+  (defun add_p2_announcements_for_coin (
+    coin_id
+    my_id
+    delegated_puzzle_hash
+    conditions_so_far
+  )
+    (c
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 coin_id (sha256 my_id delegated_puzzle_hash)))
+      (c
+        (list CREATE_COIN_ANNOUNCEMENT (sha256 coin_id delegated_puzzle_hash))
+        conditions_so_far
+      )
+    )
+  )
+
+  (defun-inline b32 (coin_id)
+    (if (= (strlen coin_id) 32) coin_id (x))
+  )
+
+  (defun add_p2_announcements (
+    p2_controller_puzzle_hash_puzzle_hash
+    p2_controller_puzzle_hash_inner
+    my_id
+    total_amount
+    receiver
+    remaining_amount
+    ((locked_coin_parent_info . locked_coin_amount) . remaining_locked_coin_proofs); locked_coin_proofs
+    conditions_so_far
+  )
+    (add_p2_announcements_for_coin
+      (sha256
+        (b32 locked_coin_parent_info)
+        p2_controller_puzzle_hash_puzzle_hash
+        locked_coin_amount
+      ) ; coin_id
+      my_id
+      (if (= remaining_locked_coin_proofs ())
+        (if (> remaining_amount locked_coin_amount)
+          (x)
+          ; else
+          (sha256tree
+            (list 1 (list 
+              (list CREATE_COIN receiver total_amount (list receiver))
+              (list CREATE_COIN p2_controller_puzzle_hash_inner locked_coin_amount)
+            ))
+          )
+        )
+        ; else
+        (if (> locked_coin_amount remaining_amount) (sha256tree ()) 0)
+      ) ; delegated puzzle hash
+      (if (= remaining_locked_coin_proofs ())
+        (if (= remaining_amount 0)
+          conditions_so_far
+          ; else
+          (x)
+        )
+        ; else
+        (add_p2_announcements
+          p2_controller_puzzle_hash_puzzle_hash
+          p2_controller_puzzle_hash_inner
+          my_id
+          total_amount
+          receiver
+          (if (> locked_coin_amount remaining_amount) 0 (- remaining_amount locked_coin_amount))
+          remaining_locked_coin_proofs
+          conditions_so_far
+        ) 
+      ) ; conditions_so_far
+    )
+  )
+
   (add_message_coin_assertions
     (sha256
-      (if (= (strlen message_coin_parent_id) 32) message_coin_parent_id (x))
-      (curry_hashes_inline MESSAGE_COIN_FIRST_CURRY_HASH
+      (b32 message_coin_parent_id)
+      (curry_hashes MESSAGE_COIN_FIRST_CURRY_HASH
         (sha256 2
-          (sha256 1 SOURCE_CHAIN)
+          (sha256 1 MESSAGE_SOURCE_CHAIN)
           message_nonce_hash
         ) ; sha256tree of (SOURCE_CHAIN . NONCE)
         MESSAGE_SOURCE_HASH
@@ -48,9 +121,32 @@
       0
     ) ; message coin id
     my_id
-    (list
-      (list ASSERT_MY_COIN_ID my_id)
-      (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
+    (add_p2_announcements
+      (if (= (* asset_id 1) 0)
+        (curry_hashes P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
+          (sha256 1 my_puzzle_hash)
+        )
+        ; else 
+        (curry_hashes CAT_MOD_HASH
+          (sha256 1 CAT_MOD_HASH)
+          (sha256 1 asset_id)
+          (curry_hashes P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
+            (sha256 1 my_puzzle_hash)
+          )
+        )
+      ) ; p2_controller_puzzle_hash_puzzle_hash
+      (curry_hashes P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
+        (sha256 1 my_puzzle_hash)
+      ) ; p2_controller_puzzle_hash_inner
+      my_id ; my_id
+      (* 1 asset_amount_b32) ; total_amount
+      receiver
+      (* 1 asset_amount_b32) ; remaining_amount
+      locked_coin_proofs
+      (list
+        (list ASSERT_MY_COIN_ID my_id)
+        (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
+      ) ; conditions_so_far
     ) ; conditions_so_far
   )
 )
