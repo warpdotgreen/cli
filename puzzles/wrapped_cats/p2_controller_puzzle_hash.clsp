@@ -1,0 +1,44 @@
+; p2_controller_puzzle_hash.clsp by yakuhito
+;; assets locked with this puzzle can be controlled by another cotroller puzzle
+;; bridge: used to store CATs/XCH that is bridge (unlocker puzzle then frees them)
+
+(mod (
+  CONTROLLER_PUZZLE_HASH
+  my_id
+  controller_parent_info
+  controller_anount
+  delegated_puzzle
+  delegated_solution
+)
+  (include condition_codes.clib)
+  (include sha256tree.clib)
+
+  (defun append_announcement_conditions (
+    controller_coin_id
+    my_id
+    delegated_puzzle_hash
+    conditions_so_far
+  )
+    (c
+      (list ASSERT_MY_COIN_ID my_id)
+      (c
+        (list CREATE_COIN_ANNOUNCEMENT (sha256 controller_coin_id delegated_puzzle_hash))
+        (c 
+          (list ASSERT_COIN_ANNOUNCEMENT (sha256 controller_coin_id (sha256 my_id delegated_puzzle_hash)))
+          conditions_so_far
+        )
+      )
+    )
+  )
+
+  (append_announcement_conditions
+    (sha256
+      (if (= (strlen controller_parent_info)) controller_parent_info (x))
+      CONTROLLER_PUZZLE_HASH
+      controller_anount
+    ) ; controller puzzle hash
+    my_id
+    (sha256tree delegated_puzzle) ; delegated puzzle hash
+    (a delegated_puzzle delegated_solution)
+  )
+)

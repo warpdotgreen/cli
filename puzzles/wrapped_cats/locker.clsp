@@ -1,0 +1,10 @@
+; locker.clsp by yakuhito
+;; used to lock CATs on Chia and send a message to the portal
+
+(mod (
+  OFFER_PUZZLE_HASH
+  BRIDGING_PUZZLE_HASH
+  my_amount ; note: make sure this is not invalid
+)
+
+)

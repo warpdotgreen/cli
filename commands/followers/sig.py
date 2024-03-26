@@ -70,8 +70,8 @@ def send_signature(
         client.connect()
 
         text_note_builder = EventBuilder.text_note(sig_data, [
-            Tag.parse(["route", route_data]),
-            Tag.parse(["coin", coin_data])
+            Tag.parse(["r", route_data]),
+            Tag.parse(["c", coin_data])
         ])
 
         event_id = client.send_event_builder(text_note_builder)
