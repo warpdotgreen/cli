@@ -1,0 +1,56 @@
+; unlocker.clsp by yakuhito
+;; used to unlock CATs that were previously bridged
+(mod (
+  P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
+  MESSAGE_COIN_FIRST_CURRY_HASH
+  MESSAGE_SOURCE_CHAIN
+  MESSAGE_SOURCE_HASH ; source contract (wrapped CAT factory - which, in this case, is the wrapped CAT destroyer)
+  message_coin_parent_id
+  message_nonce_hash
+  asset_id
+  receiver
+  asset_amount_b32
+  my_puzzle_hash
+  my_id
+)
+  (include "condition_codes.clib")
+  (include "curry.clib")
+  (include "sha256tree.clib")
+
+  (defun add_message_coin_assertions (
+    message_coin_id
+    my_id
+    conditions_so_far
+  )
+    (c
+      (list ASSERT_COIN_ANNOUNCEMENT (sha256 message_coin_id my_id))
+      (c
+        (list CREATE_COIN_ANNOUNCEMENT message_coin_id)
+        conditions_so_far
+      )
+    )
+  )
+
+  (add_message_coin_assertions
+    (sha256
+      (if (= (strlen message_coin_parent_id) 32) message_coin_parent_id (x))
+      (curry_hashes_inline MESSAGE_COIN_FIRST_CURRY_HASH
+        (sha256 2
+          (sha256 1 SOURCE_CHAIN)
+          message_nonce_hash
+        ) ; sha256tree of (SOURCE_CHAIN . NONCE)
+        MESSAGE_SOURCE_HASH
+        (sha256 1 my_puzzle_hash) ; destination
+        (sha256 1
+          (sha256tree (list receiver asset_id asset_amount_b32))
+        ) ; message hash
+      ) ; message coin puzzle hash
+      0
+    ) ; message coin id
+    my_id
+    (list
+      (list ASSERT_MY_COIN_ID my_id)
+      (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
+    ) ; conditions_so_far
+  )
+)
