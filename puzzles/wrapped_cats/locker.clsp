@@ -2,9 +2,52 @@
 ;; used to lock CATs on Chia and send a message to the portal
 
 (mod (
-  OFFER_PUZZLE_HASH
+  MESSAGE_DESTINATION_CHAIN
+  MESSAGE_DESTINATION ; we're going to the wrapped CAT factory!
+  CAT_MOD_HASH
+  OFFER_PUZZLE_HASH ; ssettlement_payments.clsp puzzle hash
   BRIDGING_PUZZLE_HASH
-  my_amount ; note: make sure this is not invalid
+  VAULT_PUZZLE_HASH
+  my_amount ; warning: make sure this is not lower than the bridging fee
+  my_id
+  asset_id
+  asset_amount
+  receiver
 )
+  (include condition_codes.clib)
+  (include curry.clib)
+  (include sha256tree.clib)
 
+  (list
+    (list ASSERT_MY_AMOUNT my_amount)
+    (list ASSERT_MY_COIN_ID my_id)
+    (list CREATE_COIN_ANNOUNCEMENT receiver)
+    (list
+      ASSERT_PUZZLE_ANNOUNCEMENT
+      (if (= asset_id ())
+        OFFER_PUZZLE_HASH
+        ; else
+        (curry_hashes_inline CAT_MOD_HASH
+          (sha256 1 CAT_MOD_HASH)
+          (sha256 1 asset_id)
+          OFFER_PUZZLE_HASH
+        )
+      ) ; offer puzzle hash
+      (sha256tree
+        (list my_id (list VAULT_PUZZLE_HASH asset_amount))
+      ) ; notarized payment
+    )
+    (list
+      CREATE_COIN
+      BRIDGING_PUZZLE_HASH
+      my_amount
+      (list
+        MESSAGE_DESTINATION_CHAIN
+        MESSAGE_DESTINATION
+        asset_id
+        receiver
+        asset_amount
+      )
+    )
+  )
 )
