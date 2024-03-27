@@ -3,6 +3,7 @@
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./interfaces/IPortal.sol";
 import "./WrappedCAT.sol";
 
 contract WrappedCATFactory is Ownable, IPortalMessageReceiver {
@@ -50,6 +51,24 @@ contract WrappedCATFactory is Ownable, IPortalMessageReceiver {
         fee = _newFee;
     }
 
+    function _bridgeBack(
+        bytes32 _assetId,
+        bytes32 _receiver,
+        uint256 _amount,
+        uint256 _portalFee
+    ) internal {
+        bytes32[] memory message = new bytes32[](3);
+        message[0] = _assetId;
+        message[1] = _receiver;
+        message[2] = bytes32(_amount);
+
+        IPortal(portal).sendMessage{value: _portalFee}(
+            bytes3("xch"),
+            chiaSideUnlockerPuzzle,
+            messageContents
+        );
+    }
+
     function receiveMessage(
         bytes32 /* _nonce */,
         bytes3 _source_chain,
@@ -62,31 +81,32 @@ contract WrappedCATFactory is Ownable, IPortalMessageReceiver {
             "!source"
         );
 
-        // todo
+        WrappedCATInfo info = wrappedCATInfos[_contents[0]];
+        uint256 amount = uint256(_contents[1]);
+        uint256 transferFee = (amount * fee) / 10000;
+        fees[_contents[0]] += transferFee;
+        amount -= transferFee;
+
+        WrappedCAT(info.deploymentAddress).mint(
+            address(uint160(uint256(_contents[2]))),
+            amount * info.mojoToTokenRatio
+        );
     }
 
-    function withdrawFees(
-        address _assetContract,
-        address[] memory _receivers,
-        uint256[] memory _amounts
-    ) public onlyOwner {
-        require(_receivers.length == _amounts.length, "!length");
-
-        for (uint256 i = 0; i < _receivers.length; i++) {
-            fees[_assetContract] -= _amounts[i];
-
-            SafeERC20.safeTransfer(
-                IERC20(_assetContract),
-                _receivers[i],
-                _amounts[i]
-            );
-        }
-    }
+    // todo:  bridge back function, fee abstraction
 
     function withdrawFees(
-        address[] _assetIds,
+        bytes32[] _assetIds,
         bytes32 _receiver
-    ) public onlyOwner {
-        // todo
+    ) public payable onlyOwner {
+        // withdraw fees by bridging assets back to Chia
+        uint256 portalFee = IPortal(portal).messageFee();
+        require(msg.value == portalFee * _assetIds.length, "!fee");
+
+        for (uint256 i = 0; i < _assetIds.length; i++) {
+            _bridgeBack(_assetIds[i], _receiver, fees[_assetIds[i]], portalFee);
+
+            fees[_assetIds[i]] = 0;
+        }
     }
 }
