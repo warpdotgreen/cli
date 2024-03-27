@@ -107,16 +107,23 @@
         (list CREATE_COIN receiver pay_amount)
         (list CREATE_COIN p2_controller_puzzle_hash_inner (if (> pay_amount total_amount) (x) (- total_amount pay_amount)))
       ))) ; delegated puzzle hash
-      (add_remaining_p2_announcements
-        p2_controller_puzzle_hash_puzzle_hash
-        my_id
-        (- pay_amount lead_locked_coin_amount)
-        remaining_locked_coin_proofs
-        conditions_so_far
+      (if remaining_locked_coin_proofs
+        (add_remaining_p2_announcements
+          p2_controller_puzzle_hash_puzzle_hash
+          my_id
+          (- pay_amount lead_locked_coin_amount)
+          remaining_locked_coin_proofs
+          conditions_so_far
+        )
+        ; else
+        (if (= pay_amount lead_locked_coin_amount)
+          conditions_so_far
+          ; else
+          (x)
+        )
       )
     )
   )
-
 
   ; main
   (add_message_coin_assertions
