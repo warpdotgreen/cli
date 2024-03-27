@@ -14,7 +14,6 @@
   my_puzzle_hash
   my_id
   locked_coin_proofs ; (list (locked_coin_parent_info . locked_coin_amount) ...)
-  locked_coin_total_amount
 )
   (include "condition_codes.clib")
   (include "curry.clib")
@@ -53,79 +52,58 @@
     (if (= (strlen coin_id) 32) coin_id (x))
   )
 
-  (defun add_remaining_p2_announcements (
-    locked_coin_puzzle_hash
+  (defun add_p2_announcements (
+    p2_controller_puzzle_hash_puzzle_hash
+    p2_controller_puzzle_hash_inner
     my_id
-    remaining_pay_amount
-    ((locked_coin_parent_info . locked_coin_amount) . remaining_locked_coin_proofs)
+    total_amount
+    receiver
+    remaining_amount
+    ((locked_coin_parent_info . locked_coin_amount) . remaining_locked_coin_proofs); locked_coin_proofs
     conditions_so_far
   )
     (add_p2_announcements_for_coin
       (sha256
         (b32 locked_coin_parent_info)
-        locked_coin_puzzle_hash
-        locked_coin_amount
-      ) ; locked coin id
-      my_id
-      (sha256tree ())
-      (if remaining_locked_coin_proofs
-        (add_remaining_p2_announcements
-          locked_coin_puzzle_hash
-          my_id
-          (- remaining_pay_amount locked_coin_amount)
-          remaining_locked_coin_proofs
-          conditions_so_far
-        )
-        ; else
-        (if (= remaining_pay_amount locked_coin_amount)
-          conditions_so_far
-          ; else
-          (x)
-        )
-      )
-    )
-  )
-
-  (defun add_p2_announcements (
-    p2_controller_puzzle_hash_puzzle_hash
-    p2_controller_puzzle_hash_inner
-    my_id
-    pay_amount
-    total_amount
-    receiver
-    ((lead_locked_coin_paret_info . lead_locked_coin_amount) . remaining_locked_coin_proofs) ; locked_coin_proofs
-    conditions_so_far
-  )
-    (add_p2_announcements_for_coin
-      (sha256
-        (b32 lead_locked_coin_paret_info)
         p2_controller_puzzle_hash_puzzle_hash
-        lead_locked_coin_amount
-      ) ; lead coin id
+        locked_coin_amount
+      ) ; coin_id
       my_id
-      (sha256tree (list 1 (list
-        (list CREATE_COIN receiver pay_amount)
-        (list CREATE_COIN p2_controller_puzzle_hash_inner (if (> pay_amount total_amount) (x) (- total_amount pay_amount)))
-      ))) ; delegated puzzle hash
-      (if remaining_locked_coin_proofs
-        (add_remaining_p2_announcements
-          p2_controller_puzzle_hash_puzzle_hash
-          my_id
-          (- pay_amount lead_locked_coin_amount)
-          remaining_locked_coin_proofs
-          conditions_so_far
+      (if (= remaining_locked_coin_proofs ())
+        (if (> remaining_amount locked_coin_amount)
+          (x)
+          ; else
+          (sha256tree
+            (list 1 (list 
+              (list CREATE_COIN receiver total_amount (list receiver))
+              (list CREATE_COIN p2_controller_puzzle_hash_inner (- locked_coin_amount remaining_amount))
+            ))
+          )
         )
         ; else
-        (if (= pay_amount lead_locked_coin_amount)
+        (if (> locked_coin_amount remaining_amount) (sha256tree ()) 0)
+      ) ; delegated puzzle hash
+      (if (= remaining_locked_coin_proofs ())
+        (if (= remaining_amount locked_coin_amount)
           conditions_so_far
           ; else
           (x)
         )
-      )
+        ; else
+        (add_p2_announcements
+          p2_controller_puzzle_hash_puzzle_hash
+          p2_controller_puzzle_hash_inner
+          my_id
+          total_amount
+          receiver
+          (- remaining_amount locked_coin_amount)
+          remaining_locked_coin_proofs
+          conditions_so_far
+        ) 
+      ) ; conditions_so_far
     )
   )
 
-  ; main
   (add_message_coin_assertions
     (sha256
       (b32 message_coin_parent_id)
@@ -161,14 +139,14 @@
         (sha256 1 my_puzzle_hash)
       ) ; p2_controller_puzzle_hash_inner
       my_id ; my_id
-      (* 1 asset_amount_b32) ; pay_amount
-      locked_coin_total_amount ; total_amount
+      (* 1 asset_amount_b32) ; total_amount
       receiver
+      (* 1 asset_amount_b32) ; remaining_amount
       locked_coin_proofs
       (list
         (list ASSERT_MY_COIN_ID my_id)
         (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
       ) ; conditions_so_far
-    )
+    ) ; conditions_so_far
   )
 )
