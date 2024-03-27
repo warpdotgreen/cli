@@ -18,9 +18,9 @@ interface ERC20Decimals {
 contract EthTokenBridge is IPortalMessageReceiver, Ownable {
     mapping(address => uint256) public fees;
     uint256 public fee = 30; // initial fee - 0.3%
-    address public portal;
-    address public iweth;
-    uint256 public wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
+    address public immutable portal;
+    address public immutable iweth;
+    uint256 public immutable wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
     // for example: 1000 milliETH = 1 ETH, so 10^(3+3) wei milliETH (3 decimals) translates to 10^18 wei -> ratio is 10^12
     // amount_weth * wethToEthRatio = eth amount to pay out
 
