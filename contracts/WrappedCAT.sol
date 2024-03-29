@@ -12,9 +12,10 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     address public immutable portal;
     uint64 public immutable fee; // fee / 10000 %
     uint64 public immutable mojoToTokenRatio; // token amount on eth = mojos on Chia * mojoToTokenRatio
-    bytes32 public immutable lockerPuzzleHash;
-    bytes32 public immutable unlockerPuzzleHash;
     bytes3 public immutable otherChain;
+
+    bytes32 public lockerPuzzleHash;
+    bytes32 public unlockerPuzzleHash;
 
     constructor(
         string memory _name,
@@ -22,16 +23,29 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         address _portal,
         uint64 _fee,
         uint64 _mojoToTokenRatio,
-        bytes32 _lockerPuzzleHash,
-        bytes32 _unlockerPuzzleHash,
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
         portal = _portal;
         fee = _fee;
         mojoToTokenRatio = _mojoToTokenRatio;
+        otherChain = _otherChain;
+    }
+
+    // should be called in the same tx/block as the creation tx
+    // allows the address to be determined using CREATE2
+    // w/o depending on puzzle hashes (since those already depend
+    // on the address of this contracr)
+    function setPuzzleHashes(
+        bytes32 _lockerPuzzleHash,
+        bytes32 _unlockerPuzzleHash
+    ) public {
+        require(
+            lockerPuzzleHash == bytes32(0) && unlockPuzzleHash == bytes32(0),
+            "nope"
+        );
+
         lockerPuzzleHash = _lockerPuzzleHash;
         unlockerPuzzleHash = _unlockerPuzzleHash;
-        otherChain = _otherChain;
     }
 
     function receiveMessage(

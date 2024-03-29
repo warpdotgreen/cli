@@ -9,23 +9,21 @@ import "./interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface ERC20Decimals {
     function decimals() external returns (uint8);
 }
 
-contract EthTokenBridge is IPortalMessageReceiver, Ownable {
-    mapping(address => uint256) public fees;
-    uint256 public fee = 30; // initial fee - 0.3%
+contract EthTokenBridge is IPortalMessageReceiver {
+    uint256 public immutable fee = 30; // (fee / 10000) % fee
     address public immutable portal;
     address public immutable iweth;
     uint256 public immutable wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
     // for example: 1000 milliETH = 1 ETH, so 10^(3+3) wei milliETH (3 decimals) translates to 10^18 wei -> ratio is 10^12
     // amount_weth * wethToEthRatio = eth amount to pay out
 
-    bytes32 public chiaSideBurnPuzzle;
-    bytes32 public chiaSideMintPuzzle;
+    bytes32 public immutable burnPuzzleHash;
+    bytes32 public immutable mintPuzzleHash;
 
     constructor(
         address _portal,
