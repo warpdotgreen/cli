@@ -34,8 +34,8 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     // should be called in the same tx/block as the creation tx
     // allows the address to be determined using CREATE2
     // w/o depending on puzzle hashes (since those already depend
-    // on the address of this contracr)
-    function setPuzzleHashes(
+    // on the address of this contract)
+    function initializePuzzleHashes(
         bytes32 _lockerPuzzleHash,
         bytes32 _unlockerPuzzleHash
     ) public {
