@@ -5,6 +5,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
@@ -63,6 +64,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     ) public payable {
         require(msg.value == messageFee, "!fee");
         ethNonce += 1;
+
         emit MessageSent(
             bytes32(ethNonce),
             msg.sender,
@@ -137,12 +139,26 @@ contract Portal is Initializable, OwnableUpgradeable {
         );
     }
 
-    function withdrawFees(
+    function rescueEther(
         address[] memory _receivers,
         uint256[] memory _amounts
     ) public onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             payable(_receivers[i]).transfer(_amounts[i]);
+        }
+    }
+
+    function rescueAsset(
+        address _assetContract,
+        address[] memory _receivers,
+        uint256[] memory _amounts
+    ) public onlyOwner {
+        for (uint256 i = 0; i < _receivers.length; i++) {
+            SafeERC20.safeTransfer(
+                _assetContract,
+                _receivers[i],
+                _amounts[i]
+            );
         }
     }
 
