@@ -195,7 +195,7 @@ contract EthTokenBridge is IPortalMessageReceiver {
         }
 
         IPortal(portal).sendMessage{value: _messageFee}(
-            otherChain
+            otherChain,
             mintPuzzleHash,
             message
         );

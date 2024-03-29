@@ -40,7 +40,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes32 _unlockerPuzzleHash
     ) public {
         require(
-            lockerPuzzleHash == bytes32(0) && unlockPuzzleHash == bytes32(0),
+            lockerPuzzleHash == bytes32(0) && unlockerPuzzleHash == bytes32(0),
             "nope"
         );
 
