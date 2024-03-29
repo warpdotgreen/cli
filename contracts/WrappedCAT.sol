@@ -5,6 +5,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./interfaces/IPortalMessageReceiver.sol";
 import "./interfaces/IPortal.sol";
 
 contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
@@ -24,7 +25,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes32 _lockerPuzzleHash,
         bytes32 _unlockerPuzzleHash,
         bytes3 _otherChain
-    ) Ownable(msg.sender) ERC20(_name, _symbol) ERC20Permit(_name) {
+    ) ERC20(_name, _symbol) ERC20Permit(_name) {
         portal = _portal;
         fee = _fee;
         mojoToTokenRatio = _mojoToTokenRatio;
@@ -61,8 +62,8 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         _mint(portal, transferFee * mojoToTokenRatio);
 
         bytes32[] memory contents = new bytes32[](2);
-        message[0] = _receiver;
-        message[1] = bytes32(_mojoAmount - transferFee);
+        contents[0] = _receiver;
+        contents[1] = bytes32(_mojoAmount - transferFee);
 
         IPortal(portal).sendMessage{value: msg.value}(
             otherChain,
