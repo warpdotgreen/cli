@@ -6,6 +6,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
 
 contract Portal is Initializable, OwnableUpgradeable {
@@ -155,7 +156,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     ) public onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             SafeERC20.safeTransfer(
-                _assetContract,
+                IERC20(_assetContract),
                 _receivers[i],
                 _amounts[i]
             );
