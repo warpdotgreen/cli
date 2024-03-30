@@ -10,7 +10,7 @@ const tokens = [
 ];
 
 tokens.forEach(token => {
-    describe.only(`EthTokenBridge (${token.name})`, function () {
+    describe(`EthTokenBridge (${token.name})`, function () {
         let ethTokenBridge: EthTokenBridge;
         let mockERC20: ERC20Mock;
         let weth: WETHMock | MilliETH;
@@ -238,88 +238,88 @@ tokens.forEach(token => {
             });
         });
 
-        // describe("bridgeToChiaWithPermit", function () {
-        //     let deadline: number;
-        //     let ownerSignature: any;
-        //     let amount: bigint;
-        //     let receiver: any;
+        describe("bridgeToChiaWithPermit", function () {
+            let deadline: number;
+            let ownerSignature: any;
+            let amount: bigint;
+            let receiver: any;
 
-        //     beforeEach(async function () {
-        //         amount = ethers.parseUnits("100", 18);
-        //         receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         deadline = (await ethers.provider.getBlock('latest'))!.timestamp + 86400;
+            beforeEach(async function () {
+                amount = ethers.parseUnits("100", 18);
+                receiver = ethers.encodeBytes32String("receiverOnChia");
+                deadline = (await ethers.provider.getBlock('latest'))!.timestamp + 86400;
 
-        //         await mockERC20.mint(owner.address, ethers.parseUnits("1000", 18));
+                await mockERC20.mint(owner.address, ethers.parseUnits("1000", 18));
 
-        //         const nonce = await mockERC20.nonces(owner.address);
-        //         const domain = {
-        //             name: await mockERC20.name(),
-        //             version: '1',
-        //             chainId: (await ethers.provider.getNetwork()).chainId,
-        //             verifyingContract: mockERC20.target.toString()
-        //         };
-        //         const types = {
-        //             Permit: [
-        //                 { name: "owner", type: "address" },
-        //                 { name: "spender", type: "address" },
-        //                 { name: "value", type: "uint256" },
-        //                 { name: "nonce", type: "uint256" },
-        //                 { name: "deadline", type: "uint256" }
-        //             ]
-        //         }
-        //         const message = {
-        //             owner: owner.address,
-        //             spender: ethTokenBridge.target,
-        //             value: amount.toString(),
-        //             nonce,
-        //             deadline
-        //         };
+                const nonce = await mockERC20.nonces(owner.address);
+                const domain = {
+                    name: await mockERC20.name(),
+                    version: '1',
+                    chainId: (await ethers.provider.getNetwork()).chainId,
+                    verifyingContract: mockERC20.target.toString()
+                };
+                const types = {
+                    Permit: [
+                        { name: "owner", type: "address" },
+                        { name: "spender", type: "address" },
+                        { name: "value", type: "uint256" },
+                        { name: "nonce", type: "uint256" },
+                        { name: "deadline", type: "uint256" }
+                    ]
+                }
+                const message = {
+                    owner: owner.address,
+                    spender: ethTokenBridge.target,
+                    value: amount.toString(),
+                    nonce,
+                    deadline
+                };
 
-        //         ownerSignature = await owner.signTypedData(domain, types, message);
-        //         ownerSignature = ethers.Signature.from(ownerSignature);
-        //     });
+                ownerSignature = await owner.signTypedData(domain, types, message);
+                ownerSignature = ethers.Signature.from(ownerSignature);
+            });
 
-        //     it("Should bridge tokens with permit and deduct fees", async function () {
-        //         await expect(
-        //             ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
-        //                 mockERC20.target,
-        //                 receiver,
-        //                 amount * 1000n / ethers.parseEther("1"),
-        //                 deadline,
-        //                 ownerSignature.v, ownerSignature.r, ownerSignature.s,
-        //                 { value: messageFee }
-        //             )
-        //         ).to.emit(portal, "MessageSent");
+            it("Should bridge tokens with permit and deduct fees", async function () {
+                const tx = ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                    mockERC20.target,
+                    receiver,
+                    amount * 1000n / ethers.parseEther("1"),
+                    deadline,
+                    ownerSignature.v, ownerSignature.r, ownerSignature.s,
+                    { value: messageFee }
+                );
 
-        //         const bridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
-        //         expect(bridgeBalance).to.equal(amount);
+                const tipAmount = amount * tip / 10000n;
+                await expect(tx).to.changeTokenBalances(
+                  mockERC20,
+                  [owner, ethTokenBridge, portal],
+                  [-amount, amount - tipAmount, tipAmount]
+                );
+                await expect(tx).to.emit(portal, "MessageSent");
+            });
 
-        //         const feeAmount = amount * initialFee / 10000n;
-        //         expect(await ethTokenBridge.fees(mockERC20.target)).to.equal(feeAmount);
-        //     });
-
-        //     it("should revert if permit already used", async function () {
-        //         await ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
-        //             mockERC20.target,
-        //             receiver,
-        //             amount * 1000n / ethers.parseEther("1"),
-        //             deadline,
-        //             ownerSignature.v, ownerSignature.r, ownerSignature.s,
-        //             { value: messageFee }
-        //         );
+            it("should revert if permit already used", async function () {
+                await ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                    mockERC20.target,
+                    receiver,
+                    amount * 1000n / ethers.parseEther("1"),
+                    deadline,
+                    ownerSignature.v, ownerSignature.r, ownerSignature.s,
+                    { value: messageFee }
+                );
             
 
-        //         await expect(
-        //             ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
-        //                 mockERC20.target,
-        //                 receiver,
-        //                 amount * 1000n / ethers.parseEther("1"),
-        //                 deadline,
-        //                 ownerSignature.v, ownerSignature.r, ownerSignature.s,
-        //                 { value: messageFee }
-        //             )
-        //         ).to.be.reverted;
-        //     });
-        // });
+                await expect(
+                    ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                        mockERC20.target,
+                        receiver,
+                        amount * 1000n / ethers.parseEther("1"),
+                        deadline,
+                        ownerSignature.v, ownerSignature.r, ownerSignature.s,
+                        { value: messageFee }
+                    )
+                ).to.be.reverted;
+            });
+        });
     });
 });
