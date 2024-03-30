@@ -200,4 +200,8 @@ contract EthTokenBridge is IPortalMessageReceiver {
             message
         );
     }
+
+    receive() external payable {
+        require(msg.sender == iweth, "!sender");
+    }
 }

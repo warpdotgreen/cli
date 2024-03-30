@@ -114,103 +114,95 @@ tokens.forEach(token => {
             });
         });
 
-        // describe("receiveMessage", function () {
-        //     it("Should correctly process received messages and transfer assets", async function () {
-        //         const receiver = user.address;
-        //         const amount = ethers.parseUnits("10", 3);
-        //         const message = [
-        //             ethers.zeroPadValue(mockERC20.target.toString(), 32),
-        //             ethers.zeroPadValue(receiver, 32),
-        //             ethers.zeroPadValue("0x" + amount.toString(16), 32)
-        //         ]
-        //         const expectedFee = amount * chiaToERC20AmountFactor * initialFee / 10000n;
+        describe("receiveMessage", function () {
+            it("Should correctly process received messages and transfer assets", async function () {
+                const receiver = user.address;
+                const amount = ethers.parseUnits("10", 3);
+                const message = [
+                    ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                    ethers.zeroPadValue(receiver, 32),
+                    ethers.zeroPadValue("0x" + amount.toString(16), 32)
+                ]
+                const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
-        //         await mockERC20.mint(ethTokenBridge.target, amount * chiaToERC20AmountFactor);
+                await mockERC20.mint(ethTokenBridge.target, amount * chiaToERC20AmountFactor);
 
-        //         const sig = await getSig(
-        //             nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
-        //             [signer]
-        //         );
-        //         await portal.receiveMessage(
-        //             nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig
-        //         )
-                
-        //         const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
-        //         expect(newBridgeBalance).to.equal(expectedFee);
+                const sig = await getSig(
+                    nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target.toString(), message,
+                    [signer]
+                );
+                await expect(
+                    portal.receiveMessage(
+                      nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target, message, sig
+                  )
+                ).to.changeTokenBalances(
+                  mockERC20,
+                  [ethTokenBridge, receiver, portal],
+                  [-amount * chiaToERC20AmountFactor, amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
+                );
+            });
 
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFee);
+            it("Should correctly process received messages and transfer ether", async function () {
+                const receiver = user.address;
+                const CATAmount = ethers.parseUnits("1.234", 3);
+                const message = [
+                    ethers.zeroPadValue(weth.target.toString(), 32),
+                    ethers.zeroPadValue(receiver, 32),
+                    ethers.zeroPadValue("0x" + CATAmount.toString(16).padStart(4, "0"), 32)
+                ]
+                const chiaToWETHFactor = token.type === "MilliETH" ? 1n : 10n ** 15n;
 
-        //         const newBalance = await mockERC20.balanceOf(receiver);
-        //         expect(newBalance).to.equal(amount * chiaToERC20AmountFactor - expectedFee);
-        //     });
+                const wethAmount = CATAmount * chiaToWETHFactor;
+                const expectedTip = CATAmount * chiaToWETHFactor * tip / 10000n;
 
-        //     it("Should correctly process received messages and transfer ether", async function () {
-        //         const receiver = user.address;
-        //         const CATAmount = ethers.parseUnits("1.234", 3);
-        //         const message = [
-        //             ethers.zeroPadValue(weth.target.toString(), 32),
-        //             ethers.zeroPadValue(receiver, 32),
-        //             ethers.zeroPadValue("0x" + CATAmount.toString(16).padStart(4, "0"), 32)
-        //         ]
-        //         const chiaToWETHFactor = token.type === "MilliETH" ? 1n : 10n ** 15n;
+                await weth.deposit({ value: wethAmount * token.wethToEthRatio });
+                await weth.transfer(ethTokenBridge.target, wethAmount);
 
-        //         const wethAmount = CATAmount * chiaToWETHFactor;
-        //         const expectedFee = CATAmount * chiaToWETHFactor * initialFee / 10000n;
+                const sig = await getSig(
+                    nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target.toString(), message,
+                    [signer]
+                );
+                await expect(
+                    portal.receiveMessage(
+                        nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target, message, sig
+                    )
+                ).to.changeEtherBalances(
+                    [weth, receiver, portal],
+                    [
+                        -wethAmount * token.wethToEthRatio,
+                        (wethAmount - expectedTip) * token.wethToEthRatio,
+                        expectedTip * token.wethToEthRatio
+                    ]
+                );
+            });
 
-        //         await weth.deposit({ value: wethAmount * token.wethToEthRatio });
-        //         await weth.transfer(ethTokenBridge.target, wethAmount);
+            it("Should fail if sender is not the portal", async function () {
+                const message = [
+                    ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                    ethers.zeroPadValue(user.address, 32),
+                    ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
+                ]
 
-        //         const sig = await getSig(
-        //             nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
-        //             [signer]
-        //         );
-        //         await expect(
-        //             portal.receiveMessage(
-        //                 nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig
-        //             )
-        //         ).to.changeEtherBalances(
-        //             [weth, receiver],
-        //             [
-        //                 -(wethAmount - expectedFee) * token.wethToEthRatio,
-        //                 (wethAmount - expectedFee) * token.wethToEthRatio
-        //             ]
-        //         )
-                
-        //         const newBridgeBalance = await weth.balanceOf(ethTokenBridge.target);
-        //         expect(newBridgeBalance).to.equal(expectedFee);
+                await expect(ethTokenBridge.connect(user).receiveMessage(nonce1, otherChain, burnPuzzleHash, message))
+                    .to.be.revertedWith("!msg");
+            });
 
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFee);
-        //     });
+            it("Should fail if message source puzzle hash does not match", async function () {
+                const invalidPuzzle = ethers.encodeBytes32String("invalidPuzzle");
+                const message = [
+                    ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                    ethers.zeroPadValue(user.address, 32),
+                    ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
+                ]
 
-        //     it("Should fail if sender is not the portal", async function () {
-        //         const message = [
-        //             ethers.zeroPadValue(mockERC20.target.toString(), 32),
-        //             ethers.zeroPadValue(user.address, 32),
-        //             ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
-        //         ]
-
-        //         await expect(ethTokenBridge.connect(user).receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, message))
-        //             .to.be.revertedWith("!portal");
-        //     });
-
-        //     it("Should fail if message source puzzle hash does not match", async function () {
-        //         const invalidPuzzle = ethers.encodeBytes32String("invalidPuzzle");
-        //         const message = [
-        //             ethers.zeroPadValue(mockERC20.target.toString(), 32),
-        //             ethers.zeroPadValue(user.address, 32),
-        //             ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
-        //         ]
-
-        //         const sig = await getSig(
-        //             nonce1, sourceChain, invalidPuzzle, ethTokenBridge.target.toString(), message,
-        //             [signer]
-        //         );
-        //         await expect(portal.receiveMessage(nonce1, sourceChain, invalidPuzzle, ethTokenBridge.target, message, sig))
-        //             .to.be.revertedWith("!source");
-        //     });
-        // });
+                const sig = await getSig(
+                    nonce1, otherChain, invalidPuzzle, ethTokenBridge.target.toString(), message,
+                    [signer]
+                );
+                await expect(portal.receiveMessage(nonce1, otherChain, invalidPuzzle, ethTokenBridge.target, message, sig))
+                    .to.be.revertedWith("!msg");
+            });
+        });
 
         // describe("withdrawFees", function () {
         //     const amount = ethers.parseUnits("10", 3);
