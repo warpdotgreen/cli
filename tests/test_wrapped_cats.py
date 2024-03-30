@@ -22,7 +22,7 @@ import pytest
 import json
 
 from tests.utils import *
-from drivers.wrapped_assets import *
+from drivers.wrapped_cats import *
 from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
 NONCE = 1337
@@ -80,7 +80,7 @@ class TestWrappedCATs:
         resp = await wallet.create_new_cat_and_wallet(1337000, test=True)
         assert resp["success"]
 
-        asset_id = resp["asset_id"]
+        asset_id = bytes.fromhex(resp["asset_id"])
         cat_wallet_id = resp["wallet_id"]
 
         while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
@@ -93,4 +93,78 @@ class TestWrappedCATs:
 
         offer: Offer
         offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
-        print(offer.to_bech32())
+
+        # 4. Lock CATs
+        offer_sb = offer.to_spend_bundle()
+        coin_spends = list(offer_sb.coin_spends)
+
+        xch_source_coin: Coin = None
+        cat_source_coin: Coin = None
+        cat_source_lineage_proof: Coin = None
+
+        for coin_spend in coin_spends:
+            coin: Coin = coin_spend.coin
+
+            conditions: Program
+            _, conditions = coin_spend.puzzle_reveal.run_with_cost(INFINITE_COST, coin_spend.solution)
+            
+            for condition in conditions.as_iter():
+                cond = [_ for _ in condition.as_iter()]
+
+                if cond[0] != b'\x33': # not CREATE_COIN
+                    continue
+
+                if cond[1] == OFFER_MOD_HASH:
+                    xch_source_coin = Coin(
+                        coin.name(),
+                        OFFER_MOD_HASH,
+                        cond[2].as_int()
+                    )
+                else: 
+                    mod, args = coin_spend.puzzle_reveal.uncurry()
+                    args = [_ for _ in args.as_iter()]
+                    if mod != CAT_MOD or len(args) < 3:
+                        continue
+
+                    if bytes(args[1])[1:] != asset_id:
+                        print(asset_id.hex(), bytes(args[1])[1:].hex())
+                        continue
+                    
+                    cat_source_coin_puzzle = construct_cat_puzzle(
+                        CAT_MOD,
+                        asset_id,
+                        OFFER_MOD,
+                        CAT_MOD_HASH
+                    )
+                    cat_source_coin_puzzle_hash = cat_source_coin_puzzle.get_tree_hash()
+
+                    if cond[1] != cat_source_coin_puzzle_hash:
+                        print(":(((")
+                        continue
+
+                    cat_source_coin = Coin(
+                        coin.name(),
+                        cat_source_coin_puzzle_hash,
+                        cond[2].as_int()
+                    )
+                    cat_source_lineage_proof = Coin(
+                        coin.parent_coin_info,
+                        args[2].get_tree_hash(),
+                        coin.amount
+                    )
+
+        print(xch_source_coin)
+        print(cat_source_coin)
+        print(cat_source_lineage_proof)
+        lock_puzzle = get_locker_puzzle(
+            SOURCE_CHAIN,
+            SOURCE,
+            portal_launcher_id,
+            BRIDGING_PUZZLE_HASH,
+            asset_id
+        )
+
+        sb = SpendBundle(
+            coin_spends, offer_sb.aggregated_signature
+        )
+        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
