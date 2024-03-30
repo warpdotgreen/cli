@@ -24,18 +24,20 @@
     (list CREATE_COIN_ANNOUNCEMENT receiver)
     (list
       ASSERT_PUZZLE_ANNOUNCEMENT
-      (if (= ASSET_ID ())
-        OFFER_PUZZLE_HASH
-        ; else
-        (curry_hashes_inline CAT_MOD_HASH
-          (sha256 1 CAT_MOD_HASH)
-          (sha256 1 ASSET_ID)
+      (sha256
+        (if (= ASSET_ID ())
           OFFER_PUZZLE_HASH
-        )
-      ) ; offer puzzle hash
-      (sha256tree
-        (list my_id (list VAULT_PUZZLE_HASH asset_amount))
-      ) ; notarized payment
+          ; else
+          (curry_hashes_inline CAT_MOD_HASH
+            (sha256 1 CAT_MOD_HASH)
+            (sha256 1 ASSET_ID)
+            OFFER_PUZZLE_HASH
+          )
+        ) ; offer puzzle hash
+        (sha256tree
+          (list my_id (list VAULT_PUZZLE_HASH asset_amount))
+        ) ; notarized payment
+      )
     )
     (list
       CREATE_COIN
