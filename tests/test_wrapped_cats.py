@@ -17,6 +17,7 @@ from chia.util.condition_tools import conditions_dict_for_solution
 from chia.types.blockchain_format.program import INFINITE_COST
 from chia.wallet.cat_wallet.cat_utils import \
     unsigned_spend_bundle_for_spendable_cats
+from chia.wallet.trading.offer import Offer, OFFER_MOD, OFFER_MOD_HASH
 import pytest
 import json
 
@@ -30,6 +31,8 @@ SOURCE = to_eth_address("just_a_constract")
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
+
+BRIDGING_FEE = 10 ** 9
 
 class TestWrappedCATs:
     @pytest.mark.asyncio
@@ -73,4 +76,21 @@ class TestWrappedCATs:
         await node.push_tx(portal_creation_bundle)
         await wait_for_coin(node, portal)
 
-        # todo
+        # 2. Launch mock CATs
+        resp = await wallet.create_new_cat_and_wallet(1337000, test=True)
+        assert resp["success"]
+
+        asset_id = resp["asset_id"]
+        cat_wallet_id = resp["wallet_id"]
+
+        while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
+            time.sleep(0.1)
+
+        # 3. Generate offer to lock CATs
+        offer_dict = {}
+        offer_dict[1] = -BRIDGING_FEE
+        offer_dict[cat_wallet_id] = -1337000
+
+        offer: Offer
+        offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
+        print(offer.to_bech32())
