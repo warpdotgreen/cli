@@ -67,71 +67,52 @@ tokens.forEach(token => {
             });
         });
 
-        // describe("updateFee", function () {
-        //     it("Should allow the owner to update the fee", async function () {
-        //         const newFee = 200; // 2%
-        //         await expect(ethTokenBridge.updateFee(newFee))
-        //             .to.not.be.reverted;
-        //         expect(await ethTokenBridge.fee()).to.equal(newFee);
-        //     });
+        describe("bridgeToChia", function () {
+            it("Should correctly bridge assets and deduct tip", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const chiaAmount = ethers.parseUnits("10", 3);
+                const expectedTip = chiaAmount * tip / 10000n;
 
-        //     it("Should revert if the new fee is too high", async function () {
-        //         const newFee = 1100; // 11%
-        //         await expect(ethTokenBridge.updateFee(newFee))
-        //             .to.be.revertedWith("fee too high");
-        //     });
+                await mockERC20.mint(user.address, chiaAmount * chiaToERC20AmountFactor);
+                await mockERC20.connect(user).approve(ethTokenBridge.target, chiaAmount * chiaToERC20AmountFactor);
 
-        //     it("Should revert if called by non-owner", async function () {
-        //         const newFee = 200; // 2%
-        //         await expect(ethTokenBridge.connect(user).updateFee(newFee))
-        //             .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
-        //     });
-        // });
+                // https://hardhat.org/hardhat-runner/plugins/nomicfoundation-hardhat-chai-matchers#chaining-async-matchers
+                const tx = ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageFee });
+                await expect(tx).to.changeTokenBalances(
+                      mockERC20,
+                      [user, ethTokenBridge.target, portal.target],
+                      [-chiaAmount * chiaToERC20AmountFactor, (chiaAmount - expectedTip) * chiaToERC20AmountFactor, expectedTip * chiaToERC20AmountFactor]
+                    )
+                await expect(tx).to.emit(portal, "MessageSent");
+            });
 
-        // describe("bridgeToChia", function () {
-        //     it("Should correctly bridge assets and deduct fees", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         const chiaAmount = ethers.parseUnits("10", 3);
-        //         const expectedFee = chiaAmount * initialFee / 10000n;
+            it("Should fail if not enough balance", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", 18);
 
-        //         await mockERC20.mint(user.address, chiaAmount * chiaToERC20AmountFactor);
-        //         await mockERC20.connect(user).approve(ethTokenBridge.target, chiaAmount * chiaToERC20AmountFactor);
+                await expect(
+                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee })
+                ).to.be.reverted;
+            });
 
-        //         await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageFee }))
-        //             .to.emit(portal, "MessageSent");
+            it("Should fail if greater message fee is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", 18);
 
-        //         const newBalance = await mockERC20.balanceOf(ethTokenBridge.target);
-        //         expect(newBalance).to.equal(chiaAmount * chiaToERC20AmountFactor);
+                await expect(
+                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n})
+                ).to.be.revertedWith("!fee");
+            });
 
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFee * chiaToERC20AmountFactor);
+            it("Should fail if lower message fee is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", 18);
 
-        //     });
-
-        //     it("Should fail if not enough balance", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         const amount = ethers.parseUnits("10", 18);
-
-        //         await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee }))
-        //             .to.be.reverted;
-        //     });
-
-        //     it("Should fail if greater message fee is given", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         const amount = ethers.parseUnits("10", 18);
-
-        //         await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n}))
-        //             .to.be.revertedWith("!fee");
-        //     });
-
-        //     it("Should fail if lower message fee is given", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         const amount = ethers.parseUnits("10", 18);
-
-        //         await expect(ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n}))
-        //             .to.be.revertedWith("!fee");
-        //     });
-        // });
+                await expect(
+                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n})
+                ).to.be.revertedWith("!fee");
+            });
+        });
 
         // describe("receiveMessage", function () {
         //     it("Should correctly process received messages and transfer assets", async function () {
