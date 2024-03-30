@@ -4,6 +4,7 @@ from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from chia.wallet.trading.offer import OFFER_MOD_HASH
+from typing import List, Tuple
 
 LOCKER_MOD = load_clvm_hex("puzzles/wrapped_cats/locker.clsp")
 
@@ -60,3 +61,53 @@ def get_locker_puzzle(
     ).get_tree_hash(),
     asset_id
   )
+
+
+def get_p2_controller_puzzle_hash_inner_solution(
+    my_id: bytes32,
+    controller_parent_info: bytes32,
+    controller_amount: int,
+    delegated_puzzle: Program,
+    delegated_solution: Program
+) -> Program:
+  return Program.to([
+    my_id,
+    controller_parent_info,
+    controller_amount,
+    delegated_puzzle,
+    delegated_solution
+  ])
+
+
+def get_unlocker_solution(
+    message_coin_parent_id: bytes32,
+    message_nonce_hash: bytes32,
+    receiver: bytes32,
+    asset_amount_b32: bytes32,
+    my_puzzle_hash: bytes32,
+    my_id: bytes32,
+    locked_coin_proofs: List[Tuple[bytes32, int]]
+) -> Program:
+  return Program.to([
+    message_coin_parent_id,
+    message_nonce_hash,
+    receiver,
+    asset_amount_b32,
+    my_puzzle_hash,
+    my_id,
+    Program.to(locked_coin_proofs)
+  ])
+
+
+def get_locker_solution(
+    my_amount: int,
+    my_id: bytes32,
+    asset_amount: int,
+    receiver: bytes
+) -> Program:
+  return Program.to([
+    my_amount,
+    my_id,
+    asset_amount,
+    receiver
+  ])
