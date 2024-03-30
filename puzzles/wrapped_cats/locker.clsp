@@ -3,14 +3,14 @@
 
 (mod (
   MESSAGE_DESTINATION_CHAIN
-  MESSAGE_DESTINATION ; we're going to the wrapped CAT factory!
+  MESSAGE_DESTINATION ; we're going to the wrapped CAT contract!
   CAT_MOD_HASH
   OFFER_PUZZLE_HASH ; ssettlement_payments.clsp puzzle hash
   BRIDGING_PUZZLE_HASH
-  VAULT_PUZZLE_HASH
+  VAULT_PUZZLE_HASH ; p2_controller_puzzle_hash
+  ASSET_ID
   my_amount ; warning: make sure this is not lower than the bridging fee
   my_id
-  asset_id
   asset_amount
   receiver
 )
@@ -24,12 +24,12 @@
     (list CREATE_COIN_ANNOUNCEMENT receiver)
     (list
       ASSERT_PUZZLE_ANNOUNCEMENT
-      (if (= asset_id ())
+      (if (= ASSET_ID ())
         OFFER_PUZZLE_HASH
         ; else
         (curry_hashes_inline CAT_MOD_HASH
           (sha256 1 CAT_MOD_HASH)
-          (sha256 1 asset_id)
+          (sha256 1 ASSET_ID)
           OFFER_PUZZLE_HASH
         )
       ) ; offer puzzle hash
@@ -44,7 +44,6 @@
       (list
         MESSAGE_DESTINATION_CHAIN
         MESSAGE_DESTINATION
-        asset_id
         receiver
         asset_amount
       )

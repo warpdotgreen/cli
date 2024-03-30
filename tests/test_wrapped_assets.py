@@ -31,7 +31,7 @@ BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
-class TestPortal:
+class TestWrappedAssets:
     @pytest.mark.asyncio
     async def test_wrapped_asset_mint_and_burn(self, setup):
         node: FullNodeRpcClient
