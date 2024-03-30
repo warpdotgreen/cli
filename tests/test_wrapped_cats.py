@@ -33,6 +33,7 @@ SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
 BRIDGING_FEE = 10 ** 9
+BRIDGED_ASSET_AMOUNT = 1337000
 
 class TestWrappedCATs:
     @pytest.mark.asyncio
@@ -77,7 +78,7 @@ class TestWrappedCATs:
         await wait_for_coin(node, portal)
 
         # 2. Launch mock CATs
-        resp = await wallet.create_new_cat_and_wallet(1337000, test=True)
+        resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
         assert resp["success"]
 
         asset_id = bytes.fromhex(resp["asset_id"])
@@ -89,7 +90,7 @@ class TestWrappedCATs:
         # 3. Generate offer to lock CATs
         offer_dict = {}
         offer_dict[1] = -BRIDGING_FEE
-        offer_dict[cat_wallet_id] = -1337000
+        offer_dict[cat_wallet_id] = -BRIDGED_ASSET_AMOUNT
 
         offer: Offer
         offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
@@ -98,6 +99,7 @@ class TestWrappedCATs:
         offer_sb = offer.to_spend_bundle()
         coin_spends = list(offer_sb.coin_spends)
 
+        # 4.1 Identify source coins
         xch_source_coin: Coin = None
         cat_source_coin: Coin = None
         cat_source_lineage_proof: Coin = None
@@ -153,16 +155,85 @@ class TestWrappedCATs:
                         coin.amount
                     )
 
-        print(xch_source_coin)
-        print(cat_source_coin)
-        print(cat_source_lineage_proof)
-        lock_puzzle = get_locker_puzzle(
+        assert xch_source_coin is not None
+        assert cat_source_coin is not None
+        assert cat_source_lineage_proof is not None
+
+        # 4.2 Spend XCH source coin to create the locker coin
+        # Note: this is a test, so no intermediary security coin is needed
+        locker_puzzle = get_locker_puzzle(
             SOURCE_CHAIN,
             SOURCE,
             portal_launcher_id,
             BRIDGING_PUZZLE_HASH,
             asset_id
         )
+        locker_puzzle_hash = locker_puzzle.get_tree_hash()
+
+        xch_source_coin_solution = Program.to([
+            [xch_source_coin.name(), [locker_puzzle_hash, BRIDGING_FEE]]
+        ])
+
+        xch_source_coin_spend = CoinSpend(
+            xch_source_coin,
+            OFFER_MOD,
+            xch_source_coin_solution
+        )
+        coin_spends.append(xch_source_coin_spend)
+
+        # 4.3 Spend the locker coin
+        locker_coin = Coin(
+            xch_source_coin.name(),
+            locker_puzzle_hash,
+            BRIDGING_FEE
+        )
+
+        locker_coin_solution = get_locker_solution(
+            BRIDGING_FEE,
+            locker_coin.name(),
+            BRIDGED_ASSET_AMOUNT,
+            ETH_RECEIVER
+        )
+
+        locker_coin_spend = CoinSpend(
+            locker_coin,
+            locker_puzzle,
+            locker_coin_solution
+        )
+        coin_spends.append(locker_coin_spend)
+
+        # 4.4 Spent the CAT source coin
+        vault_inner_puzzle = get_p2_controller_puzzle_hash_inner_puzzle_hash(
+            get_unlocker_puzzle(
+                SOURCE_CHAIN,
+                SOURCE,
+                portal_launcher_id,
+                asset_id
+            ).get_tree_hash()
+        )
+        vault_inner_puzzle_hash = vault_inner_puzzle.get_tree_hash()
+
+        cat_source_coin_inner_solution = Program.to([
+            [locker_coin.name(), [vault_inner_puzzle_hash, BRIDGED_ASSET_AMOUNT]]
+        ])
+        cat_source_coin_spend = unsigned_spend_bundle_for_spendable_cats(
+            CAT_MOD,
+            [
+                SpendableCAT(
+                    cat_source_coin,
+                    asset_id,
+                    OFFER_MOD,
+                    cat_source_coin_inner_solution,
+                    lineage_proof=LineageProof(
+                        parent_name=cat_source_lineage_proof.parent_coin_info,
+                        inner_puzzle_hash=cat_source_lineage_proof.puzzle_hash,
+                        amount=cat_source_lineage_proof.amount
+                    )
+                )
+            ]
+        ).coin_spends[0]
+        coin_spends.append(cat_source_coin_spend)
+
 
         sb = SpendBundle(
             coin_spends, offer_sb.aggregated_signature
