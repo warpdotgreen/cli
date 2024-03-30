@@ -5,10 +5,10 @@
   P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
   MESSAGE_COIN_FIRST_CURRY_HASH
   MESSAGE_SOURCE_CHAIN
-  MESSAGE_SOURCE_HASH ; source contract (wrapped CAT factory - which, in this case, is the wrapped CAT destroyer)
+  MESSAGE_SOURCE_HASH ; source contract (wrapped CAT contract)
+  ASSET_ID
   message_coin_parent_id
   message_nonce_hash
-  asset_id
   receiver
   asset_amount_b32
   my_puzzle_hash
@@ -53,8 +53,8 @@
   )
 
   (defun add_p2_announcements (
-    p2_controller_puzzle_hash_puzzle_hash
-    p2_controller_puzzle_hash_inner
+    vault_full_puzzle_hash
+    vault_inner_puzzle_hash
     my_id
     total_amount
     receiver
@@ -65,7 +65,7 @@
     (add_p2_announcements_for_coin
       (sha256
         (b32 locked_coin_parent_info)
-        p2_controller_puzzle_hash_puzzle_hash
+        vault_full_puzzle_hash
         locked_coin_amount
       ) ; coin_id
       my_id
@@ -76,7 +76,7 @@
           (sha256tree
             (list 1 (list 
               (list CREATE_COIN receiver total_amount (list receiver))
-              (list CREATE_COIN p2_controller_puzzle_hash_inner (- locked_coin_amount remaining_amount))
+              (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))
             ))
           )
         )
@@ -91,8 +91,8 @@
         )
         ; else
         (add_p2_announcements
-          p2_controller_puzzle_hash_puzzle_hash
-          p2_controller_puzzle_hash_inner
+          vault_full_puzzle_hash
+          vault_inner_puzzle_hash
           my_id
           total_amount
           receiver
@@ -115,21 +115,21 @@
         MESSAGE_SOURCE_HASH
         (sha256 1 my_puzzle_hash) ; destination
         (sha256 1
-          (sha256tree (list receiver asset_id asset_amount_b32))
+          (sha256tree (list receiver asset_amount_b32))
         ) ; message hash
       ) ; message coin puzzle hash
       0
     ) ; message coin id
     my_id
     (add_p2_announcements
-      (if (= (* asset_id 1) 0)
+      (if (= (* ASSET_ID 1) 0)
         (curry_hashes P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
           (sha256 1 my_puzzle_hash)
         )
         ; else 
         (curry_hashes CAT_MOD_HASH
           (sha256 1 CAT_MOD_HASH)
-          (sha256 1 asset_id)
+          (sha256 1 ASSET_ID)
           (curry_hashes P2_CONTROLLER_PUZZLE_HASH_MOD_HASH
             (sha256 1 my_puzzle_hash)
           )
