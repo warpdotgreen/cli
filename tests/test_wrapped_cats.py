@@ -37,47 +37,13 @@ BRIDGED_ASSET_AMOUNT = 1337000
 
 class TestWrappedCATs:
     @pytest.mark.asyncio
-    async def test_wrapped_cats_lock_and_unlock(self, setup):
+    async def test_wrapped_cats_locker(self, setup):
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
         wallet = wallets[0]
 
-        # 1. Launch mock portal receiver (inner_puzzle = one_puzzle)
-        one_puzzle = Program.to(1)
-        one_puzzle_hash: bytes32 = Program(one_puzzle).get_tree_hash()
-        one_address = encode_puzzle_hash(one_puzzle_hash, "txch")
-
-        tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
-        portal_launcher_parent: Coin = tx_record.additions[0]
-        await wait_for_coin(node, portal_launcher_parent)
-
-        portal_launcher = generate_launcher_coin(portal_launcher_parent, 1)
-        portal_launcher_id = portal_launcher.name()
-
-        portal_full_puzzle = puzzle_for_singleton(
-            portal_launcher_id,
-            one_puzzle,
-        )
-        portal_full_puzzle_hash = portal_full_puzzle.get_tree_hash()
-        portal = Coin(portal_launcher_id, portal_full_puzzle_hash, 1)
-
-        conditions, portal_launcher_spend = launch_conditions_and_coinsol(
-            portal_launcher_parent,
-            one_puzzle,
-            [],
-            1
-        )
-        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
-
-        portal_creation_bundle = SpendBundle(
-            [portal_launcher_parent_spend, portal_launcher_spend],
-            AugSchemeMPL.aggregate([])
-        )
-        await node.push_tx(portal_creation_bundle)
-        await wait_for_coin(node, portal)
-
-        # 2. Launch mock CATs
+        # 1. Launch mock CATs
         resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
         assert resp["success"]
 
@@ -87,7 +53,7 @@ class TestWrappedCATs:
         while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
             time.sleep(0.1)
 
-        # 3. Generate offer to lock CATs
+        # 2. Generate offer to lock CATs
         offer_dict = {}
         offer_dict[1] = -BRIDGING_FEE
         offer_dict[cat_wallet_id] = -BRIDGED_ASSET_AMOUNT
@@ -95,11 +61,11 @@ class TestWrappedCATs:
         offer: Offer
         offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
 
-        # 4. Lock CATs
+        # 3. Lock CATs
         offer_sb = offer.to_spend_bundle()
         coin_spends = list(offer_sb.coin_spends)
 
-        # 4.1 Identify source coins
+        # 3.1 Identify source coins
         xch_source_coin: Coin = None
         cat_source_coin: Coin = None
         cat_source_lineage_proof: Coin = None
@@ -159,7 +125,9 @@ class TestWrappedCATs:
         assert cat_source_coin is not None
         assert cat_source_lineage_proof is not None
 
-        # 4.2 Spend XCH source coin to create the locker coin
+        portal_launcher_id = b"\x00"
+
+        # 3.2 Spend XCH source coin to create the locker coin
         # Note: this is a test, so no intermediary security coin is needed
         locker_puzzle = get_locker_puzzle(
             SOURCE_CHAIN,
@@ -181,7 +149,7 @@ class TestWrappedCATs:
         )
         coin_spends.append(xch_source_coin_spend)
 
-        # 4.3 Spend the locker coin
+        # 3.3 Spend the locker coin
         locker_coin = Coin(
             xch_source_coin.name(),
             locker_puzzle_hash,
@@ -202,7 +170,7 @@ class TestWrappedCATs:
         )
         coin_spends.append(locker_coin_spend)
 
-        # 4.4 Spent the CAT source coin
+        # 3.4 Spent the CAT source coin
         vault_inner_puzzle = get_p2_controller_puzzle_hash_inner_puzzle_hash(
             get_unlocker_puzzle(
                 SOURCE_CHAIN,
@@ -238,4 +206,59 @@ class TestWrappedCATs:
         sb = SpendBundle(
             coin_spends, offer_sb.aggregated_signature
         )
-        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
+        await node.push_tx(sb)
+        await wait_for_coin(node, locker_coin, also_wait_for_spent=True)
+
+
+    @pytest.mark.asyncio
+    async def test_wrapped_cats_unlocker(self, setup):
+        node: FullNodeRpcClient
+        wallets: List[WalletRpcClient]
+        node, wallets = setup
+        wallet = wallets[0]
+
+        # 1. Launch mock portal receiver (inner_puzzle = one_puzzle)
+        one_puzzle = Program.to(1)
+        one_puzzle_hash: bytes32 = Program(one_puzzle).get_tree_hash()
+        one_address = encode_puzzle_hash(one_puzzle_hash, "txch")
+
+        tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
+        portal_launcher_parent: Coin = tx_record.additions[0]
+        await wait_for_coin(node, portal_launcher_parent)
+
+        portal_launcher = generate_launcher_coin(portal_launcher_parent, 1)
+        portal_launcher_id = portal_launcher.name()
+
+        portal_full_puzzle = puzzle_for_singleton(
+            portal_launcher_id,
+            one_puzzle,
+        )
+        portal_full_puzzle_hash = portal_full_puzzle.get_tree_hash()
+        portal = Coin(portal_launcher_id, portal_full_puzzle_hash, 1)
+
+        conditions, portal_launcher_spend = launch_conditions_and_coinsol(
+            portal_launcher_parent,
+            one_puzzle,
+            [],
+            1
+        )
+        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
+
+        portal_creation_bundle = SpendBundle(
+            [portal_launcher_parent_spend, portal_launcher_spend],
+            AugSchemeMPL.aggregate([])
+        )
+        await node.push_tx(portal_creation_bundle)
+        await wait_for_coin(node, portal)
+
+        # 2. Launch mock CATs
+        resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
+        assert resp["success"]
+
+        asset_id = bytes.fromhex(resp["asset_id"])
+        cat_wallet_id = resp["wallet_id"]
+
+        while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
+            time.sleep(0.1)
+
+        print(":)") # todo
