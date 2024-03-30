@@ -140,7 +140,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         );
     }
 
-    function rescueEther(
+    function withdrawEther(
         address[] memory _receivers,
         uint256[] memory _amounts
     ) public onlyOwner {
