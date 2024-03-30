@@ -7,16 +7,25 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
 contract ERC20Mock is ERC20, ERC20Permit {
-    constructor(
-        string memory name,
-        string memory symbol
-    ) ERC20(name, symbol) ERC20Permit(name) {}
+    uint8 public immutable myDecimals;
 
-    function mint(address to, uint256 amount) public {
-        _mint(to, amount);
+    function decimals() public view override returns (uint8) {
+        return myDecimals;
     }
 
-    function burn(address from, uint256 amount) public {
-        _burn(from, amount);
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals
+    ) ERC20(_name, _symbol) ERC20Permit(_name) {
+        myDecimals = _decimals;
+    }
+
+    function mint(address _to, uint256 _amount) public {
+        _mint(_to, _amount);
+    }
+
+    function burn(address _from, uint256 _amount) public {
+        _burn(_from, _amount);
     }
 }

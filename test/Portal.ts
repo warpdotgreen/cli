@@ -184,7 +184,7 @@ describe("Portal", function () {
 
         beforeEach(async function () {
             const ERC20Factory = await ethers.getContractFactory("ERC20Mock", owner);
-            erc20 = await ERC20Factory.deploy("Mock ERC20", "MERC20");
+            erc20 = await ERC20Factory.deploy("Mock ERC20", "MERC20", 18);
             await erc20.mint(portal.target, ethers.parseEther("300"));
         });
 

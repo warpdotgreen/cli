@@ -4,13 +4,21 @@ import { EthTokenBridge, ERC20Mock, Portal, WETHMock, MilliETH } from "../typech
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { getSig } from "./Portal";
 
-const tokens = [
+const wethTokens = [
   { name: "WETHMock", decimals: 18n, wethToEthRatio: 1n,  type: "WETHMock" },
   { name: "MilliETH", decimals: 3n, wethToEthRatio: 10n ** 12n, type: "MilliETH" }
 ];
 
-tokens.forEach(token => {
-    describe(`EthTokenBridge (${token.name})`, function () {
+const tokens = [
+  { decimals: 18 },
+  { decimals: 12 },
+  { decimals: 4 },
+  { decimals: 3 },
+]
+
+wethTokens.forEach(wethToken => {
+  tokens.forEach(token => {
+    describe(`EthTokenBridge (WETH=${wethToken.name}; mock ERC20 decimals=${token.decimals})`, function () {
         let ethTokenBridge: EthTokenBridge;
         let mockERC20: ERC20Mock;
         let weth: WETHMock | MilliETH;
@@ -23,7 +31,7 @@ tokens.forEach(token => {
         
         const messageFee = ethers.parseEther("0.001");
         const tip = 30n; // 0.3%
-        const chiaToERC20AmountFactor = 10n ** 15n; // CATs have 3 decimals, 18 - 3 = 15
+        const chiaToERC20AmountFactor = 10n ** BigInt(token.decimals - 3); // CATs have 3 decimals, 18 - 3 = 15
         const nonce1 = ethers.encodeBytes32String("nonce1");
         const burnPuzzleHash = ethers.encodeBytes32String("burn-puzzle-hash");
         const mintPuzzleHash = ethers.encodeBytes32String("mint-puzzle-hash");
@@ -32,9 +40,9 @@ tokens.forEach(token => {
             [owner, user, signer] = await ethers.getSigners();
 
             const ERC20Factory = await ethers.getContractFactory("ERC20Mock");
-            mockERC20 = await ERC20Factory.deploy("MockToken", "MTK");
+            mockERC20 = await ERC20Factory.deploy("MockToken", "MTK", token.decimals);
 
-            const WETHFactory = await ethers.getContractFactory(token.name);
+            const WETHFactory = await ethers.getContractFactory(wethToken.name);
             weth = (await WETHFactory.deploy()) as WETHMock | MilliETH;
 
             const PortalFactory = await ethers.getContractFactory("Portal");
@@ -44,7 +52,7 @@ tokens.forEach(token => {
 
             const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
             ethTokenBridge = await EthTokenBridgeFactory.deploy(
-                tip, portalAddress, weth.target, token.wethToEthRatio, otherChain
+                tip, portalAddress, weth.target, wethToken.wethToEthRatio, otherChain
             );
 
             await ethTokenBridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash)
@@ -55,7 +63,7 @@ tokens.forEach(token => {
                 expect(await ethTokenBridge.tip()).to.equal(tip);
                 expect(await ethTokenBridge.portal()).to.equal(portal.target);
                 expect(await ethTokenBridge.iweth()).to.equal(weth.target);
-                expect(await ethTokenBridge.wethToEthRatio()).to.equal(token.wethToEthRatio);
+                expect(await ethTokenBridge.wethToEthRatio()).to.equal(wethToken.wethToEthRatio);
                 expect(await ethTokenBridge.otherChain()).to.equal(otherChain);
                 expect(await ethTokenBridge.burnPuzzleHash()).to.equal(burnPuzzleHash);
                 expect(await ethTokenBridge.mintPuzzleHash()).to.equal(mintPuzzleHash);
@@ -88,7 +96,7 @@ tokens.forEach(token => {
 
             it("Should fail if not enough balance", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
-                const amount = ethers.parseUnits("10", 18);
+                const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
                   ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee })
@@ -97,7 +105,7 @@ tokens.forEach(token => {
 
             it("Should fail if greater message fee is given", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
-                const amount = ethers.parseUnits("10", 18);
+                const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
                   ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n})
@@ -106,7 +114,7 @@ tokens.forEach(token => {
 
             it("Should fail if lower message fee is given", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
-                const amount = ethers.parseUnits("10", 18);
+                const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
                   ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n})
@@ -150,12 +158,12 @@ tokens.forEach(token => {
                     ethers.zeroPadValue(receiver, 32),
                     ethers.zeroPadValue("0x" + CATAmount.toString(16).padStart(4, "0"), 32)
                 ]
-                const chiaToWETHFactor = token.type === "MilliETH" ? 1n : 10n ** 15n;
+                const chiaToWETHFactor = wethToken.type === "MilliETH" ? 1n : 10n ** 15n;
 
                 const wethAmount = CATAmount * chiaToWETHFactor;
                 const expectedTip = CATAmount * chiaToWETHFactor * tip / 10000n;
 
-                await weth.deposit({ value: wethAmount * token.wethToEthRatio });
+                await weth.deposit({ value: wethAmount * wethToken.wethToEthRatio });
                 await weth.transfer(ethTokenBridge.target, wethAmount);
 
                 const sig = await getSig(
@@ -169,9 +177,9 @@ tokens.forEach(token => {
                 ).to.changeEtherBalances(
                     [weth, receiver, portal],
                     [
-                        -wethAmount * token.wethToEthRatio,
-                        (wethAmount - expectedTip) * token.wethToEthRatio,
-                        expectedTip * token.wethToEthRatio
+                        -wethAmount * wethToken.wethToEthRatio,
+                        (wethAmount - expectedTip) * wethToken.wethToEthRatio,
+                        expectedTip * wethToken.wethToEthRatio
                     ]
                 );
             });
@@ -208,7 +216,7 @@ tokens.forEach(token => {
             it("Should correctly bridge ETH and deduct fees", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const ethToSend = ethers.parseEther("1");
-                const expectedCATs = ethToSend / token.wethToEthRatio;
+                const expectedCATs = ethToSend / wethToken.wethToEthRatio;
                 let expectedTipInCAT = expectedCATs * tip / 10000n;
 
                 const tx = ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee });
@@ -245,11 +253,11 @@ tokens.forEach(token => {
             let receiver: any;
 
             beforeEach(async function () {
-                amount = ethers.parseUnits("100", 18);
+                amount = ethers.parseUnits("100", token.decimals);
                 receiver = ethers.encodeBytes32String("receiverOnChia");
                 deadline = (await ethers.provider.getBlock('latest'))!.timestamp + 86400;
 
-                await mockERC20.mint(owner.address, ethers.parseUnits("1000", 18));
+                await mockERC20.mint(owner.address, ethers.parseUnits("1000", token.decimals));
 
                 const nonce = await mockERC20.nonces(owner.address);
                 const domain = {
@@ -283,7 +291,7 @@ tokens.forEach(token => {
                 const tx = ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
                     mockERC20.target,
                     receiver,
-                    amount * 1000n / ethers.parseEther("1"),
+                    amount / chiaToERC20AmountFactor,
                     deadline,
                     ownerSignature.v, ownerSignature.r, ownerSignature.s,
                     { value: messageFee }
@@ -302,7 +310,7 @@ tokens.forEach(token => {
                 await ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
                     mockERC20.target,
                     receiver,
-                    amount * 1000n / ethers.parseEther("1"),
+                    amount / chiaToERC20AmountFactor,
                     deadline,
                     ownerSignature.v, ownerSignature.r, ownerSignature.s,
                     { value: messageFee }
@@ -313,7 +321,7 @@ tokens.forEach(token => {
                     ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
                         mockERC20.target,
                         receiver,
-                        amount * 1000n / ethers.parseEther("1"),
+                        amount / chiaToERC20AmountFactor,
                         deadline,
                         ownerSignature.v, ownerSignature.r, ownerSignature.s,
                         { value: messageFee }
@@ -322,4 +330,5 @@ tokens.forEach(token => {
             });
         });
     });
+  });
 });
