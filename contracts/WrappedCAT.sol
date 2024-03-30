@@ -10,7 +10,7 @@ import "./interfaces/IPortal.sol";
 
 contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     address public immutable portal;
-    uint64 public immutable fee; // fee / 10000 %
+    uint64 public immutable tip; // tip / 10000 % tip to the portal
     uint64 public immutable mojoToTokenRatio; // token amount on eth = mojos on Chia * mojoToTokenRatio
     bytes3 public immutable otherChain;
 
@@ -21,12 +21,12 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         string memory _name,
         string memory _symbol,
         address _portal,
-        uint64 _fee,
+        uint64 _tip,
         uint64 _mojoToTokenRatio,
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
         portal = _portal;
-        fee = _fee;
+        tip = _tip;
         mojoToTokenRatio = _mojoToTokenRatio;
         otherChain = _otherChain;
     }
@@ -62,22 +62,22 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         );
 
         uint256 amount = uint256(_contents[1]) * mojoToTokenRatio;
-        uint256 transferFee = (amount * fee) / 10000;
+        uint256 transferTip = (amount * tip) / 10000;
 
-        _mint(address(uint160(uint256(_contents[0]))), amount - transferFee);
-        _mint(portal, transferFee);
+        _mint(address(uint160(uint256(_contents[0]))), amount - transferTip);
+        _mint(portal, transferTip);
     }
 
     function bridgeBack(bytes32 _receiver, uint256 _mojoAmount) public payable {
         require(msg.value == IPortal(portal).messageFee(), "!fee");
 
-        uint256 transferFee = (_mojoAmount * fee) / 10000;
+        uint256 transferTip = (_mojoAmount * tip) / 10000;
         _burn(msg.sender, _mojoAmount * mojoToTokenRatio);
-        _mint(portal, transferFee * mojoToTokenRatio);
+        _mint(portal, transferTip * mojoToTokenRatio);
 
         bytes32[] memory contents = new bytes32[](2);
         contents[0] = _receiver;
-        contents[1] = bytes32(_mojoAmount - transferFee);
+        contents[1] = bytes32(_mojoAmount - transferTip);
 
         IPortal(portal).sendMessage{value: msg.value}(
             otherChain,

@@ -15,7 +15,7 @@ interface ERC20Decimals {
 }
 
 contract EthTokenBridge is IPortalMessageReceiver {
-    uint256 public immutable fee; // (fee / 10000) % fee
+    uint256 public immutable tip; // (tip / 10000) % tip
     address public immutable portal;
     address public immutable iweth;
     uint256 public immutable wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
@@ -27,13 +27,13 @@ contract EthTokenBridge is IPortalMessageReceiver {
     bytes32 public mintPuzzleHash;
 
     constructor(
-        uint256 _fee,
+        uint256 _tip,
         address _portal,
         address _iweth,
         uint256 _wethToEthRatio,
         bytes3 _otherChain
     ) {
-        fee = _fee;
+        tip = _tip;
         portal = _portal;
         iweth = _iweth;
         wethToEthRatio = _wethToEthRatio;
@@ -75,20 +75,20 @@ contract EthTokenBridge is IPortalMessageReceiver {
 
         amount = (amount * 10 ** (ERC20Decimals(assetContract).decimals() - 3)); // transform from mojos to ETH wei
 
-        uint256 transferFee = (amount * fee) / 10000;
+        uint256 transferTip = (amount * tip) / 10000;
 
         if (assetContract != iweth) {
             SafeERC20.safeTransfer(
                 IERC20(assetContract),
                 receiver,
-                amount - transferFee
+                amount - transferTip
             );
-            SafeERC20.safeTransfer(IERC20(assetContract), portal, transferFee);
+            SafeERC20.safeTransfer(IERC20(assetContract), portal, transferTip);
         } else {
             IWETH(iweth).withdraw(amount);
 
-            payable(receiver).transfer((amount - transferFee) * wethToEthRatio);
-            payable(portal).transfer(transferFee * wethToEthRatio);
+            payable(receiver).transfer((amount - transferTip) * wethToEthRatio);
+            payable(portal).transfer(transferTip * wethToEthRatio);
         }
     }
 
@@ -173,12 +173,12 @@ contract EthTokenBridge is IPortalMessageReceiver {
         uint256 _messageFee,
         uint256 _mojoToTokenFactor
     ) internal {
-        uint256 transferFee = (_amount * fee) / 10000;
+        uint256 transferTip = (_amount * tip) / 10000;
 
         bytes32[] memory message = new bytes32[](3);
         message[0] = bytes32(uint256(uint160(_assetContract)));
         message[1] = _receiver;
-        message[2] = bytes32(_amount - transferFee);
+        message[2] = bytes32(_amount - transferTip);
 
         if (_transferAsset) {
             SafeERC20.safeTransferFrom(
@@ -190,7 +190,7 @@ contract EthTokenBridge is IPortalMessageReceiver {
             SafeERC20.safeTransfer(
                 IERC20(_assetContract),
                 portal,
-                transferFee * _mojoToTokenFactor
+                transferTip * _mojoToTokenFactor
             );
         }
 
