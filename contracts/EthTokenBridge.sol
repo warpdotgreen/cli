@@ -187,12 +187,12 @@ contract EthTokenBridge is IPortalMessageReceiver {
                 address(this),
                 _amount * _mojoToTokenFactor
             );
-            SafeERC20.safeTransfer(
-                IERC20(_assetContract),
-                portal,
-                transferTip * _mojoToTokenFactor
-            );
         }
+        SafeERC20.safeTransfer(
+            IERC20(_assetContract),
+            portal,
+            transferTip * _mojoToTokenFactor
+        );
 
         IPortal(portal).sendMessage{value: _messageFee}(
             otherChain,

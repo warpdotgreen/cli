@@ -204,174 +204,39 @@ tokens.forEach(token => {
             });
         });
 
-        // describe("withdrawFees", function () {
-        //     const amount = ethers.parseUnits("10", 3);
-        //     const expectedFee = amount * chiaToERC20AmountFactor * initialFee / 10000n;
+        describe("bridgeEtherToChia", function () {
+            it("Should correctly bridge ETH and deduct fees", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const ethToSend = ethers.parseEther("1");
+                const expectedCATs = ethToSend / token.wethToEthRatio;
+                let expectedTipInCAT = expectedCATs * tip / 10000n;
 
-        //     beforeEach(async function () {
-        //         const message = [
-        //             ethers.zeroPadValue(mockERC20.target.toString(), 32),
-        //             ethers.zeroPadValue(user.address, 32),
-        //             ethers.zeroPadValue("0x" + amount.toString(16), 32)
-        //         ]
+                const tx = ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee });
+                await expect(tx).to.changeTokenBalances(
+                    weth,
+                    [ethTokenBridge, portal],
+                    [expectedCATs - expectedTipInCAT, expectedTipInCAT]
+                );
+                await expect(tx).to.emit(portal, "MessageSent");
+            });
 
-        //         await mockERC20.mint(ethTokenBridge.target, amount * chiaToERC20AmountFactor);
-
-        //         const sig = await getSig(
-        //             nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
-        //             [signer]
-        //         );
-        //         await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig)
+            it("Should fail if msg.value is too low", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                var ethToSend = messageFee * 2n / 3n;
                 
-        //         const newBridgeBalance = await mockERC20.balanceOf(ethTokenBridge.target);
-        //         expect(newBridgeBalance).to.equal(expectedFee);
+                await expect(
+                    ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
+                ).to.be.reverted;
+            });
 
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(mockERC20.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFee);
-        //     });
+            it("Should revert if no ETH is sent", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
 
-        //     it("Should allow the owner to withdraw fees", async function () {
-        //         const initialOwnerBalance = await mockERC20.balanceOf(owner.address);
-
-        //         await ethTokenBridge.withdrawFees(mockERC20.target, [owner.address], [expectedFee]);
-
-        //         const finalOwnerBalance = await mockERC20.balanceOf(owner.address);
-        //         expect(finalOwnerBalance - initialOwnerBalance).to.equal(expectedFee);
-        //     });
-
-        //     it("Should fail if non-owner tries to withdraw fees", async function () {
-        //         await expect(ethTokenBridge.connect(user).withdrawFees(mockERC20.target, [mockERC20.target], [expectedFee]))
-        //             .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
-        //     });
-        // });
-
-        // describe("withdrawEtherFees", function () {
-        //     const amountWETHMojo = ethers.parseUnits("1337", 3);
-        //     const expectedFeeMojo = amountWETHMojo * initialFee / 10000n;
-
-        //     beforeEach(async function () {
-        //         const message = [
-        //             ethers.zeroPadValue(weth.target.toString(), 32),
-        //             ethers.zeroPadValue(user.address, 32),
-        //             ethers.zeroPadValue("0x" + amountWETHMojo.toString(16), 32)
-        //         ]
-
-        //         var etherValue = amountWETHMojo * 10n ** 15n;
-        //         var amountWETH = etherValue;
-        //         if (token.type === "MilliETH") {
-        //             etherValue = amountWETHMojo * 10n ** 12n;
-        //             amountWETH = amountWETHMojo;
-        //         }
-        //         await weth.deposit({ value: etherValue });
-        //         await weth.transfer(ethTokenBridge.target, amountWETH);
-
-        //         const sig = await getSig(
-        //             nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target.toString(), message,
-        //             [signer]
-        //         );
-        //         await portal.receiveMessage(nonce1, sourceChain, chiaSideBurnPuzzle, ethTokenBridge.target, message, sig)
-                
-        //         var expectedFee = expectedFeeMojo;
-        //         if (token.type !== "MilliETH") {
-        //             expectedFee = expectedFeeMojo * 10n ** 15n;
-        //         }
-
-        //         const newBridgeBalance = await weth.balanceOf(ethTokenBridge.target);
-        //         expect(newBridgeBalance).to.equal(expectedFee);
-
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFee);
-        //     });
-
-        //     it("Should allow the owner to withdraw fees", async function () {
-        //         var expectedFee = expectedFeeMojo;
-        //         if (token.type !== "MilliETH") {
-        //             expectedFee = expectedFeeMojo * 10n ** 15n;
-        //         }
-
-        //         await expect(
-        //             ethTokenBridge.withdrawEtherFees([owner.address], [expectedFee])
-        //         ).to.changeEtherBalances(
-        //             [owner, weth], [expectedFee * token.wethToEthRatio, -expectedFee * token.wethToEthRatio]
-        //         )
-
-        //         expect(
-        //             await ethTokenBridge.fees(weth.target)
-        //         ).to.equal(0);
-        //     });
-
-        //     it("Should fail if non-owner tries to withdraw fees", async function () {
-        //         await expect(ethTokenBridge.connect(user).withdrawEtherFees([owner.address], [expectedFeeMojo]))
-        //             .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
-        //     });
-        // });
-
-
-        // describe("bridgeEtherToChia", function () {
-        //     it("Should correctly bridge ETH and deduct fees", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         const ethToSend = ethers.parseEther("1");
-        //         const expectedCATs = ethToSend / token.wethToEthRatio;
-        //         let expectedFeeInCAT = expectedCATs * initialFee / 10000n;
-
-        //         await expect(
-        //             ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee })
-        //         ).to.emit(portal, "MessageSent");
-
-        //         expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(expectedCATs);
-
-        //         const bridgeFeeAmount = await ethTokenBridge.fees(weth.target);
-        //         expect(bridgeFeeAmount).to.equal(expectedFeeInCAT);
-        //     });
-
-        //     it("Should fail if msg.value is too low", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-        //         var ethToSend = messageFee * 2n / 3n;
-                
-        //         await expect(
-        //             ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
-        //         ).to.be.reverted;
-        //     });
-
-        //     it("Should revert if no ETH is sent", async function () {
-        //         const receiver = ethers.encodeBytes32String("receiverOnChia");
-
-        //         await expect(
-        //             ethTokenBridge.connect(user).bridgeEtherToChia(receiver)
-        //         ).to.be.reverted;
-        //     });
-        // });
-
-        // describe("rescueEther", function () {
-        //     const valueToRescue = ethers.parseEther("1");
-        //     beforeEach(async function () {
-        //         await owner.sendTransaction({
-        //             to: ethTokenBridge.target,
-        //             value: valueToRescue
-        //         });
-        //     });
-
-        //     it("Should allow owner to rescue Ether", async function () {
-        //         const contractEthBalance = await ethers.provider.getBalance(ethTokenBridge.target);
-
-        //         const feesBefore = await ethTokenBridge.fees(weth.target);
-        //         expect(feesBefore).to.equal(0);
-
-        //         await expect(ethTokenBridge.rescueEther(contractEthBalance / token.wethToEthRatio)).to.not.be.reverted;
-
-        //         expect(await weth.balanceOf(ethTokenBridge.target)).to.equal(
-        //             contractEthBalance / token.wethToEthRatio
-        //         );
-
-        //         const feesAfter = await ethTokenBridge.fees(weth.target);
-        //         expect(feesAfter).to.equal(contractEthBalance / token.wethToEthRatio);
-        //     });
-
-        //     it("Should revert if non-owner tries to rescue Ether", async function () {
-        //         await expect(ethTokenBridge.connect(user).rescueEther(valueToRescue))
-        //             .to.be.revertedWithCustomError(ethTokenBridge, "OwnableUnauthorizedAccount");
-        //     });
-        // });
+                await expect(
+                    ethTokenBridge.connect(user).bridgeEtherToChia(receiver)
+                ).to.be.reverted;
+            });
+        });
 
         // describe("bridgeToChiaWithPermit", function () {
         //     let deadline: number;
