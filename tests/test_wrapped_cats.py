@@ -18,6 +18,7 @@ from chia.types.blockchain_format.program import INFINITE_COST
 from chia.wallet.cat_wallet.cat_utils import \
     unsigned_spend_bundle_for_spendable_cats
 from chia.wallet.trading.offer import Offer, OFFER_MOD, OFFER_MOD_HASH
+from typing import List
 import pytest
 import json
 
@@ -261,4 +262,34 @@ class TestWrappedCATs:
         while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
             time.sleep(0.1)
 
-        print(":)") # todo
+        # 3. Lock CATs
+        unlocker_puzzle = get_unlocker_puzzle(
+            SOURCE_CHAIN,
+            SOURCE,
+            portal_launcher_id,
+            asset_id
+        )
+        unlocker_puzzle_hash = unlocker_puzzle.get_tree_hash()
+
+        vault_inner_puzzle = get_p2_controller_puzzle_hash_inner_puzzle_hash(
+            unlocker_puzzle_hash
+        )
+        vault_inner_puzzle_hash = vault_inner_puzzle.get_tree_hash()
+
+        vault_addr = encode_puzzle_hash(vault_inner_puzzle_hash, "txch")
+        await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT, inner_address=vault_addr)
+
+        vault_full_puzzle = construct_cat_puzzle(
+            CAT_MOD,
+            asset_id,
+            vault_inner_puzzle,
+            CAT_MOD_HASH
+        )
+        vault_full_puzzle_hash = vault_full_puzzle.get_tree_hash()
+
+        vault_coins: List[CoinRecord] = []
+        while len(vault_coins) == 0:
+            vault_coins = await node.get_coin_records_by_puzzle_hash(vault_full_puzzle_hash, include_spent_coins=False)
+            time.sleep(0.1)
+
+        print(vault_coins)
