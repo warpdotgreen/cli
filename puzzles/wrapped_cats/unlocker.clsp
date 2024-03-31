@@ -63,7 +63,7 @@
     ((locked_coin_parent_info . locked_coin_amount) . remaining_locked_coin_proofs); locked_coin_proofs
     conditions_so_far
   )
-    (if (> locked_coin_parent_info last_parent_info)
+    (if (any (= last_parent_info 0) (> locked_coin_parent_info last_parent_info))
       (add_p2_announcements_for_coin
         (sha256
           (b32 locked_coin_parent_info)
@@ -93,7 +93,7 @@
               total_amount
               receiver
               (- remaining_amount locked_coin_amount)
-              last_parent_info
+              locked_coin_parent_info
               remaining_locked_coin_proofs
               conditions_so_far
           ) 
@@ -102,7 +102,7 @@
         ) ; conditions_so_far
       )
       ; else
-      (x "yak")
+      (x)
     )
   )
 

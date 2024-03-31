@@ -322,11 +322,11 @@ class TestWrappedCATs:
             if multiple_coins:
                 coin3_amount = BRIDGED_ASSET_AMOUNT3 + (BRIDGED_ASSET_CHANGE if with_change else 0)
                 await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT1, inner_address=vault_addr)
-                while not await wallet.get_synced():
-                    time.sleep(0.05)
+                while not await wallet.get_synced() or (await wallet.get_wallet_balance(cat_wallet_id))['spendable_balance'] == 0:
+                    time.sleep(0.1)
                 await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT2, inner_address=vault_addr)
-                while not await wallet.get_synced():
-                    time.sleep(0.05)
+                while not await wallet.get_synced() or (await wallet.get_wallet_balance(cat_wallet_id))['spendable_balance'] == 0:
+                    time.sleep(0.1)
                 await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=coin3_amount, inner_address=vault_addr)
             else:
                 total_amount = BRIDGED_ASSET_AMOUNT + (BRIDGED_ASSET_CHANGE if with_change else 0)
@@ -347,7 +347,7 @@ class TestWrappedCATs:
 
         # don't tell anyone about this
         for i in range(len(vault_coins)):
-            for j in range(len(vault_coins)):
+            for j in range(i + 1, len(vault_coins)):
                 if Program.to(vault_coins[i].coin.parent_coin_info).as_int() > Program.to(vault_coins[j].coin.parent_coin_info).as_int():
                     vault_coins[i], vault_coins[j] = vault_coins[j], vault_coins[i]
 
@@ -462,8 +462,6 @@ class TestWrappedCATs:
             [(vault_coin.coin.parent_coin_info, vault_coin.coin.amount) for vault_coin in vault_coins]
         )
 
-        open("/tmp/p", "w").write(bytes(unlocker_puzzle).hex()) # todo
-        open("/tmp/s", "w").write(bytes(unlocker_coin_solution).hex()) # todo
         unlocker_coin_spend = CoinSpend(
             unlocker_coin,
             unlocker_puzzle,
@@ -496,12 +494,12 @@ class TestWrappedCATs:
                 coin_spends.append(spend)
         else:
             spendable_cats = []
-            for vault_coin in vault_coins:
+            for i, vault_coin in enumerate(vault_coins):
                 inner_solution = get_p2_controller_puzzle_hash_inner_solution(
                     vault_coin.coin.name(),
                     unlocker_coin.parent_coin_info,
                     unlocker_coin.amount,
-                    lead_coin_program if len(spendable_cats) == 0 else Program.to([]),
+                    lead_coin_program if i == len(vault_coins) - 1 else Program.to([]),
                     Program.to([])
                 )
 
@@ -550,7 +548,7 @@ class TestWrappedCATs:
             coin_spends, offer_sb.aggregated_signature
         )
 
-        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4)) # todo
+        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
         await node.push_tx(sb)
 
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
