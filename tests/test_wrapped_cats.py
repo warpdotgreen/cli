@@ -292,4 +292,82 @@ class TestWrappedCATs:
             vault_coins = await node.get_coin_records_by_puzzle_hash(vault_full_puzzle_hash, include_spent_coins=False)
             time.sleep(0.1)
 
-        print(vault_coins)
+        # 4. Send message
+        receiver_puzzle_hash = OFFER_MOD_HASH
+
+        message: Program = Program.to([
+            receiver_puzzle_hash, BRIDGED_ASSET_AMOUNT
+        ])
+        message_hash = message.get_tree_hash()
+
+        message_coin_puzzle = get_message_coin_puzzle(
+            portal_launcher_id,
+            SOURCE_CHAIN,
+            SOURCE,
+            NONCE,
+            unlocker_puzzle_hash,
+            message_hash
+        )
+        message_coin_puzzle_hash = message_coin_puzzle.get_tree_hash()
+
+        portal_inner_solution = Program.to([
+            [ConditionOpcode.CREATE_COIN, one_puzzle_hash, 1], # recreate
+            [ConditionOpcode.CREATE_COIN, message_coin_puzzle_hash, 0], # create message
+        ])
+        portal_solution = solution_for_singleton(
+            lineage_proof_for_coinsol(portal_launcher_spend),
+            1,
+            portal_inner_solution
+        )
+
+        message_coin_creation_spend = CoinSpend(
+            portal,
+            portal_full_puzzle,
+            portal_solution
+        )
+        message_coin_creation_bundle = SpendBundle(
+            [message_coin_creation_spend],
+            AugSchemeMPL.aggregate([])
+        )
+        
+        await node.push_tx(message_coin_creation_bundle)
+
+        message_coin = Coin(
+            portal.name(),
+            message_coin_puzzle_hash,
+            0
+        )
+        await wait_for_coin(node, message_coin)
+        
+        # 5. Create offer, unlock CATs
+        offer_dict = {}
+        offer_dict[1] = -1
+        offer_dict[cat_wallet_id] = BRIDGED_ASSET_AMOUNT
+
+        offer: Offer
+        offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
+
+        # 5.1 Identify source coin
+        offer_sb = offer.to_spend_bundle()
+        coin_spends = []
+        xch_source_coin = None
+
+        for coin_spend in offer_sb.coin_spends:
+            if coin_spend.coin.parent_coin_info == b'\x00' * 32:
+                continue
+
+            coin_spends.append(coin_spend)
+            _, conds = coin_spend.puzzle_reveal.run_with_cost(INFINITE_COST, coin_spend.solution)
+            
+            for cond in conds.as_iter():
+                cond = [_ for _ in cond.as_iter()]
+                if cond[0] == ConditionOpcode.CREATE_COIN and cond[1] == OFFER_MOD_HASH:
+                    xch_source_coin = Coin(
+                        coin_spend.coin.name(),
+                        OFFER_MOD_HASH,
+                        cond[2].as_int()
+                    )
+
+        assert xch_source_coin is not None
+
+        # 5.2 todo
