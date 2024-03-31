@@ -548,7 +548,6 @@ class TestWrappedCATs:
             coin_spends, offer_sb.aggregated_signature
         )
 
-        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
         await node.push_tx(sb)
 
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
