@@ -33,7 +33,7 @@
 
   (append_announcement_conditions
     (sha256
-      (if (= (strlen controller_parent_info)) controller_parent_info (x))
+      (if (= (strlen controller_parent_info) 32) controller_parent_info (x))
       CONTROLLER_PUZZLE_HASH
       controller_anount
     ) ; controller puzzle hash

@@ -74,7 +74,7 @@
           (x)
           ; else
           (sha256tree
-            (list 1 (list 
+            (c 1 (list 
               (list CREATE_COIN receiver total_amount (list receiver))
               (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))
             ))

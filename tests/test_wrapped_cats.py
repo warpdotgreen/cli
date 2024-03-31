@@ -412,6 +412,46 @@ class TestWrappedCATs:
         coin_spends.append(unlocker_coin_spend)
 
         # 5.4 Spend the vault coins
+        total_amount = sum([vault_coin.coin.amount for vault_coin in vault_coins])
+        lead_coin_program = Program.to((1, [
+            [ConditionOpcode.CREATE_COIN, receiver_puzzle_hash, BRIDGED_ASSET_AMOUNT, [receiver_puzzle_hash]],
+            [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
+        ]))
+
+        spendable_cats = []
+        for vault_coin in vault_coins:
+            inner_solution = get_p2_controller_puzzle_hash_inner_solution(
+                vault_coin.coin.name(),
+                unlocker_coin.parent_coin_info,
+                vault_coin.coin.amount,
+                lead_coin_program if len(spendable_cats) == 0 else Program.to([]),
+                Program.to([])
+            )
+
+            spend: CoinSpend = await node.get_puzzle_and_solution(
+                vault_coin.coin.parent_coin_info,
+                vault_coin.confirmed_block_index
+            )
+            mod, args = spend.puzzle_reveal.uncurry()
+            parent_inner_puzzle = args.at("rrf")
+            parent_inner_puzzle_hash = parent_inner_puzzle.get_tree_hash()
+
+            spendable_cats.append(
+                SpendableCAT(
+                    vault_coin.coin,
+                    asset_id,
+                    vault_inner_puzzle,
+                    inner_solution,
+                    lineage_proof=LineageProof(
+                        parent_name=spend.coin.parent_coin_info,
+                        inner_puzzle_hash=parent_inner_puzzle_hash,
+                        amount=spend.coin.amount
+                    )
+                )
+            )
+        
+        cat_coin_spends = unsigned_spend_bundle_for_spendable_cats(CAT_MOD, spendable_cats).coin_spends
+        coin_spends += cat_coin_spends
 
         # 5.5 Spend the message coin
 
