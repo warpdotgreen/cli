@@ -7,6 +7,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
 from chia.types.coin_spend import CoinSpend
+from chia.util.bech32m import decode_puzzle_hash
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.cat_wallet.cat_utils import construct_cat_puzzle
 from chia.wallet.cat_wallet.cat_utils import CAT_MOD
@@ -293,10 +294,14 @@ class TestWrappedCATs:
             time.sleep(0.1)
 
         # 4. Send message
-        receiver_puzzle_hash = OFFER_MOD_HASH
+        receiver_puzzle_hash = decode_puzzle_hash(
+            await wallet.get_next_address(1, False)
+        )
 
+        bridged_asset_amount_b32 = bytes.fromhex(hex(BRIDGED_ASSET_AMOUNT)[2:])
+        bridged_asset_amount_b32 = (32 - len(bridged_asset_amount_b32)) * b'\x00' + bridged_asset_amount_b32
         message: Program = Program.to([
-            receiver_puzzle_hash, BRIDGED_ASSET_AMOUNT
+            receiver_puzzle_hash, bridged_asset_amount_b32
         ])
         message_hash = message.get_tree_hash()
 
@@ -338,11 +343,10 @@ class TestWrappedCATs:
             0
         )
         await wait_for_coin(node, message_coin)
-        
+
         # 5. Create offer, unlock CATs
         offer_dict = {}
         offer_dict[1] = -1
-        offer_dict[cat_wallet_id] = BRIDGED_ASSET_AMOUNT
 
         offer: Offer
         offer, _ = await wallet.create_offer_for_ids(offer_dict, get_tx_config(1), fee=100)
@@ -370,4 +374,50 @@ class TestWrappedCATs:
 
         assert xch_source_coin is not None
 
-        # 5.2 todo
+        # 5.2 Spend XCH source coin to create unlocker coin
+        # Note: this is a test, so no intermediary security coin is needed
+        xch_source_coin_solution = Program.to([
+            [xch_source_coin.name(), [unlocker_puzzle_hash, 1]]
+        ])
+
+        xch_source_coin_spend = CoinSpend(
+            xch_source_coin,
+            OFFER_MOD,
+            xch_source_coin_solution
+        )
+        coin_spends.append(xch_source_coin_spend)
+
+        # 5.3 Spend the unlocker coin
+        unlocker_coin = Coin(
+            xch_source_coin.name(),
+            unlocker_puzzle_hash,
+            1
+        )
+
+        unlocker_coin_solution = get_unlocker_solution(
+            message_coin.parent_coin_info,
+            NONCE,
+            receiver_puzzle_hash,
+            bridged_asset_amount_b32,
+            unlocker_puzzle_hash,
+            unlocker_coin.name(),
+            [(vault_coin.coin.parent_coin_info, vault_coin.coin.amount) for vault_coin in vault_coins]
+        )
+
+        unlocker_coin_spend = CoinSpend(
+            unlocker_coin,
+            unlocker_puzzle,
+            unlocker_coin_solution
+        )
+        coin_spends.append(unlocker_coin_spend)
+
+        # 5.4 Spend the vault coins
+
+        # 5.5 Spend the message coin
+
+        # 5.6 Finally, send spend bundle
+
+        sb = SpendBundle(
+            coin_spends, offer_sb.aggregated_signature
+        )
+        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4))
