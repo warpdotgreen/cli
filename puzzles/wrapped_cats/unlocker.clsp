@@ -43,7 +43,19 @@
       (list ASSERT_COIN_ANNOUNCEMENT (sha256 coin_id (sha256 my_id delegated_puzzle_hash)))
       (c
         (list CREATE_COIN_ANNOUNCEMENT (sha256 coin_id delegated_puzzle_hash))
-        conditions_so_far
+        ; conditions_so_far
+        ; todo: debug --------------------------------------------------------
+        (c
+          (list REMARK "coin_id" coin_id)
+          (c
+            (list REMARK "my_id" my_id)
+            (c
+              (list REMARK "delegated_puzzle_hash" delegated_puzzle_hash)
+              conditions_so_far
+            )
+          )
+        )
+        ; --------------------------------------------------------------------
       )
     )
   )
@@ -74,10 +86,10 @@
           (x)
           ; else
           (sha256tree
-            (c 1 (list 
+            (list 1 
               (list CREATE_COIN receiver total_amount (list receiver))
               (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))
-            ))
+            )
           )
         )
         ; else

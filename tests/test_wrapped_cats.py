@@ -423,7 +423,7 @@ class TestWrappedCATs:
             inner_solution = get_p2_controller_puzzle_hash_inner_solution(
                 vault_coin.coin.name(),
                 unlocker_coin.parent_coin_info,
-                vault_coin.coin.amount,
+                unlocker_coin.amount,
                 lead_coin_program if len(spendable_cats) == 0 else Program.to([]),
                 Program.to([])
             )

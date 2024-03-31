@@ -6,7 +6,7 @@
   CONTROLLER_PUZZLE_HASH
   my_id
   controller_parent_info
-  controller_anount
+  controller_amount
   delegated_puzzle
   delegated_solution
 )
@@ -25,7 +25,19 @@
         (list CREATE_COIN_ANNOUNCEMENT (sha256 controller_coin_id delegated_puzzle_hash))
         (c 
           (list ASSERT_COIN_ANNOUNCEMENT (sha256 controller_coin_id (sha256 my_id delegated_puzzle_hash)))
-          conditions_so_far
+          ; conditions_so_far 
+          ; todo: debug---------------
+          (c
+            (list REMARK "controller_coin_id" controller_coin_id)
+            (c
+              (list REMARK "my_id" my_id)
+              (c
+                (list REMARK "delegated_puzzle_hash" delegated_puzzle_hash)
+                conditions_so_far
+              )
+            )
+          )
+          ; ----------------------------
         )
       )
     )
@@ -35,7 +47,7 @@
     (sha256
       (if (= (strlen controller_parent_info) 32) controller_parent_info (x))
       CONTROLLER_PUZZLE_HASH
-      controller_anount
+      controller_amount
     ) ; controller puzzle hash
     my_id
     (sha256tree delegated_puzzle) ; delegated puzzle hash
