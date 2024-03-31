@@ -227,7 +227,8 @@ class TestWrappedCATs:
 
 
     @pytest.mark.asyncio
-    async def test_wrapped_cats_unlocker(self, setup):
+    @pytest.mark.parametrize("with_xch", [True, False])
+    async def test_wrapped_cats_unlocker(self, setup, with_xch):
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
@@ -267,17 +268,21 @@ class TestWrappedCATs:
         await node.push_tx(portal_creation_bundle)
         await wait_for_coin(node, portal)
 
-        # 2. Launch mock CATs
-        resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
-        assert resp["success"]
+        # 2. Launch mock CAT (if needed)
+        asset_id = None
+        cat_wallet_id = 1
 
-        asset_id = bytes.fromhex(resp["asset_id"])
-        cat_wallet_id = resp["wallet_id"]
+        if not with_xch:
+            resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
+            assert resp["success"]
 
-        while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
-            time.sleep(0.1)
+            asset_id = bytes.fromhex(resp["asset_id"])
+            cat_wallet_id = resp["wallet_id"]
 
-        # 3. Lock CATs
+            while (await wallet.get_wallet_balance(cat_wallet_id))["confirmed_wallet_balance"] == 0:
+                time.sleep(0.1)
+
+        # 3. Lock CATs/XCH
         unlocker_puzzle = get_unlocker_puzzle(
             SOURCE_CHAIN,
             SOURCE,
@@ -292,9 +297,12 @@ class TestWrappedCATs:
         vault_inner_puzzle_hash = vault_inner_puzzle.get_tree_hash()
 
         vault_addr = encode_puzzle_hash(vault_inner_puzzle_hash, "txch")
-        await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT, inner_address=vault_addr)
+        if with_xch:
+            await wallet.send_transaction(1, BRIDGED_ASSET_AMOUNT, vault_addr, get_tx_config(1))
+        else:
+            await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT, inner_address=vault_addr)
 
-        vault_full_puzzle = construct_cat_puzzle(
+        vault_full_puzzle = vault_inner_puzzle if with_xch else construct_cat_puzzle(
             CAT_MOD,
             asset_id,
             vault_inner_puzzle,
@@ -432,40 +440,57 @@ class TestWrappedCATs:
             [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
         ]))
 
-        spendable_cats = []
-        for vault_coin in vault_coins:
-            inner_solution = get_p2_controller_puzzle_hash_inner_solution(
-                vault_coin.coin.name(),
-                unlocker_coin.parent_coin_info,
-                unlocker_coin.amount,
-                lead_coin_program if len(spendable_cats) == 0 else Program.to([]),
-                Program.to([])
-            )
+        if with_xch:
+            for i, vault_coin in enumerate(vault_coins):
+                solution = get_p2_controller_puzzle_hash_inner_solution(
+                    vault_coin.coin.name(),
+                    unlocker_coin.parent_coin_info,
+                    unlocker_coin.amount,
+                    lead_coin_program if i == 0 else Program.to([]),
+                    Program.to([])
+                )
 
-            spend: CoinSpend = await node.get_puzzle_and_solution(
-                vault_coin.coin.parent_coin_info,
-                vault_coin.confirmed_block_index
-            )
-            mod, args = spend.puzzle_reveal.uncurry()
-            parent_inner_puzzle = args.at("rrf")
-            parent_inner_puzzle_hash = parent_inner_puzzle.get_tree_hash()
-
-            spendable_cats.append(
-                SpendableCAT(
+                spend = CoinSpend(
                     vault_coin.coin,
-                    asset_id,
-                    vault_inner_puzzle,
-                    inner_solution,
-                    lineage_proof=LineageProof(
-                        parent_name=spend.coin.parent_coin_info,
-                        inner_puzzle_hash=parent_inner_puzzle_hash,
-                        amount=spend.coin.amount
+                    vault_full_puzzle,
+                    solution
+                )
+                coin_spends.append(spend)
+        else:
+            spendable_cats = []
+            for vault_coin in vault_coins:
+                inner_solution = get_p2_controller_puzzle_hash_inner_solution(
+                    vault_coin.coin.name(),
+                    unlocker_coin.parent_coin_info,
+                    unlocker_coin.amount,
+                    lead_coin_program if len(spendable_cats) == 0 else Program.to([]),
+                    Program.to([])
+                )
+
+                spend: CoinSpend = await node.get_puzzle_and_solution(
+                    vault_coin.coin.parent_coin_info,
+                    vault_coin.confirmed_block_index
+                )
+                mod, args = spend.puzzle_reveal.uncurry()
+                parent_inner_puzzle = args.at("rrf")
+                parent_inner_puzzle_hash = parent_inner_puzzle.get_tree_hash()
+
+                spendable_cats.append(
+                    SpendableCAT(
+                        vault_coin.coin,
+                        asset_id,
+                        vault_inner_puzzle,
+                        inner_solution,
+                        lineage_proof=LineageProof(
+                            parent_name=spend.coin.parent_coin_info,
+                            inner_puzzle_hash=parent_inner_puzzle_hash,
+                            amount=spend.coin.amount
+                        )
                     )
                 )
-            )
-        
-        cat_coin_spends = unsigned_spend_bundle_for_spendable_cats(CAT_MOD, spendable_cats).coin_spends
-        coin_spends += cat_coin_spends
+            
+            cat_coin_spends = unsigned_spend_bundle_for_spendable_cats(CAT_MOD, spendable_cats).coin_spends
+            coin_spends += cat_coin_spends
 
         # 5.5 Spend the message coin
         message_coin_solution = get_message_coin_solution(
@@ -486,10 +511,19 @@ class TestWrappedCATs:
         sb = SpendBundle(
             coin_spends, offer_sb.aggregated_signature
         )
+
         await node.push_tx(sb)
 
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
 
         # 6. Check receiver balance
-        while (await wallet.get_wallet_balance(cat_wallet_id))['spendable_balance'] != BRIDGED_ASSET_AMOUNT:
-            time.sleep(0.1)
+        if with_xch:
+           xch_coin = Coin(
+                vault_coins[0].coin.name(),
+                receiver_puzzle_hash,
+                BRIDGED_ASSET_AMOUNT
+           )
+           await wait_for_coin(node, xch_coin)
+        else:
+            while (await wallet.get_wallet_balance(cat_wallet_id))['spendable_balance'] != BRIDGED_ASSET_AMOUNT:
+                time.sleep(0.1)
