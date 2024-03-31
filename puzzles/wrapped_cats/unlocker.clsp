@@ -146,6 +146,21 @@
       (list
         (list ASSERT_MY_COIN_ID my_id)
         (list ASSERT_MY_PUZZLEHASH my_puzzle_hash)
+        ; todo: debug --------------------------------------------------
+        (list REMARK "yak")
+        (list REMARK "msg coin puzzle hash" (curry_hashes MESSAGE_COIN_FIRST_CURRY_HASH
+              (sha256 2
+                (sha256 1 MESSAGE_SOURCE_CHAIN)
+                message_nonce_hash
+              ) ; sha256tree of (SOURCE_CHAIN . NONCE)
+              MESSAGE_SOURCE_HASH
+              (sha256 1 my_puzzle_hash) ; destination
+              (sha256 1
+                (sha256tree (list receiver asset_amount_b32))
+              ) ; message hash
+            ))
+        (list REMARK "yak")
+        ; --------------------------------------------------------------
       ) ; conditions_so_far
     ) ; conditions_so_far
   )

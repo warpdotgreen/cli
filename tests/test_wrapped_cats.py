@@ -27,7 +27,7 @@ from tests.utils import *
 from drivers.wrapped_cats import *
 from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
 
-NONCE = 1337
+NONCE = b'\x31\x33\x33\x37'
 SOURCE_CHAIN = b'eth'
 SOURCE = to_eth_address("just_a_constract")
 BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
@@ -396,7 +396,7 @@ class TestWrappedCATs:
 
         unlocker_coin_solution = get_unlocker_solution(
             message_coin.parent_coin_info,
-            NONCE,
+            raw_hash([b'\x01', NONCE]),
             receiver_puzzle_hash,
             bridged_asset_amount_b32,
             unlocker_puzzle_hash,
@@ -454,6 +454,19 @@ class TestWrappedCATs:
         coin_spends += cat_coin_spends
 
         # 5.5 Spend the message coin
+        message_coin_solution = get_message_coin_solution(
+            unlocker_coin,
+            portal.parent_coin_info,
+            one_puzzle_hash,
+            message_coin.name()
+        )
+
+        message_coin_spend = CoinSpend(
+            message_coin,
+            message_coin_puzzle,
+            message_coin_solution
+        )
+        coin_spends.append(message_coin_spend)
 
         # 5.6 Finally, send spend bundle
 
