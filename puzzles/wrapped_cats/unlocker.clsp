@@ -59,48 +59,50 @@
     total_amount
     receiver
     remaining_amount
+    last_parent_info
     ((locked_coin_parent_info . locked_coin_amount) . remaining_locked_coin_proofs); locked_coin_proofs
     conditions_so_far
   )
-    (add_p2_announcements_for_coin
-      (sha256
-        (b32 locked_coin_parent_info)
-        vault_full_puzzle_hash
-        locked_coin_amount
-      ) ; coin_id
-      my_id
-      (if (= remaining_locked_coin_proofs ())
-        (if (> remaining_amount locked_coin_amount)
-          (x)
+    (if (> locked_coin_parent_info last_parent_info)
+      (add_p2_announcements_for_coin
+        (sha256
+          (b32 locked_coin_parent_info)
+          vault_full_puzzle_hash
+          locked_coin_amount
+        ) ; coin_id
+        my_id
+        (if remaining_locked_coin_proofs
+          (sha256 1 ())
           ; else
-          (sha256tree
-            (list 1 
-              (list CREATE_COIN receiver total_amount (list receiver))
-              (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))
+          (if (> remaining_amount locked_coin_amount)
+            (x)
+            ; else
+            (sha256tree
+              (list 1 
+                (list CREATE_COIN receiver total_amount (list receiver))
+                (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))
+              )
             )
           )
-        )
-        ; else
-        (if (> locked_coin_amount remaining_amount) (sha256tree ()) 0)
-      ) ; delegated puzzle hash
-      (if (= remaining_locked_coin_proofs ())
-        (if (= remaining_amount locked_coin_amount)
-          conditions_so_far
+        ) ; delegated puzzle hash
+        (if remaining_locked_coin_proofs
+          (add_p2_announcements
+              vault_full_puzzle_hash
+              vault_inner_puzzle_hash
+              my_id
+              total_amount
+              receiver
+              (- remaining_amount locked_coin_amount)
+              last_parent_info
+              remaining_locked_coin_proofs
+              conditions_so_far
+          ) 
           ; else
-          (x)
-        )
-        ; else
-        (add_p2_announcements
-          vault_full_puzzle_hash
-          vault_inner_puzzle_hash
-          my_id
-          total_amount
-          receiver
-          (- remaining_amount locked_coin_amount)
-          remaining_locked_coin_proofs
           conditions_so_far
-        ) 
-      ) ; conditions_so_far
+        ) ; conditions_so_far
+      )
+      ; else
+      (x "yak")
     )
   )
 
@@ -142,6 +144,7 @@
       (* 1 asset_amount_b32) ; total_amount
       receiver
       (* 1 asset_amount_b32) ; remaining_amount
+      0 ; last_parent_info
       locked_coin_proofs
       (list
         (list ASSERT_MY_COIN_ID my_id)

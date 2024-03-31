@@ -25,7 +25,18 @@
         (list CREATE_COIN_ANNOUNCEMENT (sha256 controller_coin_id delegated_puzzle_hash))
         (c 
           (list ASSERT_COIN_ANNOUNCEMENT (sha256 controller_coin_id (sha256 my_id delegated_puzzle_hash)))
-          conditions_so_far 
+          ; conditions_so_far
+          ; todo: debug ------------------
+          (c
+            (list REMARK delegated_puzzle_hash)
+            (c
+              (list REMARK controller_coin_id)
+              (c 
+                (list REMARK my_id)
+                conditions_so_far
+              )
+            )
+          )
         )
       )
     )

@@ -35,7 +35,11 @@ SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
 BRIDGING_FEE = 10 ** 9
-BRIDGED_ASSET_AMOUNT = 1337000
+BRIDGED_ASSET_AMOUNT1 = 1337000
+BRIDGED_ASSET_AMOUNT2 = 420000
+BRIDGED_ASSET_AMOUNT3 = 690000
+BRIDGED_ASSET_AMOUNT = BRIDGED_ASSET_AMOUNT1 + BRIDGED_ASSET_AMOUNT2 + BRIDGED_ASSET_AMOUNT3
+BRIDGED_ASSET_CHANGE = 10000
 
 class TestWrappedCATs:
     @pytest.mark.asyncio
@@ -228,7 +232,10 @@ class TestWrappedCATs:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("with_xch", [True, False])
-    async def test_wrapped_cats_unlocker(self, setup, with_xch):
+    @pytest.mark.parametrize("with_change", [True, False])
+    @pytest.mark.parametrize("multiple_coins", [True, False])
+    async def test_wrapped_cats_unlocker(self, setup, with_xch, with_change, multiple_coins):
+        print(with_xch, with_change, multiple_coins)
         node: FullNodeRpcClient
         wallets: List[WalletRpcClient]
         node, wallets = setup
@@ -273,7 +280,8 @@ class TestWrappedCATs:
         cat_wallet_id = 1
 
         if not with_xch:
-            resp = await wallet.create_new_cat_and_wallet(BRIDGED_ASSET_AMOUNT, test=True)
+            total_amount = BRIDGED_ASSET_AMOUNT + (BRIDGED_ASSET_CHANGE if with_change else 0)
+            resp = await wallet.create_new_cat_and_wallet(total_amount, test=True)
             assert resp["success"]
 
             asset_id = bytes.fromhex(resp["asset_id"])
@@ -298,9 +306,31 @@ class TestWrappedCATs:
 
         vault_addr = encode_puzzle_hash(vault_inner_puzzle_hash, "txch")
         if with_xch:
-            await wallet.send_transaction(1, BRIDGED_ASSET_AMOUNT, vault_addr, get_tx_config(1))
+            if multiple_coins:
+                coin3_amount = BRIDGED_ASSET_AMOUNT3 + (BRIDGED_ASSET_CHANGE if with_change else 0)
+                await wallet.send_transaction(1, BRIDGED_ASSET_AMOUNT1, vault_addr, get_tx_config(1))
+                while not await wallet.get_synced():
+                    time.sleep(0.05)
+                await wallet.send_transaction(1, BRIDGED_ASSET_AMOUNT2, vault_addr, get_tx_config(1))
+                while not await wallet.get_synced():
+                    time.sleep(0.05)
+                await wallet.send_transaction(1, coin3_amount, vault_addr, get_tx_config(1))
+            else:
+                total_amount = BRIDGED_ASSET_AMOUNT + (BRIDGED_ASSET_CHANGE if with_change else 0)
+                await wallet.send_transaction(1, total_amount, vault_addr, get_tx_config(1))
         else:
-            await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT, inner_address=vault_addr)
+            if multiple_coins:
+                coin3_amount = BRIDGED_ASSET_AMOUNT3 + (BRIDGED_ASSET_CHANGE if with_change else 0)
+                await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT1, inner_address=vault_addr)
+                while not await wallet.get_synced():
+                    time.sleep(0.05)
+                await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT2, inner_address=vault_addr)
+                while not await wallet.get_synced():
+                    time.sleep(0.05)
+                await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=coin3_amount, inner_address=vault_addr)
+            else:
+                total_amount = BRIDGED_ASSET_AMOUNT + (BRIDGED_ASSET_CHANGE if with_change else 0)
+                await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=total_amount, inner_address=vault_addr)
 
         vault_full_puzzle = vault_inner_puzzle if with_xch else construct_cat_puzzle(
             CAT_MOD,
@@ -311,9 +341,15 @@ class TestWrappedCATs:
         vault_full_puzzle_hash = vault_full_puzzle.get_tree_hash()
 
         vault_coins: List[CoinRecord] = []
-        while len(vault_coins) == 0:
+        while len(vault_coins) != (3 if multiple_coins else 1):
             vault_coins = await node.get_coin_records_by_puzzle_hash(vault_full_puzzle_hash, include_spent_coins=False)
             time.sleep(0.1)
+
+        # don't tell anyone about this
+        for i in range(len(vault_coins)):
+            for j in range(len(vault_coins)):
+                if Program.to(vault_coins[i].coin.parent_coin_info).as_int() > Program.to(vault_coins[j].coin.parent_coin_info).as_int():
+                    vault_coins[i], vault_coins[j] = vault_coins[j], vault_coins[i]
 
         # 4. Send message
         receiver_puzzle_hash = decode_puzzle_hash(
@@ -426,6 +462,8 @@ class TestWrappedCATs:
             [(vault_coin.coin.parent_coin_info, vault_coin.coin.amount) for vault_coin in vault_coins]
         )
 
+        open("/tmp/p", "w").write(bytes(unlocker_puzzle).hex()) # todo
+        open("/tmp/s", "w").write(bytes(unlocker_coin_solution).hex()) # todo
         unlocker_coin_spend = CoinSpend(
             unlocker_coin,
             unlocker_puzzle,
@@ -446,7 +484,7 @@ class TestWrappedCATs:
                     vault_coin.coin.name(),
                     unlocker_coin.parent_coin_info,
                     unlocker_coin.amount,
-                    lead_coin_program if i == 0 else Program.to([]),
+                    lead_coin_program if i == len(vault_coins) - 1 else Program.to([]),
                     Program.to([])
                 )
 
@@ -512,6 +550,7 @@ class TestWrappedCATs:
             coin_spends, offer_sb.aggregated_signature
         )
 
+        open("/tmp/sb.json", "w").write(json.dumps(sb.to_json_dict(), indent=4)) # todo
         await node.push_tx(sb)
 
         await wait_for_coin(node, message_coin, also_wait_for_spent=True)
@@ -519,7 +558,7 @@ class TestWrappedCATs:
         # 6. Check receiver balance
         if with_xch:
            xch_coin = Coin(
-                vault_coins[0].coin.name(),
+                vault_coins[-1].coin.name(),
                 receiver_puzzle_hash,
                 BRIDGED_ASSET_AMOUNT
            )
