@@ -16,7 +16,7 @@ describe("MilliETH", function () {
     describe("Deployment", function () {
         it("Should have correct name, symbol, and number of decimals", async function () {
             expect(await milliETH.name()).to.equal("milliETH");
-            expect(await milliETH.symbol()).to.equal("mETH");
+            expect(await milliETH.symbol()).to.equal("milliETH");
             expect(await milliETH.decimals()).to.equal(3);
         });
     });
