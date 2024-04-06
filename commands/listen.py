@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 @click.command()
 def listen():
     eth_follower = EthereumFollower("eth", False)
-    # bse_follower = EthereumFollower("bse", True)
+    bse_follower = EthereumFollower("bse", True)
     xch_follower = ChiaFollower("xch")
 
     loop = asyncio.get_event_loop()

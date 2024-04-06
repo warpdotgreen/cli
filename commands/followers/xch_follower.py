@@ -269,6 +269,14 @@ class ChiaFollower:
                 Message.source_chain == source_chain,
                 Message.nonce == nonce
             )).first()
+            while msg is None:
+                logging.info(f"Message {source_chain.decode()}-{nonce.hex()} not found in db; waiting 10s for other threads to catch up")
+                await asyncio.sleep(10)
+                msg = db.query(Message).filter(and_(
+                    Message.source_chain == source_chain,
+                    Message.nonce == nonce
+                )).first()
+                
             msg.sig = SIG_USED_VALUE
 
         chains_and_nonces = bytes(Program.to(prev_used_chains_and_nonces))
