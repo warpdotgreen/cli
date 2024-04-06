@@ -197,14 +197,14 @@ class ChiaFollower:
                     Message.sig != SIG_USED_VALUE,
                 )).all()
             except Exception as e:
-                logging.error(f"Error querying messages: {e}", exec_info=True)
+                logging.error(f"Error querying messages: {e}", exc_info=True)
 
             for message in messages:
                 try:
                     await self.signMessage(db, message)
                     db.commit()
                 except Exception as e:
-                    logging.error(f"Error signing message {message.nonce.hex()}: {e}", exec_info=True)
+                    logging.error(f"Error signing message {message.nonce.hex()}: {e}", exc_info=True)
 
             await asyncio.sleep(5)
 

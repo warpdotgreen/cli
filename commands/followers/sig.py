@@ -1,7 +1,7 @@
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from typing import Tuple, List
 from commands.config import get_config_item
-from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter
+from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter, SingleLetterTag, Alphabet
 from datetime import timedelta
 import logging
 import time
@@ -70,7 +70,14 @@ def send_signature(
         client.add_relays(relays)
         client.connect()
 
-        filter = Filter().author(signer.public_key()).custom_tag("r", route_data).custom_tag("c", coin_data)
+        filter = Filter().author(
+            signer.public_key()
+        ).custom_tag(
+            SingleLetterTag.lowercase(Alphabet.R), [route_data]
+        ).custom_tag(
+            SingleLetterTag.lowercase(Alphabet.C), [coin_data]
+        )
+        
         events = client.get_events_of([filter], timedelta(seconds=10))
         if len(events) > 0:
             logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
@@ -88,8 +95,8 @@ def send_signature(
     except:
         if retries < 3:
             retries += 1
-            logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exec_info=True)
+            logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exc_info=True)
             time.sleep(3)
             send_signature(sig, retries)
         else:
-            logging.error(f"Nostr: failed to send signature to relays: {sig}", exec_info=True)
+            logging.error(f"Nostr: failed to send signature to relays: {sig}", exc_info=True)
