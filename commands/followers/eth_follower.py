@@ -163,7 +163,7 @@ class EthereumFollower:
             # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
             input_offset = 28
             event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
-            logging.info("{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number})")
+            logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number})")
             
             if self.l1_block_contract is None:
               self.l1_block_contract = web3.eth.contract(
@@ -175,6 +175,7 @@ class EthereumFollower:
             while event_l1_block_number + self.sign_min_height > l1_block_number:
                 await asyncio.sleep(10)
                 l1_block_number = self.l1_block_contract.functions.number().call()
+                logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
 
          next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
          if next_message_event_copy is None:
