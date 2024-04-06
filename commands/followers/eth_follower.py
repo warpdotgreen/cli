@@ -17,6 +17,8 @@ class EthereumFollower:
     is_optimism: bool
     max_query_block_limit: int = 1000
     last_safe_height: int = 0
+    l1_block_contract_address: str
+    l1_block_contract: any = None
     
     def __init__(self, chain: str, is_optimism: bool):
         self.chain = chain
@@ -24,6 +26,8 @@ class EthereumFollower:
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
         self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
         self.is_optimism = is_optimism
+        if self.is_optimism:
+          self.l1_block_contract_address = get_config_item([self.chain, 'l1_block_contract_address'])
 
 
     def getDb(self):
@@ -71,7 +75,7 @@ class EthereumFollower:
             query_end_height = current_block_height
             time_to_stop = True
 
-        logging.info(f"Querying for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height}")
+        # logging.info(f"Querying for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height}")
 
         logs = contract.events.MessageSent().get_logs(
             fromBlock=query_start_height,
@@ -133,7 +137,6 @@ class EthereumFollower:
             eth_block_number = web3.eth.block_number
 
             while event_block_number + self.sign_min_height > eth_block_number:
-                logging.info("confirming eth msg") # todo: debug
                 await asyncio.sleep(5)
                 eth_block_number = web3.eth.block_number
          else:
@@ -143,8 +146,35 @@ class EthereumFollower:
             # to relay L1 block numbers accurately
             # self.sign_min_height is then the min. number of confirmations in L1 blocks
             # you can find the address for the contract at https://docs.base.org/docs/base-contracts
-            logging.error("You forgot to implement this; so just sleeping for a while...")
-            await asyncio.sleep(30)
+            block = web3.eth.get_block(event_block_number, full_transactions=True)
+            relevant_tx = None
+            for tx in block.transactions:
+                if tx.to and tx.to == self.l1_block_contract_address:
+                    relevant_tx = tx
+                    break
+            
+            if relevant_tx is None:
+                logging.error(f"{self.chain_id.decode()} message listener: could not find L1Block update tx for block {event_block_number}; sleeping 30s and retrying...")
+                await asyncio.sleep(30)
+                continue
+            
+            
+            raw_input = bytes(relevant_tx.input)
+            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
+            input_offset = 28
+            event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
+            logging.info("{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number})")
+            
+            if self.l1_block_contract is None:
+              self.l1_block_contract = web3.eth.contract(
+                address=Web3.to_checksum_address(self.l1_block_contract_address),
+                abi=open("l1_block_abi.json", "r").read()
+              )
+
+            l1_block_number = self.l1_block_contract.functions.number().call()
+            while event_l1_block_number + self.sign_min_height > l1_block_number:
+                await asyncio.sleep(10)
+                l1_block_number = self.l1_block_contract.functions.number().call()
 
          next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
          if next_message_event_copy is None:

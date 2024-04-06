@@ -21,7 +21,7 @@ def listen():
     loop = asyncio.get_event_loop()
     xch_follower.run(loop)
     eth_follower.run(loop)
-    # bse_follower.run(loop)
+    bse_follower.run(loop)
     loop.run_forever()
     
     while True:
