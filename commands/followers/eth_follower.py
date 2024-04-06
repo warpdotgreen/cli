@@ -52,13 +52,23 @@ class EthereumFollower:
       )
 
     
-    def getEventByIntNonce(self, contract, nonce: int, start_height: int):
-      one_event_filter = contract.events.MessageSent.create_filter(
-          fromBlock=start_height,
-          toBlock='latest',
-          argument_filters={'nonce': "0x" + self.nonceIntToBytes(nonce)}
-      )
-      entries = one_event_filter.get_all_entries()
+    def getEventByIntNonce(self, web3, contract, nonce: int, start_height: int):
+      # helios does not support filters yet :(
+      # one_event_filter = contract.events.MessageSent.create_filter(
+      #     fromBlock=start_height,
+      #     toBlock='latest',
+      #     argument_filters={'nonce': "0x" + self.nonceIntToBytes(nonce)}
+      # )
+      # entries = one_event_filter.get_all_entries()
+
+      nonce_hex = "0x" + self.nonceIntToBytes(nonce)
+      logs = web3.eth.get_logs({
+          'fromBlock': start_height,
+          'toBlock': 'latest',
+          'address': contract.address,
+          'topics': [web3.keccak(text="MessageSent(uint256,bytes)").hex(), None, nonce_hex]
+      })
+      entries = [contract.events.MessageSent().processLog(log) for log in logs]
 
       if len(entries) == 0:
           return None
@@ -85,19 +95,22 @@ class EthereumFollower:
       contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
 
       while True:
-         next_message_event = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+         next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
          if next_message_event is None:
             logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
             
-            event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
-            new_message_found = False
-            while not new_message_found:
-              for _ in event_filter.get_new_entries():
-                  new_message_found = True
+            # event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
+            # new_message_found = False
+            # while not new_message_found:
+            #   for _ in event_filter.get_new_entries():
+            #       new_message_found = True
               
-              if not new_message_found:
-                await asyncio.sleep(30)
+            #   if not new_message_found:
+            #     await asyncio.sleep(30)
+            while next_message_event is None:
+               await asyncio.sleep(30)
+               next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
             continue
 
@@ -120,7 +133,7 @@ class EthereumFollower:
             logging.error("You forgot to implement this; so just sleeping for a while...")
             await asyncio.sleep(30)
 
-         next_message_event_copy = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+         next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
          if next_message_event_copy is None:
             logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
             last_synced_height -= 1000
