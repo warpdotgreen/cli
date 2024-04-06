@@ -59,7 +59,8 @@ def predict_create2_address(sender, salt, init_code):
 
 @deployment.command()
 @click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
-def get_eth_deployment_data(weth_address):
+@click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
+def get_eth_deployment_data(weth_address: str, tip: int):
     deploy_meth = weth_address == "meth" 
 
     if deploy_meth:
@@ -134,10 +135,11 @@ def get_eth_deployment_data(weth_address):
         abi=eth_token_bridge_artifact['abi'],
         bytecode=eth_token_bridge_artifact['bytecode']
     ).constructor(
+        tip,
         Web3.to_bytes(hexstr=portal_address),
-        Web3.to_bytes(hexstr=deployer_safe_address),
         Web3.to_bytes(hexstr=weth_address),
-        10 ** 12 if deploy_meth else 1
+        10 ** 12 if deploy_meth else 1,
+        Web3.to_bytes(hexstr="0x" + b"xch".hex())
     ).build_transaction({
         'gas': 5000000000
     })['data']
@@ -322,8 +324,8 @@ async def launch_xch_portal(offer):
     )
 
 @deployment.command()
-@click.option('--for-chain', default="eth", help='Source/destination blockchain config entry')
-def get_xch_info(for_chain: str):
+@click.option('--other-chain', required=True, help='Other blockchain config entry key (e.g., eth/bse)')
+def get_xch_info(other_chain: str):
     multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
     portal_threshold = get_config_item(["xch", "portal_threshold"])
@@ -333,14 +335,14 @@ def get_xch_info(for_chain: str):
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
         p2_multisig,
-        for_chain.encode(),
-        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        other_chain.encode(),
+        bytes.fromhex(get_config_item([other_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
-        for_chain.encode(),
-        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        other_chain.encode(),
+        bytes.fromhex(get_config_item([other_chain, "eth_token_bridge_address"]).replace("0x", ""))
     )
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
