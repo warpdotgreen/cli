@@ -70,18 +70,17 @@ def send_signature(
         client.add_relays(relays)
         client.connect()
 
-        filter = Filter().author(
-            signer.public_key()
-        ).custom_tag(
+        filter = Filter().custom_tag(
             SingleLetterTag.lowercase(Alphabet.R), [route_data]
         ).custom_tag(
             SingleLetterTag.lowercase(Alphabet.C), [coin_data]
         )
         
         events = client.get_events_of([filter], timedelta(seconds=10))
-        if len(events) > 0:
-            logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
-            return
+        for event in events:
+            if event.author().to_bech32() == signer.public_key().to_bech32():
+                logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
+                return
 
         text_note_builder = EventBuilder.text_note(sig_data, [
             Tag.parse(["r", route_data]),

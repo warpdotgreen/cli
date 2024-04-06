@@ -61,7 +61,7 @@ def predict_create2_address(sender, salt, init_code):
 @click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
 @click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
 @click.option('--chain', required=True, help="Network id where you want to deploy (e.g., eth/bse)")
-def get_eth_deployment_data(weth_address: str, tip: int, chain: str):
+def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     deploy_meth = weth_address == "meth" 
     tip = int(tip)
 
@@ -90,7 +90,7 @@ def get_eth_deployment_data(weth_address: str, tip: int, chain: str):
     deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
     create_call_address = get_config_item([chain, "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during").digest()
+    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during testing").digest()
 
     meth_contract = w3.eth.contract(
         abi=millieth_artifact['abi'],
