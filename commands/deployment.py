@@ -60,7 +60,8 @@ def predict_create2_address(sender, salt, init_code):
 @deployment.command()
 @click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
 @click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
-def get_eth_deployment_data(weth_address: str, tip: int):
+@click.option('--chain', required=True, help="Network id where you want to deploy (e.g., eth/bse)")
+def get_eth_deployment_data(weth_address: str, tip: int, chain: str):
     deploy_meth = weth_address == "meth" 
     tip = int(tip)
 
@@ -69,9 +70,9 @@ def get_eth_deployment_data(weth_address: str, tip: int):
         click.echo("Will also deploy mETH contract! :)")
 
     click.echo("Constructing txes based on config...")
-    wei_per_message_fee = get_config_item(["eth", "wei_per_message_fee"])
+    wei_per_message_fee = get_config_item([chain, "wei_per_message_fee"])
 
-    w3 = Web3(Web3.HTTPProvider(get_config_item(["eth", "rpc_url"])))
+    w3 = Web3(Web3.HTTPProvider(get_config_item([chain, "rpc_url"])))
 
     millieth_artifact = json.loads(
         open('artifacts/contracts/MilliETH.sol/MilliETH.json', 'r').read()
@@ -86,8 +87,8 @@ def get_eth_deployment_data(weth_address: str, tip: int):
         open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
       )
     
-    deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
-    create_call_address = get_config_item(["eth", "create_call_address"])
+    deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
+    create_call_address = get_config_item([chain, "create_call_address"])
 
     salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during").digest()
 
@@ -114,8 +115,8 @@ def get_eth_deployment_data(weth_address: str, tip: int):
         args=[
             Web3.to_bytes(hexstr=deployer_safe_address),
             wei_per_message_fee,
-            [Web3.to_bytes(hexstr=addr) for addr in get_config_item(["eth", "hot_addresses"])],
-            get_config_item(["eth", "portal_threshold"])
+            [Web3.to_bytes(hexstr=addr) for addr in get_config_item([chain, "hot_addresses"])],
+            get_config_item([chain, "portal_threshold"])
         ]
     )
     proxy_constructor_data = w3.eth.contract(

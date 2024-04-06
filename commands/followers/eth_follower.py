@@ -14,12 +14,14 @@ class EthereumFollower:
     chain_id: bytes
     sign_min_height: int
     private_key: str
+    is_optimism: bool
     
-    def __init__(self, chain: str):
+    def __init__(self, chain: str, is_optimism: bool):
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
         self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
+        self.is_optimism = is_optimism
 
 
     def getDb(self):
@@ -94,16 +96,29 @@ class EthereumFollower:
               for _ in event_filter.get_new_entries():
                   new_message_found = True
               
-              await asyncio.sleep(30)
+              if not new_message_found:
+                await asyncio.sleep(30)
 
             continue
 
          event_block_number = next_message_event['blockNumber']
-         eth_block_number = web3.eth.block_number
 
-         while event_block_number + self.sign_min_height > eth_block_number:
-            await asyncio.sleep(5)
+         if self.is_optimism:
+            # L1 - mainnet confirmations can be obtained from block number
             eth_block_number = web3.eth.block_number
+
+            while event_block_number + self.sign_min_height > eth_block_number:
+                await asyncio.sleep(5)
+                eth_block_number = web3.eth.block_number
+         else:
+            # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
+            # in short, since we're trusting the sequencer anyway, we can also trust:
+            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/
+            # to relay L1 block numbers accurately
+            # self.sign_min_height is then the min. number of confirmations in L1 blocks
+            # you can find the address for the contract at https://docs.base.org/docs/base-contracts
+            logging.error("You forgot to implement this; so just sleeping for a while...")
+            await asyncio.sleep(30)
 
          next_message_event_copy = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
          if next_message_event_copy is None:
