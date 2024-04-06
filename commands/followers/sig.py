@@ -1,7 +1,8 @@
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from typing import Tuple, List
 from commands.config import get_config_item
-from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag
+from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter
+from datetime import timedelta
 import logging
 import time
 
@@ -53,7 +54,7 @@ def decode_signature(enc_sig: str) -> Tuple[
 def send_signature(
     sig: str,
     retries: int = 0
-):
+):  
     # keep log locally
     try:
         open("messages.txt", "a").write(sig + "\n")
@@ -68,6 +69,12 @@ def send_signature(
         
         client.add_relays(relays)
         client.connect()
+
+        filter = Filter().author(signer.public_key()).custom_tag("r", route_data).custom_tag("c", coin_data)
+        events = client.get_events_of([filter], timedelta(seconds=10))
+        if len(events) > 0:
+            logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
+            return
 
         text_note_builder = EventBuilder.text_note(sig_data, [
             Tag.parse(["r", route_data]),
