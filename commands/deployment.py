@@ -62,6 +62,7 @@ def predict_create2_address(sender, salt, init_code):
 @click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
 def get_eth_deployment_data(weth_address: str, tip: int):
     deploy_meth = weth_address == "meth" 
+    tip = int(tip)
 
     if deploy_meth:
         weth_address = None
@@ -88,7 +89,7 @@ def get_eth_deployment_data(weth_address: str, tip: int):
     deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
     create_call_address = get_config_item(["eth", "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string").digest()
+    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during").digest()
 
     meth_contract = w3.eth.contract(
         abi=millieth_artifact['abi'],
@@ -336,13 +337,13 @@ def get_xch_info(other_chain: str):
         portal_launcher_id,
         p2_multisig,
         other_chain.encode(),
-        bytes.fromhex(get_config_item([other_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
         other_chain.encode(),
-        bytes.fromhex(get_config_item([other_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
