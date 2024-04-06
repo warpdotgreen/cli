@@ -78,8 +78,8 @@ def get_eth_deployment_data(weth_address: str, tip: int):
     portal_artifact = json.loads(
         open('artifacts/contracts/Portal.sol/Portal.json', 'r').read()
       )
-    eth_token_bridge_artifact = json.loads(
-        open('artifacts/contracts/EthTokenBridge.sol/EthTokenBridge.json', 'r').read()
+    erc20_bridge_artiface = json.loads(
+        open('artifacts/contracts/ERC20Bridge.sol/ERC20Bridge.json', 'r').read()
       )
     proxy_artifact = json.loads(
         open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
@@ -132,8 +132,8 @@ def get_eth_deployment_data(weth_address: str, tip: int):
     portal_address = predict_create2_address(create_call_address, salt, proxy_constructor_data)
 
     eth_token_bridge_constructor_data = w3.eth.contract(
-        abi=eth_token_bridge_artifact['abi'],
-        bytecode=eth_token_bridge_artifact['bytecode']
+        abi=erc20_bridge_artiface['abi'],
+        bytecode=erc20_bridge_artiface['bytecode']
     ).constructor(
         tip,
         Web3.to_bytes(hexstr=portal_address),
@@ -175,7 +175,7 @@ def get_eth_deployment_data(weth_address: str, tip: int):
     print(f"\t Salt: 0x{salt.hex()}")
     print(f"\t Predicted address: {portal_address}")
 
-    print("Tx 3: deploy EthTokenBridge")
+    print("Tx 3: deploy ERC20Bridge")
     print(f"\t To: {create_call_address}")
     print(f"\t Contract method selector: performCreate2")
     print(f"\t Value: 0")

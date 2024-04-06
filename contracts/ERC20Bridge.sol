@@ -14,7 +14,7 @@ interface ERC20Decimals {
     function decimals() external returns (uint8);
 }
 
-contract EthTokenBridge is IPortalMessageReceiver {
+contract ERC20Bridge is IPortalMessageReceiver {
     uint256 public immutable tip; // (tip / 10000) % tip
     address public immutable portal;
     address public immutable iweth;

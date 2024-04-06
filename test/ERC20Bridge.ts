@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EthTokenBridge, ERC20Mock, Portal, WETHMock, MilliETH } from "../typechain-types";
+import { ERC20Mock, Portal, WETHMock, MilliETH, ERC20Bridge } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { getSig } from "./Portal";
 
@@ -18,8 +18,8 @@ const tokens = [
 
 wethTokens.forEach(wethToken => {
   tokens.forEach(token => {
-    describe(`EthTokenBridge (WETH=${wethToken.name}; mock ERC20 decimals=${token.decimals})`, function () {
-        let ethTokenBridge: EthTokenBridge;
+    describe(`ERC20Bridge (WETH=${wethToken.name}; mock ERC20 decimals=${token.decimals})`, function () {
+        let erc20Bridge: ERC20Bridge;
         let mockERC20: ERC20Mock;
         let weth: WETHMock | MilliETH;
         let portal: Portal;
@@ -50,27 +50,27 @@ wethTokens.forEach(wethToken => {
             await portal.initialize(owner.address, messageFee, [ signer.address ], 1);
             portalAddress = portal.target as string;
 
-            const EthTokenBridgeFactory = await ethers.getContractFactory("EthTokenBridge");
-            ethTokenBridge = await EthTokenBridgeFactory.deploy(
+            const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
+            erc20Bridge = await ERC20BridgeFactory.deploy(
                 tip, portalAddress, weth.target, wethToken.wethToEthRatio, otherChain
             );
 
-            await ethTokenBridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash)
+            await erc20Bridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash)
         });
 
         describe("Deployment", function () {
             it("Should have correct initial values", async function () {
-                expect(await ethTokenBridge.tip()).to.equal(tip);
-                expect(await ethTokenBridge.portal()).to.equal(portal.target);
-                expect(await ethTokenBridge.iweth()).to.equal(weth.target);
-                expect(await ethTokenBridge.wethToEthRatio()).to.equal(wethToken.wethToEthRatio);
-                expect(await ethTokenBridge.otherChain()).to.equal(otherChain);
-                expect(await ethTokenBridge.burnPuzzleHash()).to.equal(burnPuzzleHash);
-                expect(await ethTokenBridge.mintPuzzleHash()).to.equal(mintPuzzleHash);
+                expect(await erc20Bridge.tip()).to.equal(tip);
+                expect(await erc20Bridge.portal()).to.equal(portal.target);
+                expect(await erc20Bridge.iweth()).to.equal(weth.target);
+                expect(await erc20Bridge.wethToEthRatio()).to.equal(wethToken.wethToEthRatio);
+                expect(await erc20Bridge.otherChain()).to.equal(otherChain);
+                expect(await erc20Bridge.burnPuzzleHash()).to.equal(burnPuzzleHash);
+                expect(await erc20Bridge.mintPuzzleHash()).to.equal(mintPuzzleHash);
             });
 
             it("Should not allow setting puzzles a second time", async function () {
-                await expect(ethTokenBridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash))
+                await expect(erc20Bridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash))
                     .to.be.revertedWith("nope");
             });
         });
@@ -82,13 +82,13 @@ wethTokens.forEach(wethToken => {
                 const expectedTip = chiaAmount * tip / 10000n;
 
                 await mockERC20.mint(user.address, chiaAmount * chiaToERC20AmountFactor);
-                await mockERC20.connect(user).approve(ethTokenBridge.target, chiaAmount * chiaToERC20AmountFactor);
+                await mockERC20.connect(user).approve(erc20Bridge.target, chiaAmount * chiaToERC20AmountFactor);
 
                 // https://hardhat.org/hardhat-runner/plugins/nomicfoundation-hardhat-chai-matchers#chaining-async-matchers
-                const tx = ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageFee });
+                const tx = erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageFee });
                 await expect(tx).to.changeTokenBalances(
                       mockERC20,
-                      [user, ethTokenBridge.target, portal.target],
+                      [user, erc20Bridge.target, portal.target],
                       [-chiaAmount * chiaToERC20AmountFactor, (chiaAmount - expectedTip) * chiaToERC20AmountFactor, expectedTip * chiaToERC20AmountFactor]
                     )
                 await expect(tx).to.emit(portal, "MessageSent");
@@ -99,7 +99,7 @@ wethTokens.forEach(wethToken => {
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee })
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee })
                 ).to.be.reverted;
             });
 
@@ -108,7 +108,7 @@ wethTokens.forEach(wethToken => {
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n})
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n})
                 ).to.be.revertedWith("!fee");
             });
 
@@ -117,7 +117,7 @@ wethTokens.forEach(wethToken => {
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  ethTokenBridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n})
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n})
                 ).to.be.revertedWith("!fee");
             });
         });
@@ -133,19 +133,19 @@ wethTokens.forEach(wethToken => {
                 ]
                 const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
-                await mockERC20.mint(ethTokenBridge.target, amount * chiaToERC20AmountFactor);
+                await mockERC20.mint(erc20Bridge.target, amount * chiaToERC20AmountFactor);
 
                 const sig = await getSig(
-                    nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target.toString(), message,
+                    nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
                     [signer]
                 );
                 await expect(
                     portal.receiveMessage(
-                      nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target, message, sig
+                      nonce1, otherChain, burnPuzzleHash, erc20Bridge.target, message, sig
                   )
                 ).to.changeTokenBalances(
                   mockERC20,
-                  [ethTokenBridge, receiver, portal],
+                  [erc20Bridge, receiver, portal],
                   [-amount * chiaToERC20AmountFactor, amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
                 );
             });
@@ -164,15 +164,15 @@ wethTokens.forEach(wethToken => {
                 const expectedTip = CATAmount * chiaToWETHFactor * tip / 10000n;
 
                 await weth.deposit({ value: wethAmount * wethToken.wethToEthRatio });
-                await weth.transfer(ethTokenBridge.target, wethAmount);
+                await weth.transfer(erc20Bridge.target, wethAmount);
 
                 const sig = await getSig(
-                    nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target.toString(), message,
+                    nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
                     [signer]
                 );
                 await expect(
                     portal.receiveMessage(
-                        nonce1, otherChain, burnPuzzleHash, ethTokenBridge.target, message, sig
+                        nonce1, otherChain, burnPuzzleHash, erc20Bridge.target, message, sig
                     )
                 ).to.changeEtherBalances(
                     [weth, receiver, portal],
@@ -191,7 +191,7 @@ wethTokens.forEach(wethToken => {
                     ethers.zeroPadValue("0x" + ethers.parseUnits("10", 3).toString(16), 32)
                 ]
 
-                await expect(ethTokenBridge.connect(user).receiveMessage(nonce1, otherChain, burnPuzzleHash, message))
+                await expect(erc20Bridge.connect(user).receiveMessage(nonce1, otherChain, burnPuzzleHash, message))
                     .to.be.revertedWith("!msg");
             });
 
@@ -204,10 +204,10 @@ wethTokens.forEach(wethToken => {
                 ]
 
                 const sig = await getSig(
-                    nonce1, otherChain, invalidPuzzle, ethTokenBridge.target.toString(), message,
+                    nonce1, otherChain, invalidPuzzle, erc20Bridge.target.toString(), message,
                     [signer]
                 );
-                await expect(portal.receiveMessage(nonce1, otherChain, invalidPuzzle, ethTokenBridge.target, message, sig))
+                await expect(portal.receiveMessage(nonce1, otherChain, invalidPuzzle, erc20Bridge.target, message, sig))
                     .to.be.revertedWith("!msg");
             });
         });
@@ -219,10 +219,10 @@ wethTokens.forEach(wethToken => {
                 const expectedCATs = ethToSend / wethToken.wethToEthRatio;
                 let expectedTipInCAT = expectedCATs * tip / 10000n;
 
-                const tx = ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee });
+                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee });
                 await expect(tx).to.changeTokenBalances(
                     weth,
-                    [ethTokenBridge, portal],
+                    [erc20Bridge, portal],
                     [expectedCATs - expectedTipInCAT, expectedTipInCAT]
                 );
                 await expect(tx).to.emit(portal, "MessageSent");
@@ -233,7 +233,7 @@ wethTokens.forEach(wethToken => {
                 var ethToSend = messageFee * 2n / 3n;
                 
                 await expect(
-                    ethTokenBridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
+                    erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
                 ).to.be.reverted;
             });
 
@@ -241,7 +241,7 @@ wethTokens.forEach(wethToken => {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
 
                 await expect(
-                    ethTokenBridge.connect(user).bridgeEtherToChia(receiver)
+                    erc20Bridge.connect(user).bridgeEtherToChia(receiver)
                 ).to.be.reverted;
             });
         });
@@ -277,7 +277,7 @@ wethTokens.forEach(wethToken => {
                 }
                 const message = {
                     owner: owner.address,
-                    spender: ethTokenBridge.target,
+                    spender: erc20Bridge.target,
                     value: amount.toString(),
                     nonce,
                     deadline
@@ -288,7 +288,7 @@ wethTokens.forEach(wethToken => {
             });
 
             it("Should bridge tokens with permit and deduct fees", async function () {
-                const tx = ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                const tx = erc20Bridge.connect(owner).bridgeToChiaWithPermit(
                     mockERC20.target,
                     receiver,
                     amount / chiaToERC20AmountFactor,
@@ -300,14 +300,14 @@ wethTokens.forEach(wethToken => {
                 const tipAmount = amount * tip / 10000n;
                 await expect(tx).to.changeTokenBalances(
                   mockERC20,
-                  [owner, ethTokenBridge, portal],
+                  [owner, erc20Bridge, portal],
                   [-amount, amount - tipAmount, tipAmount]
                 );
                 await expect(tx).to.emit(portal, "MessageSent");
             });
 
             it("should revert if permit already used", async function () {
-                await ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                await erc20Bridge.connect(owner).bridgeToChiaWithPermit(
                     mockERC20.target,
                     receiver,
                     amount / chiaToERC20AmountFactor,
@@ -318,7 +318,7 @@ wethTokens.forEach(wethToken => {
             
 
                 await expect(
-                    ethTokenBridge.connect(owner).bridgeToChiaWithPermit(
+                    erc20Bridge.connect(owner).bridgeToChiaWithPermit(
                         mockERC20.target,
                         receiver,
                         amount / chiaToERC20AmountFactor,
