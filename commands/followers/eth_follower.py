@@ -75,7 +75,8 @@ class EthereumFollower:
             query_end_height = current_block_height
             time_to_stop = True
 
-        # logging.info(f"Querying for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height}")
+        if not time_to_stop:
+          logging.info(f"{self.chain_id.decode()} message listener: long query for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height} (normal if catching up)")
 
         logs = contract.events.MessageSent().get_logs(
             fromBlock=query_start_height,
