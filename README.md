@@ -1,31 +1,39 @@
-# XCH-Eth Portal & Bridge
-### (and the other way around)
+# warp.green
 
-A Proof-of-Authority based cross-chain messaging protocol - a portal.
+A cross-chain messaging protocol - a portal betwen blockchains.
 
-## Prerequisites
+## Architecture
 
-* Ubuntu/Debian Linux, Windows, or MacOS (so far, most testing has been on Linux)
-* Python 3.10 or later
+Note: Technical overview available [here](https://pitch.com/v/warpdotgreen-xwmj7r).
+
+To connect the Chia and Ethereum/Base blockchains, a trusted set of parties (validators) is needed. These parties independently observe messages on the supported chains and generate a signature attesting the details. On the destination chain, a puzzle or contract accepts a majority of signatures and acts as an oracle, effectively allowing apps to send and receive messages between chains.
+
+This repository also contains the code required to enable bridging tokens and native assets between the supported chains. The poral (trusted oracle) is controlled by a validator multisig and can be upgraded at any time. The bridge contracts and puzzles are immutable, and rely on the bridge as an oracle. A 0.3% tip is given to the portal for each transaction.
+
+To ensure uniqueness, each side of the portal assigns a nonce (a unique, increasing integer on Ethereum; a coin id on Chia) to each message. On the other side, the user has the ability to execute messages out-of-order, but can only use each message exactly once.
+
+On Chia, messages are picked up by looking for the following output condition:
+
+```
+(list CREATE_COIN
+  [bridging_puzzle_hash]
+  [bridging_fee_or_more]
+  ([destination_chain] [destination] . [content])
+)
+```
 
 ## Install
 
-1. Install NPM:
+1. Clone theGitHub repository and enter the `bridge` directory by running:
 
     ```bash
-    pip install npm
-    ```
-
-2. Clone the `bridge` GitHub repository (you may need to change the branch name) and enter the `bridge` directory by running:
-
-    ```bash
-    git clone https://github.com/Yakuhito/bridge.git -b master
+    git clone https://github.com/warpdotgreen/bridge.git -b master
     ```
     ```bash
     cd bridge
     ```
 
-3. Create and activate a virtual environment:
+2. Create and activate a virtual environment:
 
     * Linux/MacOS
 
@@ -45,54 +53,38 @@ A Proof-of-Authority based cross-chain messaging protocol - a portal.
       .\venv\Scripts\Activate.ps1
       ```
   
-4. Install all required packages:
+3. Install all required packages:
 
     ```bash
     pip install -r requirements.txt
     ```
-
-5. Install the bridge:
+    
+4. Install npm packages
 
     ```bash
-    npm install .
+    npm i
     ```
 
 ## Test
 
-The bridge includes several Pytest tests. To run them:
+The repository includes several tests. To run puzzle tests:
 
   * Linux/MacOS
     
     ```bash
-    sh test.sh [testname]
+    sh test.sh
     ```
 
   * Windows
 
     ```powershell
-    .\test.bat [testname]
+    .\test.bat
     ```
    
-To run a specific test, include part of the test's name in `[testname]`. For example, `sh test.sh healthz` (Linux/MacOS) or `.\test.bat healthz` (Windows) will run only test(s) containing the word `healthz`
+To run a specific test, append part of the test's name to the command. For example, `sh test.sh healthz` (Linux/MacOS) or `.\test.bat healthz` (Windows) will run only test(s) containing the word `healthz`. If no name is included, all tests will be run.
 
-To run all tests, don't include `[testname]`. For example,  `sh test.sh` (Linux/MacOS) or `.\test.bat` (Windows) will run all tests.
+To run contract tests, you can simply use `npx hardhat test`.
 
-## Architecture
+## License
 
-To connect the Chia and Ethereum blockchains, a trusted set of parties (validators) is needed. These parties each observe messages on one chain and relay it to the other. This repository also contains the code required to enable bridging tokens and native assets from Ethereum to Chia - the contracts are immutable, and rely on the bridge as an oracle. A fee is also given to the owner of the immutable contracts, presumably the bridge owners.
-
-To ensure each message is unique, each side of the portal assigns a nonce (a unique, increasing integer on Ethereum, a coin id on Chia) to each message. On the other side, the user has the ability to execute messages out-of-order, but can only use each message exactly once. A deadline can be used to specify an expiry timestamp after which a message will become invalid.
-
-Portal contracts are upgradeable by the validators to enable new functionality to be developed.
-
-On Chia, messages are picked up by looking for the following output condition:
-
-```
-(list CREATE_COIN
-  [bridge_specific_puzzle_hash]
-  [amount]
-  ([destination_chain] [destination] . [content])
-)
-```
-
-Special thanks to acevail for the idea above, which greatly simplified the design :)
+This repository is licensed under the MIT License. For more details, please see the [LICENSE](LICENSE) file.

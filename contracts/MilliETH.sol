@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./interfaces/IWETH.sol";
 
 contract MilliETH is ERC20, IWETH {
-    constructor() ERC20("milliETH", "mETH") {}
+    constructor() ERC20("milliETH", "milliETH") {}
 
     function decimals() public pure override returns (uint8) {
         return 3;

@@ -1,6 +1,8 @@
 ; See chia/types/condition_opcodes.py
 
 (
+    (defconstant REMARK 1)
+
     (defconstant AGG_SIG_UNSAFE 49)
     (defconstant AGG_SIG_ME 50)
 

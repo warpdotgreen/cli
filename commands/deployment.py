@@ -59,17 +59,20 @@ def predict_create2_address(sender, salt, init_code):
 
 @deployment.command()
 @click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
-def get_eth_deployment_data(weth_address):
+@click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
+@click.option('--chain', required=True, help="Network id where you want to deploy (e.g., eth/bse)")
+def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     deploy_meth = weth_address == "meth" 
+    tip = int(tip)
 
     if deploy_meth:
         weth_address = None
         click.echo("Will also deploy mETH contract! :)")
 
     click.echo("Constructing txes based on config...")
-    wei_per_message_fee = get_config_item(["eth", "wei_per_message_fee"])
+    wei_per_message_fee = get_config_item([chain, "wei_per_message_fee"])
 
-    w3 = Web3(Web3.HTTPProvider(get_config_item(["eth", "rpc_url"])))
+    w3 = Web3(Web3.HTTPProvider(get_config_item([chain, "rpc_url"])))
 
     millieth_artifact = json.loads(
         open('artifacts/contracts/MilliETH.sol/MilliETH.json', 'r').read()
@@ -77,17 +80,17 @@ def get_eth_deployment_data(weth_address):
     portal_artifact = json.loads(
         open('artifacts/contracts/Portal.sol/Portal.json', 'r').read()
       )
-    eth_token_bridge_artifact = json.loads(
-        open('artifacts/contracts/EthTokenBridge.sol/EthTokenBridge.json', 'r').read()
+    erc20_bridge_artiface = json.loads(
+        open('artifacts/contracts/ERC20Bridge.sol/ERC20Bridge.json', 'r').read()
       )
     proxy_artifact = json.loads(
         open('artifacts/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json', 'r').read()
       )
     
-    deployer_safe_address = get_config_item(["eth", "deployer_safe_address"])
-    create_call_address = get_config_item(["eth", "create_call_address"])
+    deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
+    create_call_address = get_config_item([chain, "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string").digest()
+    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during testing").digest()
 
     meth_contract = w3.eth.contract(
         abi=millieth_artifact['abi'],
@@ -112,8 +115,8 @@ def get_eth_deployment_data(weth_address):
         args=[
             Web3.to_bytes(hexstr=deployer_safe_address),
             wei_per_message_fee,
-            [Web3.to_bytes(hexstr=addr) for addr in get_config_item(["eth", "hot_addresses"])],
-            get_config_item(["eth", "portal_threshold"])
+            [Web3.to_bytes(hexstr=addr) for addr in get_config_item([chain, "hot_addresses"])],
+            get_config_item([chain, "portal_threshold"])
         ]
     )
     proxy_constructor_data = w3.eth.contract(
@@ -131,13 +134,14 @@ def get_eth_deployment_data(weth_address):
     portal_address = predict_create2_address(create_call_address, salt, proxy_constructor_data)
 
     eth_token_bridge_constructor_data = w3.eth.contract(
-        abi=eth_token_bridge_artifact['abi'],
-        bytecode=eth_token_bridge_artifact['bytecode']
+        abi=erc20_bridge_artiface['abi'],
+        bytecode=erc20_bridge_artiface['bytecode']
     ).constructor(
+        tip,
         Web3.to_bytes(hexstr=portal_address),
-        Web3.to_bytes(hexstr=deployer_safe_address),
         Web3.to_bytes(hexstr=weth_address),
-        10 ** 12 if deploy_meth else 1
+        10 ** 12 if deploy_meth else 1,
+        Web3.to_bytes(hexstr="0x" + b"xch".hex())
     ).build_transaction({
         'gas': 5000000000
     })['data']
@@ -173,7 +177,7 @@ def get_eth_deployment_data(weth_address):
     print(f"\t Salt: 0x{salt.hex()}")
     print(f"\t Predicted address: {portal_address}")
 
-    print("Tx 3: deploy EthTokenBridge")
+    print("Tx 3: deploy ERC20Bridge")
     print(f"\t To: {create_call_address}")
     print(f"\t Contract method selector: performCreate2")
     print(f"\t Value: 0")
@@ -322,8 +326,8 @@ async def launch_xch_portal(offer):
     )
 
 @deployment.command()
-@click.option('--for-chain', default="eth", help='Source/destination blockchain config entry')
-def get_xch_info(for_chain: str):
+@click.option('--other-chain', required=True, help='Other blockchain config entry key (e.g., eth/bse)')
+def get_xch_info(other_chain: str):
     multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
     portal_threshold = get_config_item(["xch", "portal_threshold"])
@@ -333,14 +337,14 @@ def get_xch_info(for_chain: str):
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
         p2_multisig,
-        for_chain.encode(),
-        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        other_chain.encode(),
+        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
         p2_multisig,
-        for_chain.encode(),
-        bytes.fromhex(get_config_item([for_chain, "eth_token_bridge_address"]).replace("0x", ""))
+        other_chain.encode(),
+        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")

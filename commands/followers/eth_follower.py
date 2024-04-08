@@ -14,12 +14,20 @@ class EthereumFollower:
     chain_id: bytes
     sign_min_height: int
     private_key: str
+    is_optimism: bool
+    max_query_block_limit: int = 1000
+    last_safe_height: int = 0
+    l1_block_contract_address: str
+    l1_block_contract: any = None
     
-    def __init__(self, chain: str):
+    def __init__(self, chain: str, is_optimism: bool):
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
         self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
+        self.is_optimism = is_optimism
+        if self.is_optimism:
+          self.l1_block_contract_address = get_config_item([self.chain, 'l1_block_contract_address'])
 
 
     def getDb(self):
@@ -49,19 +57,47 @@ class EthereumFollower:
           sig=b'',
       )
 
-    
-    def getEventByIntNonce(self, contract, nonce: int, start_height: int):
-      one_event_filter = contract.events.MessageSent.create_filter(
-          fromBlock=start_height,
-          toBlock='latest',
-          argument_filters={'nonce': "0x" + self.nonceIntToBytes(nonce)}
-      )
-      entries = one_event_filter.get_all_entries()
 
-      if len(entries) == 0:
+    # warning: only use in the 'messageListener' thread
+    def getEventByIntNonce(self, web3, contract, nonce: int, start_height: int):
+      if self.last_safe_height <= 0:
+          self.last_safe_height = start_height
+
+      time_to_stop = False
+      query_start_height = self.last_safe_height if self.last_safe_height > start_height else start_height # cache
+      query_end_height = query_start_height + self.max_query_block_limit - 1
+
+      nonce_hex = "0x" + self.nonceIntToBytes(nonce)
+      logs = []
+      while not time_to_stop:
+        current_block_height = web3.eth.block_number
+        if query_end_height > current_block_height:
+            query_end_height = current_block_height
+            time_to_stop = True
+
+        if not time_to_stop:
+          logging.info(f"{self.chain_id.decode()} message listener: long query for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height} (normal if catching up)")
+
+        logs = contract.events.MessageSent().get_logs(
+            fromBlock=query_start_height,
+            toBlock=query_end_height,
+            argument_filters={"nonce": nonce_hex},
+        )
+
+        logs = [_ for _ in logs]
+        if len(logs) > 0:
+           break
+        
+        query_start_height = query_end_height
+        query_end_height = query_start_height + self.max_query_block_limit - 1
+      
+      # query_start_height will be the last used query_end_height
+      self.last_safe_height = query_start_height - self.max_query_block_limit * 2 // 3
+
+      if len(logs) == 0:
           return None
       
-      return entries[0]
+      return logs[0]
     
 
     async def messageListener(self):
@@ -83,32 +119,70 @@ class EthereumFollower:
       contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
 
       while True:
-         next_message_event = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+         next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
          if next_message_event is None:
             logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
             
-            event_filter = contract.events.MessageSent.create_filter(fromBlock='latest')
-            new_message_found = False
-            while not new_message_found:
-              for _ in event_filter.get_new_entries():
-                  new_message_found = True
-              
-              await asyncio.sleep(30)
+            # helios does not suport filters yet :(
+            while next_message_event is None:
+               await asyncio.sleep(30)
+               next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
             continue
 
          event_block_number = next_message_event['blockNumber']
-         eth_block_number = web3.eth.block_number
 
-         while event_block_number + self.sign_min_height > eth_block_number:
-            await asyncio.sleep(5)
+         if not self.is_optimism:
+            # L1 - mainnet confirmations can be obtained from block number
             eth_block_number = web3.eth.block_number
 
-         next_message_event_copy = self.getEventByIntNonce(contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+            while event_block_number + self.sign_min_height > eth_block_number:
+                await asyncio.sleep(5)
+                eth_block_number = web3.eth.block_number
+         else:
+            # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
+            # in short, since we're trusting the sequencer anyway, we can also trust:
+            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/
+            # to relay L1 block numbers accurately
+            # self.sign_min_height is then the min. number of confirmations in L1 blocks
+            # you can find the address for the contract at https://docs.base.org/docs/base-contracts
+            block = web3.eth.get_block(event_block_number, full_transactions=True)
+            relevant_tx = None
+            for tx in block.transactions:
+                if tx.to and tx.to == self.l1_block_contract_address:
+                    relevant_tx = tx
+                    break
+            
+            if relevant_tx is None:
+                logging.error(f"{self.chain_id.decode()} message listener: could not find L1Block update tx for block {event_block_number}; sleeping 30s and retrying...")
+                await asyncio.sleep(30)
+                continue
+            
+            
+            raw_input = bytes(relevant_tx.input)
+            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
+            input_offset = 28
+            event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
+            logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number})")
+            
+            if self.l1_block_contract is None:
+              self.l1_block_contract = web3.eth.contract(
+                address=Web3.to_checksum_address(self.l1_block_contract_address),
+                abi=open("l1_block_abi.json", "r").read()
+              )
+
+            l1_block_number = self.l1_block_contract.functions.number().call()
+            while event_l1_block_number + self.sign_min_height > l1_block_number:
+                await asyncio.sleep(10)
+                l1_block_number = self.l1_block_contract.functions.number().call()
+                logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
+
+         next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
          if next_message_event_copy is None:
             logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
-            last_synced_height -= 1000
+            last_synced_height -= self.max_query_block_limit
+            self.last_safe_height -= 10 * self.max_query_block_limit
             continue
          
          next_message = self.eventObjectToMessage(next_message_event)
@@ -116,6 +190,8 @@ class EthereumFollower:
 
          if next_message.nonce != next_message_copy.nonce or next_message.source != next_message_copy.source or next_message.destination_chain != next_message_copy.destination_chain or next_message.destination != next_message_copy.destination or next_message.contents != next_message_copy.contents or next_message.block_number != next_message_copy.block_number: 
             logging.info(f"{self.chain_id.decode()} message listener: message event mismatch; assuming reorg and retrying...")
+            last_synced_height -= self.max_query_block_limit
+            self.last_safe_height -= 10 * self.max_query_block_limit
             continue
          
          logging.info(f"{self.chain_id.decode()} message listener: Adding message #{self.chain_id.decode()}-{next_message.nonce.hex()}")

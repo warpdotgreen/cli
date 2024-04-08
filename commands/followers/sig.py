@@ -1,7 +1,8 @@
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from typing import Tuple, List
 from commands.config import get_config_item
-from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag
+from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter, SingleLetterTag, Alphabet
+from datetime import timedelta
 import logging
 import time
 
@@ -53,7 +54,7 @@ def decode_signature(enc_sig: str) -> Tuple[
 def send_signature(
     sig: str,
     retries: int = 0
-):
+):  
     # keep log locally
     try:
         open("messages.txt", "a").write(sig + "\n")
@@ -69,9 +70,21 @@ def send_signature(
         client.add_relays(relays)
         client.connect()
 
+        filter = Filter().custom_tag(
+            SingleLetterTag.lowercase(Alphabet.R), [route_data]
+        ).custom_tag(
+            SingleLetterTag.lowercase(Alphabet.C), [coin_data]
+        )
+        
+        events = client.get_events_of([filter], timedelta(seconds=10))
+        for event in events:
+            if event.author().to_bech32() == signer.public_key().to_bech32():
+                logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
+                return
+
         text_note_builder = EventBuilder.text_note(sig_data, [
-            Tag.parse(["route", route_data]),
-            Tag.parse(["coin", coin_data])
+            Tag.parse(["r", route_data]),
+            Tag.parse(["c", coin_data])
         ])
 
         event_id = client.send_event_builder(text_note_builder)
@@ -81,8 +94,8 @@ def send_signature(
     except:
         if retries < 3:
             retries += 1
-            logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exec_info=True)
+            logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exc_info=True)
             time.sleep(3)
             send_signature(sig, retries)
         else:
-            logging.error(f"Nostr: failed to send signature to relays: {sig}", exec_info=True)
+            logging.error(f"Nostr: failed to send signature to relays: {sig}", exc_info=True)

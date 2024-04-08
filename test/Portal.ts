@@ -150,11 +150,11 @@ describe("Portal", function () {
         });
     });
 
-    describe("withdrawFees", function () {
+    describe("withdrawEther", function () {
         it("Should allow owner to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
             await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
-            await expect(portal.connect(owner).withdrawFees([signer1.address], [amount]))
+            await expect(portal.connect(owner).withdrawEther([signer1.address], [amount]))
                 .to.changeEtherBalances([portal, signer1], [-amount, amount]);
         });
 
@@ -163,7 +163,7 @@ describe("Portal", function () {
             const amount2 = ethers.parseEther("0.004");
             const amount3 = ethers.parseEther("0.004");
             await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
-            await expect(portal.connect(owner).withdrawFees(
+            await expect(portal.connect(owner).withdrawEther(
                 [signer1.address, signer2.address, signer3.address],
                 [amount1, amount2, amount3])
             ).to.changeEtherBalances(
@@ -172,9 +172,48 @@ describe("Portal", function () {
             );
         });
 
-        it("Should fail if non-feeCollector tries to withdraw", async function () {
+        it("Should fail if non-owner tries to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
-            await expect(portal.withdrawFees([user.address], [amount]))
+            await expect(portal.withdrawEther([user.address], [amount]))
+                .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
+        });
+    });
+
+    describe("rescueAsset", function () {
+        let erc20: any;
+
+        beforeEach(async function () {
+            const ERC20Factory = await ethers.getContractFactory("ERC20Mock", owner);
+            erc20 = await ERC20Factory.deploy("Mock ERC20", "MERC20", 18);
+            await erc20.mint(portal.target, ethers.parseEther("300"));
+        });
+
+        it("Should allow owner to withdraw", async function () {
+            const amount = ethers.parseEther("0.01");
+            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await expect(portal.connect(owner).rescueAsset(erc20.target, [signer1.address], [amount]))
+                .to.changeTokenBalances(erc20, [portal, signer1], [-amount, amount]);
+        });
+
+        it("Should allow withdrawal to multiple addresses", async function () {
+            const amount1 = ethers.parseEther("0.002");
+            const amount2 = ethers.parseEther("0.004");
+            const amount3 = ethers.parseEther("0.004");
+            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await expect(portal.connect(owner).rescueAsset(
+                erc20.target,
+                [signer1.address, signer2.address, signer3.address],
+                [amount1, amount2, amount3])
+            ).to.changeTokenBalances(
+                erc20,
+                [portal, signer1, signer2, signer3],
+                [-messageFee, amount1, amount2, amount3]
+            );
+        });
+
+        it("Should fail if non-owner tries to withdraw", async function () {
+            const amount = ethers.parseEther("0.01");
+            await expect(portal.rescueAsset(erc20, [user.address], [amount]))
                 .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
     });
