@@ -4,6 +4,9 @@ import { Portal, WrappedCAT } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { getSig } from "./Portal";
 
+const xchChain = "0x786368";
+const receiverPh = ethers.encodeBytes32String("receiver-puzzle-hash");
+
 describe.only("WrappedCAT", function () {
     let portal: Portal;
     let wrappedCAT: WrappedCAT;
@@ -47,6 +50,108 @@ describe.only("WrappedCAT", function () {
         it("Should not allow setting puzzles a second time", async function () {
             await expect(wrappedCAT.initializePuzzleHashes(lockerPuzzleHash, unlockerPuzzleHash))
                 .to.be.revertedWith("nope");
+        });
+    });
+
+    describe("receiveMessage", function () {
+        it("Should mint tokens correctly", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+            const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
+
+            const sig = await getSig(
+                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.changeTokenBalances(
+                wrappedCAT,
+                [receiver, portal],
+                [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
+            );
+        });
+
+        it("Should fail if source is wrong", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+
+            const sig = await getSig(
+                nonce1, otherChain, unlockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, otherChain, unlockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.be.revertedWith("!msg");
+        });
+    });
+
+    describe("bridgeBack", function () {
+        it("Should correctly burn tokens, send tip, and send a message", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+            const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
+
+            const sig = await getSig(
+                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.changeTokenBalances(
+                wrappedCAT,
+                [receiver, portal],
+                [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
+            );
+
+            // setup complete, test actually starts here
+            const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
+            const expectedTipMojo = amountToBridgeBackMojo * tip / 10000n;
+
+            const tx = await wrappedCAT.connect(user).bridgeBack(
+                receiverPh,
+                amountToBridgeBackMojo,
+                { value: await portal.messageFee() }    
+            );
+
+            expect(tx).to.emit(portal, "MessageSent")
+                .withArgs(
+                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    wrappedCAT.target,
+                    xchChain,
+                    unlockerPuzzleHash,
+                    [
+                        ethers.zeroPadValue(receiverPh, 32),
+                        ethers.zeroPadValue("0x" + (amountToBridgeBackMojo - expectedTipMojo).toString(16), 32)
+                    ]
+                );
+            
+            expect(tx).to.changeTokenBalances(
+                wrappedCAT,
+                [user, portal],
+                [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]
+            );
         });
     });
 });
