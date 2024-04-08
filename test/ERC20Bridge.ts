@@ -91,7 +91,18 @@ wethTokens.forEach(wethToken => {
                       [user, erc20Bridge.target, portal.target],
                       [-chiaAmount * chiaToERC20AmountFactor, (chiaAmount - expectedTip) * chiaToERC20AmountFactor, expectedTip * chiaToERC20AmountFactor]
                     )
-                await expect(tx).to.emit(portal, "MessageSent");
+
+                await expect(tx).to.emit(portal, "MessageSent").withArgs(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    erc20Bridge.target,
+                    otherChain,
+                    mintPuzzleHash,
+                    [
+                        ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                        ethers.zeroPadValue(receiver, 32),
+                        ethers.zeroPadValue("0x" + (chiaAmount - expectedTip).toString(16), 32)
+                    ]
+                );
             });
 
             it("Should fail if not enough balance", async function () {

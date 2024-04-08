@@ -7,7 +7,7 @@ import { getSig } from "./Portal";
 const xchChain = "0x786368";
 const receiverPh = ethers.encodeBytes32String("receiver-puzzle-hash");
 
-describe.only("WrappedCAT", function () {
+describe("WrappedCAT", function () {
     let portal: Portal;
     let wrappedCAT: WrappedCAT;
     let owner: HardhatEthersSigner;
