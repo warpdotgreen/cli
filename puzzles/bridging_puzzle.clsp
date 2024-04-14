@@ -1,0 +1,10 @@
+(mod (
+ my_amount 
+)
+  (include condition_codes.clib)
+
+  (list
+    (list ASSERT_MY_AMOUNT my_amount)
+    (list RESERVE_FEE my_amount)
+  )
+)

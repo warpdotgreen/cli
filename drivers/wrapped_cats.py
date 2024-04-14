@@ -1,5 +1,5 @@
 from drivers.utils import load_clvm_hex, raw_hash
-from drivers.portal import get_message_coin_puzzle_1st_curry
+from drivers.portal import get_message_coin_puzzle_1st_curry, BRIDGING_PUZZLE_HASH
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
@@ -42,7 +42,6 @@ def get_locker_puzzle(
     message_destination_chain: bytes,
     message_destination: bytes,
     portal_receiver_launcher_id: bytes32,
-    bridging_puzzle_hash: bytes32,
     asset_id: bytes32
 ) -> Program:
   return LOCKER_MOD.curry(
@@ -50,7 +49,7 @@ def get_locker_puzzle(
     message_destination,
     CAT_MOD_HASH,
     OFFER_MOD_HASH,
-    bridging_puzzle_hash,
+    BRIDGING_PUZZLE_HASH,
     get_p2_controller_puzzle_hash_inner_puzzle_hash(
       get_unlocker_puzzle(
         message_destination_chain,
