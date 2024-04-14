@@ -22,11 +22,66 @@ from drivers.multisig import *
 import json
 import qrcode
 from drivers.portal import *
-from commands.multisig import get_cold_key_signature
 from chia.wallet.lineage_proof import LineageProof
 from commands.deployment import print_spend_instructions
+from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk
+from chia.util.bech32m import encode_puzzle_hash
 
 PORTAL_COIN_ID_SAVE_FILE = "last_spent_portal_coinid"
+
+def get_cold_key_signature(
+        message_to_sign: bytes32,
+        validator_index: int,
+        validator_pubkey: G1Element,
+        use_debug_method: bool
+):
+    click.echo(f"Message to sign: {message_to_sign.hex()}")
+    click.echo(f"Your validator index: {validator_index}")
+
+    if use_debug_method:
+        # this was the previous mechanism
+        # since then, cold keys moved to hardware wallets!
+        mnemo = input("To sign, input your 12-word cold mnemonic: ")
+        sk = mnemonic_to_validator_pk(mnemo.strip())
+        pk = sk.get_g1()
+        if pk.to_bytes() != validator_pubkey.to_bytes():
+            click.echo("Wrong cold key :(")
+            return
+        sig = AugSchemeMPL.sign(sk, message_to_sign)
+        click.echo(f"Signature: {validator_index}-{bytes(sig).hex()}")
+        return
+
+    print(f"Validator public key: {validator_pubkey.to_bytes().hex()}")
+
+    validator_ph = puzzle_for_pk(validator_pubkey).get_tree_hash()
+    print(f"Validator puzzle hash: {validator_ph.hex()}")
+    validator_address = encode_puzzle_hash(
+        validator_ph, "xch"
+    )
+    print(f"Validator address: {validator_address}")
+    j = {
+        "validator_index": validator_index,
+        "address": validator_address,
+        "message": "0x" + message_to_sign.hex(),
+        "bridge": True
+    }
+    j_str = json.dumps(j)
+    click.echo(f"QR code data: {j_str}")
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(j_str)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+    img.save("qr.png")
+    # qr.print_tty()
+    click.echo("QR code saved to qr.png")
+
 
 async def get_latest_portal_coin_data(node: FullNodeRpcClient) -> Tuple[
     CoinSpend,

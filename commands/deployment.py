@@ -269,35 +269,7 @@ async def securely_launch_singleton(
 
 # chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
 @deployment.command()
-@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
-@async_func
-async def launch_xch_multisig(offer):
-    if offer == "help":
-        click.echo("Oops, you forgot --offer!")
-        click.echo('chia rpc wallet create_offer_for_ids \'{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}\'')
-        return
-    offer = Offer.from_bech32(offer)
-
-    threshold = get_config_item(["xch", "multisig_threshold"])
-    pks = get_config_item(["xch", "multisig_keys"])
-    pks = [G1Element.from_bytes(bytes.fromhex(pk)) for pk in pks]
-    multisig_inner_puzzle = get_multisig_inner_puzzle(pks, threshold)
-
-    def get_multisig_inner_puzzle_pls(launcher_id: bytes32):
-        return multisig_inner_puzzle
-    
-    launcher_id, _ = await securely_launch_singleton(
-        offer,
-        get_multisig_inner_puzzle_pls,
-        [("yep", "multisig")]
-    )
-    p2_puzzle_hash = pay_to_singleton_puzzle(launcher_id).get_tree_hash()
-    click.echo(f"One last thing - p2_multisig puzzle (bridging ph) is {p2_puzzle_hash.hex()}")
-
-
-# chia rpc wallet create_offer_for_ids '{"offer":{"1":-1},"fee":4200000000,"driver_dict":{},"validate_only":false}'
-@deployment.command()
-@click.option('--offer', default="help", help='Offer to build a multisig from (must offer  exactly 1 mojo + include min network fee)')
+@click.option('--offer', default="help", help='Offer to build the portal from (must offer exactly 1 mojo + include min network fee)')
 @async_func
 async def launch_xch_portal(offer):
     if offer == "help":
@@ -328,21 +300,16 @@ async def launch_xch_portal(offer):
 @deployment.command()
 @click.option('--other-chain', required=True, help='Other blockchain config entry key (e.g., eth/bse)')
 def get_xch_info(other_chain: str):
-    multisig_launcher_id = bytes.fromhex(get_config_item(["xch", "multisig_launcher_id"]))
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
     portal_threshold = get_config_item(["xch", "portal_threshold"])
 
-    p2_multisig = pay_to_singleton_puzzle(multisig_launcher_id).get_tree_hash()
-
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
-        p2_multisig,
         other_chain.encode(),
         bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
-        p2_multisig,
         other_chain.encode(),
         bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
     )
