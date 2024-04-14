@@ -22,12 +22,11 @@ import json
 
 from tests.utils import *
 from drivers.wrapped_assets import *
-from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
+from drivers.portal import get_message_coin_puzzle, get_message_coin_solution, BRIDGING_PUZZLE_HASH, BRIDGING_PUZZLE
 
 NONCE = 1337
 SOURCE_CHAIN = b'eth'
 SOURCE = to_eth_address("eth_token_master")
-BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
@@ -74,7 +73,7 @@ class TestWrappedAssets:
         await wait_for_coin(node, portal)
 
         # 2. Create message coin
-        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, BRIDGING_PUZZLE_HASH, SOURCE_CHAIN, SOURCE)
+        minter_puzzle = get_cat_minter_puzzle(portal_launcher_id, SOURCE_CHAIN, SOURCE)
         minter_puzzle_hash = minter_puzzle.get_tree_hash()
 
         receiver_puzzle: Program = one_puzzle
@@ -167,7 +166,6 @@ class TestWrappedAssets:
         # 4. Spend freshly-minted CAT coin
         wrapped_asset_tail = get_wrapped_tail(
             portal_launcher_id,
-            BRIDGING_PUZZLE_HASH,
             SOURCE_CHAIN,
             SOURCE,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
@@ -225,7 +223,6 @@ class TestWrappedAssets:
 
         # 5. Burn CAT coin
         burner_puzzle = get_cat_burner_puzzle(
-            BRIDGING_PUZZLE_HASH,
             SOURCE_CHAIN,
             SOURCE
         )
@@ -237,7 +234,6 @@ class TestWrappedAssets:
         await wait_for_coin(node, burner_coin)
 
         cat_burn_inner_puzzle = get_cat_burn_inner_puzzle(
-            BRIDGING_PUZZLE_HASH,
             SOURCE_CHAIN,
             SOURCE,
             SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
@@ -314,22 +310,27 @@ class TestWrappedAssets:
             burner_solution
         )
 
+        # 6. Spend bridging coin
+        bridging_coin = Coin(
+            burner_coin.name(),
+            BRIDGING_PUZZLE_HASH,
+            1
+        )
+        bridging_solution = Program.to([1])
+
+        bridging_coin_spend = CoinSpend(
+            bridging_coin,
+            BRIDGING_PUZZLE,
+            bridging_solution
+        )
+
         burn_spend_bundle = SpendBundle(
-            [one_cat_spend, last_cat_spend, burner_spend],
+            [one_cat_spend, last_cat_spend, burner_spend, bridging_coin_spend],
             AugSchemeMPL.aggregate([])
         )
 
         await node.push_tx(burn_spend_bundle)
         await wait_for_coin(node, burner_coin, also_wait_for_spent=True)
 
-        # 6. Check message was created
-        conditions_dict = conditions_dict_for_solution(
-            burner_spend.puzzle_reveal,
-            burner_spend.solution,
-            INFINITE_COST
-        )
-        assert len(conditions_dict[ConditionOpcode.CREATE_COIN]) == 1
-
-        created_coin = conditions_dict[ConditionOpcode.CREATE_COIN][0]
-        assert created_coin.vars[0] == BRIDGING_PUZZLE_HASH
-        assert created_coin.vars[1] == b'\x01'
+        # 7. Check message was created
+        await wait_for_coin(node, bridging_coin, also_wait_for_spent=True)

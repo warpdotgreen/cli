@@ -42,7 +42,7 @@ def get_cat_minter_puzzle(
     CAT_MINT_AND_PAYOUT_MOD_HASH,
     raw_hash([
       b'\x01',
-      get_cat_burner_puzzle(BRIDGING_PUZZLE_HASH, source_chain, source).get_tree_hash()
+      get_cat_burner_puzzle(source_chain, source).get_tree_hash()
     ]), # CAT_BURNER_PUZZLE_HASH_HASH = (sha256 1 CAT_BURNER_PUZZLE_HASH_HASH)
     BURN_INNER_PUZZLE_MOD_HASH,
     source_chain,
@@ -62,7 +62,7 @@ def get_cat_burn_inner_puzzle_first_curry(
     source_chain_token_contract_address: bytes,
 ) -> Program:
   return BURN_INNER_PUZZLE_MOD.curry(
-    get_cat_burner_puzzle(BRIDGING_PUZZLE_HASH, destination_chain, destination).get_tree_hash(),
+    get_cat_burner_puzzle(destination_chain, destination).get_tree_hash(),
     source_chain_token_contract_address
   )
 
@@ -74,7 +74,6 @@ def get_cat_burn_inner_puzzle(
     bridge_fee: int
 ) -> Program:
   return get_cat_burn_inner_puzzle_first_curry(
-    BRIDGING_PUZZLE_HASH,
     destination_chain,
     destination,
     source_chain_token_contract_address
