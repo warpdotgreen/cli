@@ -53,9 +53,11 @@ def forward_request(endpoint):
         data = request.get_data()
         response = requests.post(url, headers=headers, data=data, cert=(CERT_PATH, KEY_PATH), verify=False)
     else:
-        response = requests.get(url, headers=headers, cert=(CERT_PATH, KEY_PATH), verify=False)
+        data = "{}"
+
+    response = requests.post(url, headers=headers, data=data, cert=(CERT_PATH, KEY_PATH), verify=False)
 
     return jsonify(json.loads(response.text))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=os.environ.get("PORT", 5000))
