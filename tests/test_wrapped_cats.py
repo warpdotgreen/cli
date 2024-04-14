@@ -471,10 +471,14 @@ class TestWrappedCATs:
 
         # 5.4 Spend the vault coins
         total_amount = sum([vault_coin.coin.amount for vault_coin in vault_coins])
-        lead_coin_program = Program.to((1, [
+        cond_list = [
             [ConditionOpcode.CREATE_COIN, receiver_puzzle_hash, BRIDGED_ASSET_AMOUNT, [receiver_puzzle_hash]],
-            [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
-        ]))
+        ]
+        if total_amount != BRIDGED_ASSET_AMOUNT:
+            cond_list.append(
+                [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
+            )
+        lead_coin_program = Program.to((1, cond_list))
 
         if with_xch:
             for i, vault_coin in enumerate(vault_coins):

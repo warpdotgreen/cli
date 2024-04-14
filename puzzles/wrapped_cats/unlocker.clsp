@@ -79,7 +79,7 @@
               (if (= locked_coin_amount remaining_amount)
                 ()
                 ; else
-                (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount)))
+                (list (list CREATE_COIN vault_inner_puzzle_hash (- locked_coin_amount remaining_amount))))
             )
           )
         )
