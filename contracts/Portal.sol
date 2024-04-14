@@ -66,6 +66,9 @@ contract Portal is Initializable, OwnableUpgradeable {
         require(msg.value == messageFee, "!fee");
         ethNonce += 1;
 
+        (bool success, ) = block.coinbase.call{value: msg.value}(new bytes(0));
+        require(success, "!fee");
+
         emit MessageSent(
             bytes32(ethNonce),
             msg.sender,
