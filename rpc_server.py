@@ -21,9 +21,32 @@ rpc_port = os.environ.get("CHIA_RPC_PORT", 8555)
 
 RPC_URL = f'https://localhost:{rpc_port}'
 
+WHITELIST = [
+    "get_blockchain_state",
+    "get_block_record",
+    "get_block_record_by_height",
+    "get_coin_records_by_names",
+    "get_coin_records_by_parent_ids",
+    "get_coin_records_by_puzzle_hash",
+    "get_coin_records_by_puzzle_hashes",
+    "get_coin_record_by_name",
+    "get_fee_estimate",
+    "get_mempool_item_by_tx_id",
+    "get_mempool_items_by_coin_name",
+    "get_network_info",
+    "get_puzzle_and_solution",
+    "get_routes",
+    "healthz",
+    "push_tx"
+]
+
 @app.route('/<endpoint>', methods=['GET', 'POST'])
 def forward_request(endpoint):
     url = f"{RPC_URL}/{endpoint}"
+
+    if endpoint not in WHITELIST:
+        return jsonify({"error": "Endpoint not allowed"}), 403
+
     headers = {'Content-Type': 'application/json'}
 
     if request.method == 'POST':
