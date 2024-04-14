@@ -16,6 +16,9 @@ MESSAGE_COIN_MOD = load_clvm_hex("puzzles/message_coin.clsp")
 PORTAL_RECEIVER_MOD = load_clvm_hex("puzzles/portal_receiver.clsp")
 REKEY_PORTAL_MOD = load_clvm_hex("puzzles/rekey_portal.clsp")
 
+BRIDGING_PUZZLE = load_clvm_hex("puzzles/bridging_puzzle.clsp")
+BRIDGING_PUZZLE_HASH = BRIDGING_PUZZLE.get_tree_hash()
+
 def get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id: bytes32) -> Program:
     return MESSAGE_COIN_MOD.curry(
        (SINGLETON_MOD_HASH, (portal_receiver_launcher_id, SINGLETON_LAUNCHER_HASH))

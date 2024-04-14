@@ -10,6 +10,7 @@ from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
 from chia.types.coin_record import CoinRecord
 from commands.followers.sig import encode_signature, decode_signature, send_signature
+from drivers.portal import BRIDGING_PUZZLE_HASH
 from typing import Tuple
 import logging
 import asyncio
@@ -25,7 +26,6 @@ class ChiaFollower:
     sign_min_height: int
     unspent_portal_id: bytes
     unspent_portal_id_lock: asyncio.Lock
-    bridging_puzzle_hash: bytes
     per_message_fee: bytes
 
     def __init__(self, chain: str):
@@ -35,7 +35,6 @@ class ChiaFollower:
         self.sign_min_height = int(get_config_item([chain, "sign_min_height"]))
         self.unspent_portal_id = None
         self.unspent_portal_id_lock = asyncio.Lock()
-        self.bridging_puzzle_hash = bytes.fromhex(get_config_item([chain, "bridging_ph"]))
         self.per_message_fee = int(get_config_item([chain, "per_message_fee"]))
 
 
@@ -425,7 +424,7 @@ class ChiaFollower:
                     created_ph = condition.at('rf').as_atom()
                     created_amount = condition.at('rrf').as_int()
 
-                    if created_ph == self.bridging_puzzle_hash and created_amount >= self.per_message_fee:
+                    if created_ph == BRIDGING_PUZZLE_HASH and created_amount >= self.per_message_fee:
                         coin = Coin(parent_record.coin.name(), created_ph, created_amount)
                         try:
                             memo = condition.at('rrrf')
@@ -472,7 +471,7 @@ class ChiaFollower:
                 last_synced_height = last_synced_height[0]
 
             unfiltered_coin_records = await node.get_coin_records_by_puzzle_hash(
-                self.bridging_puzzle_hash,
+                BRIDGING_PUZZLE_HASH,
                 include_spent_coins=True,
                 start_height=last_synced_height - 1
             )

@@ -153,7 +153,7 @@ describe("Portal", function () {
     describe("withdrawEther", function () {
         it("Should allow owner to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
-            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await owner.sendTransaction({ to: portal.target, value: amount });
             await expect(portal.connect(owner).withdrawEther([signer1.address], [amount]))
                 .to.changeEtherBalances([portal, signer1], [-amount, amount]);
         });
@@ -162,7 +162,7 @@ describe("Portal", function () {
             const amount1 = ethers.parseEther("0.002");
             const amount2 = ethers.parseEther("0.004");
             const amount3 = ethers.parseEther("0.004");
-            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await owner.sendTransaction({ to: portal.target, value: amount1 + amount2 + amount3 });
             await expect(portal.connect(owner).withdrawEther(
                 [signer1.address, signer2.address, signer3.address],
                 [amount1, amount2, amount3])

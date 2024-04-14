@@ -25,12 +25,11 @@ import json
 
 from tests.utils import *
 from drivers.wrapped_cats import *
-from drivers.portal import get_message_coin_puzzle, get_message_coin_solution
+from drivers.portal import get_message_coin_puzzle, get_message_coin_solution, BRIDGING_PUZZLE_HASH, BRIDGING_PUZZLE
 
 NONCE = b'\x31\x33\x33\x37'
 SOURCE_CHAIN = b'eth'
 SOURCE = to_eth_address("just_a_constract")
-BRIDGING_PUZZLE_HASH = encode_bytes32("bridge")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
@@ -156,7 +155,6 @@ class TestWrappedCATs:
             SOURCE_CHAIN,
             SOURCE,
             portal_launcher_id,
-            BRIDGING_PUZZLE_HASH,
             asset_id
         )
         locker_puzzle_hash = locker_puzzle.get_tree_hash()
@@ -199,7 +197,22 @@ class TestWrappedCATs:
         )
         coin_spends.append(locker_coin_spend)
 
-        # 3.4 Spent the CAT source coin
+        # 3.4 Spend bridging coin
+        bridging_coin = Coin(
+            locker_coin.name(),
+            BRIDGING_PUZZLE_HASH,
+            BRIDGING_FEE
+        )
+        bridging_solution = Program.to([ BRIDGING_FEE ])
+
+        bridging_coin_spend = CoinSpend(
+            bridging_coin,
+            BRIDGING_PUZZLE,
+            bridging_solution
+        )
+        coin_spends.append(bridging_coin_spend)
+
+        # 3.5 Spent the CAT source coin
         if not with_xch:
             cat_source_coin_inner_solution = Program.to([
                 [locker_coin.name(), [vault_inner_puzzle_hash, BRIDGED_ASSET_AMOUNT]]
@@ -471,10 +484,14 @@ class TestWrappedCATs:
 
         # 5.4 Spend the vault coins
         total_amount = sum([vault_coin.coin.amount for vault_coin in vault_coins])
-        lead_coin_program = Program.to((1, [
+        cond_list = [
             [ConditionOpcode.CREATE_COIN, receiver_puzzle_hash, BRIDGED_ASSET_AMOUNT, [receiver_puzzle_hash]],
-            [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
-        ]))
+        ]
+        if total_amount != BRIDGED_ASSET_AMOUNT:
+            cond_list.append(
+                [ConditionOpcode.CREATE_COIN, vault_inner_puzzle_hash, total_amount - BRIDGED_ASSET_AMOUNT]
+            )
+        lead_coin_program = Program.to((1, cond_list))
 
         if with_xch:
             for i, vault_coin in enumerate(vault_coins):
