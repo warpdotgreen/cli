@@ -224,7 +224,7 @@ wethTokens.forEach(wethToken => {
         });
 
         describe("bridgeEtherToChia", function () {
-            it("Should correctly bridge ETH and deduct fees", async function () {
+            it("Should correctly bridge ETH and deduct tips", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const ethToSend = ethers.parseEther("1");
                 const expectedCATs = ethToSend / wethToken.wethToEthRatio;
@@ -298,7 +298,7 @@ wethTokens.forEach(wethToken => {
                 ownerSignature = ethers.Signature.from(ownerSignature);
             });
 
-            it("Should bridge tokens with permit and deduct fees", async function () {
+            it("Should bridge tokens with permit and deduct tips", async function () {
                 const tx = erc20Bridge.connect(owner).bridgeToChiaWithPermit(
                     mockERC20.target,
                     receiver,

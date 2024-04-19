@@ -70,7 +70,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
         click.echo("Will also deploy mETH contract! :)")
 
     click.echo("Constructing txes based on config...")
-    wei_per_message_fee = get_config_item([chain, "wei_per_message_fee"])
+    wei_per_message_toll = get_config_item([chain, "wei_per_message_toll"])
 
     w3 = Web3(Web3.HTTPProvider(get_config_item([chain, "rpc_url"])))
 
@@ -114,7 +114,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
         fn_name='initialize',
         args=[
             Web3.to_bytes(hexstr=deployer_safe_address),
-            wei_per_message_fee,
+            wei_per_message_toll,
             [Web3.to_bytes(hexstr=addr) for addr in get_config_item([chain, "hot_addresses"])],
             get_config_item([chain, "portal_threshold"])
         ]

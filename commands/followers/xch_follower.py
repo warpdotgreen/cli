@@ -26,7 +26,7 @@ class ChiaFollower:
     sign_min_height: int
     unspent_portal_id: bytes
     unspent_portal_id_lock: asyncio.Lock
-    per_message_fee: bytes
+    per_message_toll: bytes
 
     def __init__(self, chain: str):
         self.chain = chain
@@ -35,7 +35,7 @@ class ChiaFollower:
         self.sign_min_height = int(get_config_item([chain, "sign_min_height"]))
         self.unspent_portal_id = None
         self.unspent_portal_id_lock = asyncio.Lock()
-        self.per_message_fee = int(get_config_item([chain, "per_message_fee"]))
+        self.per_message_toll = int(get_config_item([chain, "per_message_toll"]))
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -424,7 +424,7 @@ class ChiaFollower:
                     created_ph = condition.at('rf').as_atom()
                     created_amount = condition.at('rrf').as_int()
 
-                    if created_ph == BRIDGING_PUZZLE_HASH and created_amount >= self.per_message_fee:
+                    if created_ph == BRIDGING_PUZZLE_HASH and created_amount >= self.per_message_toll:
                         coin = Coin(parent_record.coin.name(), created_ph, created_amount)
                         try:
                             memo = condition.at('rrrf')
@@ -490,7 +490,7 @@ class ChiaFollower:
                     if nonce in skip_coin_ids:
                         continue
 
-                    if coin_record.coin.amount < self.per_message_fee:
+                    if coin_record.coin.amount < self.per_message_toll:
                         skip_coin_ids.append(nonce)
                         continue
 
