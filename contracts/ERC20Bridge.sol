@@ -97,7 +97,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bytes32 _receiver,
         uint256 _mojoAmount // on Chia
     ) public payable {
-        require(msg.value == IPortal(portal).messageFee(), "!fee");
+        require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         _handleBridging(
             _assetContract,
@@ -110,16 +110,16 @@ contract ERC20Bridge is IPortalMessageReceiver {
     }
 
     function bridgeEtherToChia(bytes32 _receiver) public payable {
-        uint256 messageFee = IPortal(portal).messageFee();
+        uint256 messageToll = IPortal(portal).messageToll();
 
-        uint256 amountAfterFee = msg.value - messageFee;
+        uint256 amountAfterToll = msg.value - messageToll;
         require(
-            amountAfterFee >= wethToEthRatio &&
-                amountAfterFee % wethToEthRatio == 0,
+            amountAfterToll >= wethToEthRatio &&
+                amountAfterToll % wethToEthRatio == 0,
             "!amnt"
         );
 
-        IWETH(iweth).deposit{value: amountAfterFee}();
+        IWETH(iweth).deposit{value: amountAfterToll}();
 
         uint256 wethToMojosFactor = 10 ** (ERC20Decimals(iweth).decimals() - 3);
 
@@ -127,8 +127,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
             iweth,
             false,
             _receiver,
-            amountAfterFee / wethToEthRatio / wethToMojosFactor,
-            messageFee,
+            amountAfterToll / wethToEthRatio / wethToMojosFactor,
+            messageToll,
             wethToMojosFactor
         );
     }
@@ -142,7 +142,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bytes32 _r,
         bytes32 _s
     ) public payable {
-        require(msg.value == IPortal(portal).messageFee(), "!fee");
+        require(msg.value == IPortal(portal).messageToll(), "!toll");
         uint256 factor = 10 ** (ERC20Decimals(_assetContract).decimals() - 3);
 
         IERC20Permit(_assetContract).permit(
@@ -170,7 +170,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bool _transferAsset,
         bytes32 _receiver,
         uint256 _amount, // WARNING: in CAT mojos
-        uint256 _messageFee,
+        uint256 _messageToll,
         uint256 _mojoToTokenFactor
     ) internal {
         uint256 transferTip = (_amount * tip) / 10000;
@@ -194,7 +194,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
             transferTip * _mojoToTokenFactor
         );
 
-        IPortal(portal).sendMessage{value: _messageFee}(
+        IPortal(portal).sendMessage{value: _messageToll}(
             otherChain,
             mintPuzzleHash,
             message

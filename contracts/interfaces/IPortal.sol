@@ -7,13 +7,13 @@ interface IPortal {
     event MessageSent(
         bytes32 indexed nonce,
         bytes3 destination_chain,
-        bytes32 destination_info,
+        bytes32 destination,
         bytes32[] contents
     );
 
     function ethNonce() external returns (uint256);
 
-    function messageFee() external returns (uint256);
+    function messageToll() external returns (uint256);
 
     function sendMessage(
         bytes3 _destination_chain,

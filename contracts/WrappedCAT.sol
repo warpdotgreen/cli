@@ -69,7 +69,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     }
 
     function bridgeBack(bytes32 _receiver, uint256 _mojoAmount) public payable {
-        require(msg.value == IPortal(portal).messageFee(), "!fee");
+        require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         uint256 transferTip = (_mojoAmount * tip) / 10000;
         _burn(msg.sender, _mojoAmount * mojoToTokenRatio);
