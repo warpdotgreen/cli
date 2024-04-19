@@ -29,7 +29,7 @@ wethTokens.forEach(wethToken => {
         let portalAddress: string;
         let otherChain = "0x786368";
         
-        const messageFee = ethers.parseEther("0.001");
+        const messageToll = ethers.parseEther("0.001");
         const tip = 30n; // 0.3%
         const chiaToERC20AmountFactor = 10n ** BigInt(token.decimals - 3); // CATs have 3 decimals, 18 - 3 = 15
         const nonce1 = ethers.encodeBytes32String("nonce1");
@@ -47,7 +47,7 @@ wethTokens.forEach(wethToken => {
 
             const PortalFactory = await ethers.getContractFactory("Portal");
             portal = await PortalFactory.deploy();
-            await portal.initialize(owner.address, messageFee, [ signer.address ], 1);
+            await portal.initialize(owner.address, messageToll, [ signer.address ], 1);
             portalAddress = portal.target as string;
 
             const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
@@ -85,7 +85,7 @@ wethTokens.forEach(wethToken => {
                 await mockERC20.connect(user).approve(erc20Bridge.target, chiaAmount * chiaToERC20AmountFactor);
 
                 // https://hardhat.org/hardhat-runner/plugins/nomicfoundation-hardhat-chai-matchers#chaining-async-matchers
-                const tx = erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageFee });
+                const tx = erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, chiaAmount, { value: messageToll });
                 await expect(tx).to.changeTokenBalances(
                       mockERC20,
                       [user, erc20Bridge.target, portal.target],
@@ -110,26 +110,26 @@ wethTokens.forEach(wethToken => {
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee })
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageToll })
                 ).to.be.reverted;
             });
 
-            it("Should fail if greater message fee is given", async function () {
+            it("Should fail if greater message toll is given", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee * 2n})
-                ).to.be.revertedWith("!fee");
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageToll * 2n})
+                ).to.be.revertedWith("!toll");
             });
 
-            it("Should fail if lower message fee is given", async function () {
+            it("Should fail if lower message toll is given", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 const amount = ethers.parseUnits("10", token.decimals);
 
                 await expect(
-                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageFee / 2n})
-                ).to.be.revertedWith("!fee");
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageToll / 2n})
+                ).to.be.revertedWith("!toll");
             });
         });
 
@@ -230,7 +230,7 @@ wethTokens.forEach(wethToken => {
                 const expectedCATs = ethToSend / wethToken.wethToEthRatio;
                 let expectedTipInCAT = expectedCATs * tip / 10000n;
 
-                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageFee });
+                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageToll });
                 await expect(tx).to.changeTokenBalances(
                     weth,
                     [erc20Bridge, portal],
@@ -241,7 +241,7 @@ wethTokens.forEach(wethToken => {
 
             it("Should fail if msg.value is too low", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
-                var ethToSend = messageFee * 2n / 3n;
+                var ethToSend = messageToll * 2n / 3n;
                 
                 await expect(
                     erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
@@ -305,7 +305,7 @@ wethTokens.forEach(wethToken => {
                     amount / chiaToERC20AmountFactor,
                     deadline,
                     ownerSignature.v, ownerSignature.r, ownerSignature.s,
-                    { value: messageFee }
+                    { value: messageToll }
                 );
 
                 const tipAmount = amount * tip / 10000n;
@@ -324,7 +324,7 @@ wethTokens.forEach(wethToken => {
                     amount / chiaToERC20AmountFactor,
                     deadline,
                     ownerSignature.v, ownerSignature.r, ownerSignature.s,
-                    { value: messageFee }
+                    { value: messageToll }
                 );
             
 
@@ -335,7 +335,7 @@ wethTokens.forEach(wethToken => {
                         amount / chiaToERC20AmountFactor,
                         deadline,
                         ownerSignature.v, ownerSignature.r, ownerSignature.s,
-                        { value: messageFee }
+                        { value: messageToll }
                     )
                 ).to.be.reverted;
             });

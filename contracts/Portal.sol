@@ -13,7 +13,7 @@ contract Portal is Initializable, OwnableUpgradeable {
     uint256 public ethNonce = 0;
     mapping(bytes32 => bool) private usedNonces;
 
-    uint256 public messageFee;
+    uint256 public messageToll;
 
     mapping(address => bool) public isSigner;
     uint256 public signatureThreshold;
@@ -38,17 +38,17 @@ contract Portal is Initializable, OwnableUpgradeable {
 
     event SignagtureThresholdUpdated(uint256 newThreshold);
 
-    event MessageFeeUpdated(uint256 newFee);
+    event MessageTollUpdated(uint256 newFee);
 
     function initialize(
         address _coldMultisig,
-        uint256 _messageFee,
-        address[] memory _signers,
+        uint256 _messageToll,
+        address[] calldata _signers,
         uint256 _signatureThreshold
-    ) public initializer {
+    ) external initializer {
         __Ownable_init(_coldMultisig);
 
-        messageFee = _messageFee;
+        messageToll = _messageToll;
         signatureThreshold = _signatureThreshold;
 
         for (uint256 i = 0; i < _signers.length; i++) {
@@ -61,13 +61,13 @@ contract Portal is Initializable, OwnableUpgradeable {
     function sendMessage(
         bytes3 _destination_chain,
         bytes32 _destination,
-        bytes32[] memory _contents
-    ) public payable {
-        require(msg.value == messageFee, "!fee");
+        bytes32[] calldata _contents
+    ) external payable {
+        require(msg.value == messageToll, "!toll");
         ethNonce += 1;
 
         (bool success, ) = block.coinbase.call{value: msg.value}(new bytes(0));
-        require(success, "!fee");
+        require(success, "!toll");
 
         emit MessageSent(
             bytes32(ethNonce),
@@ -83,10 +83,10 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes3 _source_chain,
         bytes32 _source,
         address _destination,
-        bytes32[] memory _contents,
-        bytes memory sigs
-    ) public {
-        require(sigs.length == signatureThreshold * 65, "!len");
+        bytes32[] calldata _contents,
+        bytes memory _sigs
+    ) external {
+        require(_sigs.length == signatureThreshold * 65, "!len");
 
         bytes32 messageHash = keccak256(
             abi.encodePacked(
@@ -112,9 +112,9 @@ contract Portal is Initializable, OwnableUpgradeable {
 
             assembly {
                 let ib := add(mul(65, i), 32)
-                v := byte(0, mload(add(sigs, ib)))
-                r := mload(add(sigs, add(1, ib)))
-                s := mload(add(sigs, add(33, ib)))
+                v := byte(0, mload(add(_sigs, ib)))
+                r := mload(add(_sigs, add(1, ib)))
+                s := mload(add(_sigs, add(33, ib)))
             }
 
             address signer = ecrecover(messageHash, v, r, s);
@@ -143,10 +143,10 @@ contract Portal is Initializable, OwnableUpgradeable {
         );
     }
 
-    function withdrawEther(
-        address[] memory _receivers,
-        uint256[] memory _amounts
-    ) public onlyOwner {
+    function rescueEther(
+        address[] calldata _receivers,
+        uint256[] calldata _amounts
+    ) external onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             payable(_receivers[i]).transfer(_amounts[i]);
         }
@@ -154,9 +154,9 @@ contract Portal is Initializable, OwnableUpgradeable {
 
     function rescueAsset(
         address _assetContract,
-        address[] memory _receivers,
-        uint256[] memory _amounts
-    ) public onlyOwner {
+        address[] calldata _receivers,
+        uint256[] calldata _amounts
+    ) external onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             SafeERC20.safeTransfer(
                 IERC20(_assetContract),
@@ -166,24 +166,24 @@ contract Portal is Initializable, OwnableUpgradeable {
         }
     }
 
-    function updateSigner(address _signer, bool _newValue) public onlyOwner {
+    function updateSigner(address _signer, bool _newValue) external onlyOwner {
         require(isSigner[_signer] != _newValue, "!diff");
         isSigner[_signer] = _newValue;
 
         emit SignerUpdated(_signer, _newValue);
     }
 
-    function updateSignatureThreshold(uint256 _newValue) public onlyOwner {
+    function updateSignatureThreshold(uint256 _newValue) external onlyOwner {
         require(signatureThreshold != _newValue && _newValue > 0, "!val");
         signatureThreshold = _newValue;
 
         emit SignagtureThresholdUpdated(_newValue);
     }
 
-    function updateMessageFee(uint256 _newValue) public onlyOwner {
-        require(messageFee != _newValue, "!diff");
-        messageFee = _newValue;
+    function updateMessageToll(uint256 _newValue) external onlyOwner {
+        require(messageToll != _newValue, "!diff");
+        messageToll = _newValue;
 
-        emit MessageFeeUpdated(_newValue);
+        emit MessageTollUpdated(_newValue);
     }
 }

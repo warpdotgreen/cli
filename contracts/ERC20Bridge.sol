@@ -15,10 +15,10 @@ interface ERC20Decimals {
 }
 
 contract ERC20Bridge is IPortalMessageReceiver {
-    uint256 public immutable tip; // (tip / 10000) % tip
+    uint16 public immutable tip; // (tip / 10000) % tip
     address public immutable portal;
     address public immutable iweth;
-    uint256 public immutable wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
+    uint64 public immutable wethToEthRatio; // in wei - how much wei one 'wei' of WETH translates to
     // for example: 1000 milliETH = 1 ETH, so 10^(3+3) wei milliETH (3 decimals) translates to 10^18 wei -> ratio is 10^12
     // amount_weth * wethToEthRatio = eth amount to pay out
     bytes3 public immutable otherChain;
@@ -27,10 +27,10 @@ contract ERC20Bridge is IPortalMessageReceiver {
     bytes32 public mintPuzzleHash;
 
     constructor(
-        uint256 _tip,
+        uint16 _tip,
         address _portal,
         address _iweth,
-        uint256 _wethToEthRatio,
+        uint64 _wethToEthRatio,
         bytes3 _otherChain
     ) {
         tip = _tip;
@@ -47,7 +47,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
     function initializePuzzleHashes(
         bytes32 _burnPuzzleHash,
         bytes32 _mintPuzzleHash
-    ) public {
+    ) external {
         require(
             burnPuzzleHash == bytes32(0) && mintPuzzleHash == bytes32(0),
             "nope"
@@ -60,8 +60,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bytes32 /* _nonce */,
         bytes3 _source_chain,
         bytes32 _source,
-        bytes32[] memory _contents
-    ) public {
+        bytes32[] calldata _contents
+    ) external {
         require(
             msg.sender == portal &&
                 _source == burnPuzzleHash &&
@@ -96,8 +96,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
         address _assetContract,
         bytes32 _receiver,
         uint256 _mojoAmount // on Chia
-    ) public payable {
-        require(msg.value == IPortal(portal).messageFee(), "!fee");
+    ) external payable {
+        require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         _handleBridging(
             _assetContract,
@@ -109,17 +109,17 @@ contract ERC20Bridge is IPortalMessageReceiver {
         );
     }
 
-    function bridgeEtherToChia(bytes32 _receiver) public payable {
-        uint256 messageFee = IPortal(portal).messageFee();
+    function bridgeEtherToChia(bytes32 _receiver) external payable {
+        uint256 messageToll = IPortal(portal).messageToll();
 
-        uint256 amountAfterFee = msg.value - messageFee;
+        uint256 amountAfterToll = msg.value - messageToll;
         require(
-            amountAfterFee >= wethToEthRatio &&
-                amountAfterFee % wethToEthRatio == 0,
+            amountAfterToll >= wethToEthRatio &&
+                amountAfterToll % wethToEthRatio == 0,
             "!amnt"
         );
 
-        IWETH(iweth).deposit{value: amountAfterFee}();
+        IWETH(iweth).deposit{value: amountAfterToll}();
 
         uint256 wethToMojosFactor = 10 ** (ERC20Decimals(iweth).decimals() - 3);
 
@@ -127,8 +127,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
             iweth,
             false,
             _receiver,
-            amountAfterFee / wethToEthRatio / wethToMojosFactor,
-            messageFee,
+            amountAfterToll / wethToEthRatio / wethToMojosFactor,
+            messageToll,
             wethToMojosFactor
         );
     }
@@ -141,8 +141,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
         uint8 _v,
         bytes32 _r,
         bytes32 _s
-    ) public payable {
-        require(msg.value == IPortal(portal).messageFee(), "!fee");
+    ) external payable {
+        require(msg.value == IPortal(portal).messageToll(), "!toll");
         uint256 factor = 10 ** (ERC20Decimals(_assetContract).decimals() - 3);
 
         IERC20Permit(_assetContract).permit(
@@ -170,7 +170,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bool _transferAsset,
         bytes32 _receiver,
         uint256 _amount, // WARNING: in CAT mojos
-        uint256 _messageFee,
+        uint256 _messageToll,
         uint256 _mojoToTokenFactor
     ) internal {
         uint256 transferTip = (_amount * tip) / 10000;
@@ -194,7 +194,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
             transferTip * _mojoToTokenFactor
         );
 
-        IPortal(portal).sendMessage{value: _messageFee}(
+        IPortal(portal).sendMessage{value: _messageToll}(
             otherChain,
             mintPuzzleHash,
             message
