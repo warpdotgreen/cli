@@ -33,7 +33,7 @@ SOURCE = to_eth_address("just_a_constract")
 SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
-BRIDGING_FEE = 10 ** 9
+BRIDGING_TOLL = 10 ** 9
 BRIDGED_ASSET_AMOUNT1 = 1337000
 BRIDGED_ASSET_AMOUNT2 = 420000
 BRIDGED_ASSET_AMOUNT3 = 690000
@@ -66,7 +66,7 @@ class TestWrappedCATs:
         # 2. Generate offer to lock CATs/XCH
         offer_dict = {}
         offer_dict[cat_wallet_id] = 0
-        offer_dict[1] = -BRIDGING_FEE
+        offer_dict[1] = -BRIDGING_TOLL
         offer_dict[cat_wallet_id] -= BRIDGED_ASSET_AMOUNT
 
         offer: Offer
@@ -162,11 +162,11 @@ class TestWrappedCATs:
         locker_coin = Coin(
             xch_source_coin.name(),
             locker_puzzle_hash,
-            BRIDGING_FEE
+            BRIDGING_TOLL
         )
 
         notarized_payments = [
-            [xch_source_coin.name(), [locker_puzzle_hash, BRIDGING_FEE]]
+            [xch_source_coin.name(), [locker_puzzle_hash, BRIDGING_TOLL]]
         ]
         if with_xch:
             notarized_payments.append(
@@ -184,7 +184,7 @@ class TestWrappedCATs:
 
         # 3.3 Spend the locker coin
         locker_coin_solution = get_locker_solution(
-            BRIDGING_FEE,
+            BRIDGING_TOLL,
             locker_coin.name(),
             BRIDGED_ASSET_AMOUNT,
             ETH_RECEIVER
@@ -201,9 +201,9 @@ class TestWrappedCATs:
         bridging_coin = Coin(
             locker_coin.name(),
             BRIDGING_PUZZLE_HASH,
-            BRIDGING_FEE
+            BRIDGING_TOLL
         )
-        bridging_solution = Program.to([ BRIDGING_FEE ])
+        bridging_solution = Program.to([ BRIDGING_TOLL ])
 
         bridging_coin_spend = CoinSpend(
             bridging_coin,

@@ -71,7 +71,7 @@ def get_cat_burn_inner_puzzle(
     destination: bytes, # e.g., ETH token bridge
     source_chain_token_contract_address: bytes,
     target_receiver: bytes,
-    bridge_fee: int
+    bridge_toll: int
 ) -> Program:
   return get_cat_burn_inner_puzzle_first_curry(
     destination_chain,
@@ -79,7 +79,7 @@ def get_cat_burn_inner_puzzle(
     source_chain_token_contract_address
   ).curry(
     target_receiver,
-    bridge_fee
+    bridge_toll
   )
 
 def get_wrapped_tail(
