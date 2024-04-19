@@ -1,7 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Portal, PortalMessageReceiverMock } from "../typechain-types";
-import { BigNumberish } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 export async function getSig(
@@ -37,7 +36,7 @@ describe("Portal", function () {
     let mockReceiver: PortalMessageReceiverMock;
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
-    let messageFee: any;
+    let messageToll: any;
     let signer1: HardhatEthersSigner;
     let signer2: HardhatEthersSigner;
     let signer3: HardhatEthersSigner;
@@ -54,12 +53,12 @@ describe("Portal", function () {
 
     beforeEach(async function () {
         [user, owner, signer1, signer2, signer3] = await ethers.getSigners();
-        messageFee = ethers.parseEther("0.01");
+        messageToll = ethers.parseEther("0.01");
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
         await portal.initialize(
             owner.address,
-            messageFee,
+            messageToll,
             [signer1.address, signer2.address, signer3.address],
             2
         );
@@ -70,7 +69,7 @@ describe("Portal", function () {
     describe("Deployment", function () {
         it("Should set the right parameters", async function () {
             expect(await portal.owner()).to.equal(owner.address);
-            expect(await portal.messageFee()).to.equal(messageFee);
+            expect(await portal.messageToll()).to.equal(messageToll);
             expect(await portal.signatureThreshold()).to.equal(2);
             expect(await portal.isSigner(signer1.address)).to.be.true;
             expect(await portal.isSigner(signer2.address)).to.be.true;
@@ -85,7 +84,7 @@ describe("Portal", function () {
                         xchChain,
                         puzzleHash,
                         message,
-                        { value: messageFee }
+                        { value: messageToll }
                     ))
                 .to.emit(portal, "MessageSent")
                 .withArgs(
@@ -98,9 +97,14 @@ describe("Portal", function () {
             expect(await portal.ethNonce()).to.equal(1);
         });
 
-        it("Should fail if message fee is incorrect", async function () {
+        it("Should fail if message toll is not given", async function () {
+            await expect(portal.sendMessage(xchChain, puzzleHash, message, {value: messageToll - 1n}))
+                .to.be.revertedWith("!toll");
+        });
+
+        it("Should fail if message toll is incorrect", async function () {
             await expect(portal.sendMessage(xchChain, puzzleHash, message))
-                .to.be.revertedWith("!fee");
+                .to.be.revertedWith("!toll");
         });
     });
 
@@ -154,7 +158,7 @@ describe("Portal", function () {
         it("Should allow owner to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
             await owner.sendTransaction({ to: portal.target, value: amount });
-            await expect(portal.connect(owner).withdrawEther([signer1.address], [amount]))
+            await expect(portal.connect(owner).rescueEther([signer1.address], [amount]))
                 .to.changeEtherBalances([portal, signer1], [-amount, amount]);
         });
 
@@ -163,18 +167,18 @@ describe("Portal", function () {
             const amount2 = ethers.parseEther("0.004");
             const amount3 = ethers.parseEther("0.004");
             await owner.sendTransaction({ to: portal.target, value: amount1 + amount2 + amount3 });
-            await expect(portal.connect(owner).withdrawEther(
+            await expect(portal.connect(owner).rescueEther(
                 [signer1.address, signer2.address, signer3.address],
                 [amount1, amount2, amount3])
             ).to.changeEtherBalances(
                 [portal, signer1, signer2, signer3],
-                [-messageFee, amount1, amount2, amount3]
+                [-messageToll, amount1, amount2, amount3]
             );
         });
 
         it("Should fail if non-owner tries to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
-            await expect(portal.withdrawEther([user.address], [amount]))
+            await expect(portal.rescueEther([user.address], [amount]))
                 .to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
         });
     });
@@ -190,7 +194,7 @@ describe("Portal", function () {
 
         it("Should allow owner to withdraw", async function () {
             const amount = ethers.parseEther("0.01");
-            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageToll });
             await expect(portal.connect(owner).rescueAsset(erc20.target, [signer1.address], [amount]))
                 .to.changeTokenBalances(erc20, [portal, signer1], [-amount, amount]);
         });
@@ -199,7 +203,7 @@ describe("Portal", function () {
             const amount1 = ethers.parseEther("0.002");
             const amount2 = ethers.parseEther("0.004");
             const amount3 = ethers.parseEther("0.004");
-            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageFee });
+            await portal.connect(owner).sendMessage(xchChain, puzzleHash, message, { value: messageToll });
             await expect(portal.connect(owner).rescueAsset(
                 erc20.target,
                 [signer1.address, signer2.address, signer3.address],
@@ -207,7 +211,7 @@ describe("Portal", function () {
             ).to.changeTokenBalances(
                 erc20,
                 [portal, signer1, signer2, signer3],
-                [-messageFee, amount1, amount2, amount3]
+                [-messageToll, amount1, amount2, amount3]
             );
         });
 
@@ -268,25 +272,25 @@ describe("Portal", function () {
         });
     });
 
-    describe("updateMessageFee", function () {
-        it("Should allow owner to update the per-message fee", async function () {
-            await expect(portal.connect(owner).updateMessageFee(messageFee * 2n))
-                .to.emit(portal, "MessageFeeUpdated").withArgs(messageFee * 2n);
-            expect(await portal.messageFee()).to.equal(messageFee * 2n);
+    describe("updateMessageToll", function () {
+        it("Should allow owner to update the per-message toll", async function () {
+            await expect(portal.connect(owner).updateMessageToll(messageToll * 2n))
+                .to.emit(portal, "MessageTollUpdated").withArgs(messageToll * 2n);
+            expect(await portal.messageToll()).to.equal(messageToll * 2n);
         });
 
-        it("Should not allow non-owner to update per-message fee", async function () {
+        it("Should not allow non-owner to update per-message toll", async function () {
             await expect(
-                portal.updateMessageFee(messageFee * 2n)
+                portal.updateMessageToll(messageToll * 2n)
             ).to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
-            expect(await portal.messageFee()).to.equal(messageFee);
+            expect(await portal.messageToll()).to.equal(messageToll);
         });
 
         it("Should fail if value is already set to new value", async function () {
             await expect(
-                portal.connect(owner).updateMessageFee(messageFee)
+                portal.connect(owner).updateMessageToll(messageToll)
             ).to.be.revertedWith("!diff");
-            expect(await portal.messageFee()).to.equal(messageFee);
+            expect(await portal.messageToll()).to.equal(messageToll);
         });
     });
 });

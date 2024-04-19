@@ -15,7 +15,7 @@ describe("WrappedCAT", function () {
     let signer: HardhatEthersSigner;
     let otherChain = "0x786368";
     
-    const messageFee = ethers.parseEther("0.001");
+    const messageToll = ethers.parseEther("0.001");
     const tip = 30n; // 0.3%
     const chiaToERC20AmountFactor = 10n ** 15n; // CATs have 3 decimals, 18 - 3 = 15
     const nonce1 = ethers.encodeBytes32String("nonce1");
@@ -27,7 +27,7 @@ describe("WrappedCAT", function () {
 
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
-        await portal.initialize(owner.address, messageFee, [ signer.address ], 1);
+        await portal.initialize(owner.address, messageToll, [ signer.address ], 1);
 
         const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
         wrappedCAT = await WrappedCATFactory.deploy(
@@ -132,7 +132,7 @@ describe("WrappedCAT", function () {
             const tx = await wrappedCAT.connect(user).bridgeBack(
                 receiverPh,
                 amountToBridgeBackMojo,
-                { value: await portal.messageFee() }    
+                { value: await portal.messageToll() }    
             );
 
             expect(tx).to.emit(portal, "MessageSent")

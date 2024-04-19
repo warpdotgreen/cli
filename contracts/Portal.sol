@@ -63,7 +63,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32 _destination,
         bytes32[] memory _contents
     ) public payable {
-        require(msg.value == messageToll, "!fee");
+        require(msg.value == messageToll, "!toll");
         ethNonce += 1;
 
         (bool success, ) = block.coinbase.call{value: msg.value}(new bytes(0));
