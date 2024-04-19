@@ -1,6 +1,7 @@
 import functools
 from chia.util.config import load_config
 from commands.config import get_config_item
+from commands.http_full_node_rpc_client import HTTPFullNodeRpcClient
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 from chia.util.ints import uint16
 from pathlib import Path
@@ -17,7 +18,15 @@ def async_func(f):
     return update_wrapper(wrapper, f)
 
 async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
-    try:  
+    try:
+        try:
+            chia_url = get_config_item([chain_name, "chia_url"])
+            node_client = HTTPFullNodeRpcClient(chia_url)
+            await node_client.healthz()
+            return node_client
+        except Exception as e:
+            logging.error("Failed to get node using specified url", exc_info=True)
+            pass  
         root_path = Path(get_config_item([chain_name, "chia_root"]))
         config = load_config(root_path, "config.yaml")
         self_hostname = config["self_hostname"]
