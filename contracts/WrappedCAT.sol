@@ -10,8 +10,10 @@ import "./interfaces/IPortal.sol";
 
 contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     address public immutable portal;
-    uint64 public immutable tip; // tip / 10000 % tip to the portal
+
+    uint16 public immutable tip; // tip / 10000 % tip to the portal
     uint64 public immutable mojoToTokenRatio; // token amount on eth = mojos on Chia * mojoToTokenRatio
+
     bytes3 public immutable otherChain;
 
     bytes32 public lockerPuzzleHash;
@@ -21,7 +23,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         string memory _name,
         string memory _symbol,
         address _portal,
-        uint64 _tip,
+        uint16 _tip,
         uint64 _mojoToTokenRatio,
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
@@ -52,7 +54,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes32 /* _nonce */,
         bytes3 _source_chain,
         bytes32 _source,
-        bytes32[] memory _contents
+        bytes32[] calldata _contents
     ) public {
         require(
             msg.sender == portal &&

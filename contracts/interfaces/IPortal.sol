@@ -18,7 +18,7 @@ interface IPortal {
     function sendMessage(
         bytes3 _destination_chain,
         bytes32 _destination,
-        bytes32[] memory _contents
+        bytes32[] calldata _contents
     ) external payable;
 
     function receiveMessage(
@@ -26,6 +26,6 @@ interface IPortal {
         bytes3 _source_chain,
         bytes32 _source,
         address _destination,
-        bytes32[] memory _contents
+        bytes32[] calldata _contents
     ) external;
 }

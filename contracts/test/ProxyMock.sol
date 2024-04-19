@@ -6,5 +6,9 @@ import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.so
 
 // note: required only to generate artifacts for the proxy contract
 contract ProxyMock is TransparentUpgradeableProxy {
-    constructor(address _logic, address admin_, bytes memory _data) TransparentUpgradeableProxy(_logic, admin_, _data) { }
+    constructor(
+        address _logic,
+        address admin_,
+        bytes memory _data
+    ) TransparentUpgradeableProxy(_logic, admin_, _data) {}
 }

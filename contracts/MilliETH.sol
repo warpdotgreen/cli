@@ -18,7 +18,7 @@ contract MilliETH is ERC20, IWETH {
         _mint(msg.sender, msg.value / 1e12);
     }
 
-    function withdraw(uint256 amount) public {
+    function withdraw(uint256 amount) external {
         require(amount > 0, "!amount");
         _burn(msg.sender, amount);
         (bool sent, ) = msg.sender.call{value: amount * 1e12}("");
