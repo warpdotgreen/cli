@@ -90,7 +90,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
     create_call_address = get_config_item([chain, "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how many times yakuhito manually changed this string during testing").digest()
+    salt = hashlib.sha256(b"you cannot imagine how many times yak manually changed this string during testing").digest()
 
     meth_contract = w3.eth.contract(
         abi=millieth_artifact['abi'],
@@ -147,43 +147,57 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     })['data']
     open("eth_token_bridge_constructor.data", "w").write(eth_token_bridge_constructor_data)
 
-    print("")
-    print("")
-    print("Deployment batch")
-    print("-------------------")
+    click.echo("")
+    click.echo("")
+    click.echo("Deployment batch")
+    click.echo("-------------------")
 
     if deploy_meth:
-        print("Tx 0: deploy MilliETH")
-        print(f"\t To: {create_call_address}")
-        print(f"\t Contract method selector: performCreate2")
-        print(f"\t Value: 0")
-        print(f"\t Data: see millieth.data")
-        print(f"\t Salt: 0x{salt.hex()}")
-        print(f"\t Predicted address: {weth_address}")
+        click.echo("Tx 0: deploy MilliETH")
+        click.echo(f"\t To: {create_call_address}")
+        click.echo(f"\t Contract method selector: performCreate2")
+        click.echo(f"\t Value: 0")
+        click.echo(f"\t Data: see millieth.data")
+        click.echo(f"\t Salt: 0x{salt.hex()}")
+        click.echo(f"\t Predicted address: {weth_address}")
 
-    print("Tx 1: deploy Portal")
-    print(f"\t To: {create_call_address}")
-    print(f"\t Contract method selector: performCreate2")
-    print(f"\t Value: 0")
-    print(f"\t Data: see portal_constructor.data")
-    print(f"\t Salt: 0x{salt.hex()}")
-    print(f"\t Predicted address: {portal_logic_address}")
+    click.echo("Tx 1: deploy Portal")
+    click.echo(f"\t To: {create_call_address}")
+    click.echo(f"\t Contract method selector: performCreate2")
+    click.echo(f"\t Value: 0")
+    click.echo(f"\t Data: see portal_constructor.data")
+    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Predicted address: {portal_logic_address}")
 
-    print("Tx 2: deploy TransparentUpgradeableProxy")
-    print(f"\t To: {create_call_address}")
-    print(f"\t Contract method selector: performCreate2")
-    print(f"\t Value: 0")
-    print(f"\t Data: see proxy_constructor.data")
-    print(f"\t Salt: 0x{salt.hex()}")
-    print(f"\t Predicted address: {portal_address}")
+    click.echo("Tx 2: deploy TransparentUpgradeableProxy")
+    click.echo(f"\t To: {create_call_address}")
+    click.echo(f"\t Contract method selector: performCreate2")
+    click.echo(f"\t Value: 0")
+    click.echo(f"\t Data: see proxy_constructor.data")
+    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Predicted address: {portal_address}")
 
-    print("Tx 3: deploy ERC20Bridge")
-    print(f"\t To: {create_call_address}")
-    print(f"\t Contract method selector: performCreate2")
-    print(f"\t Value: 0")
-    print(f"\t Data: see eth_token_bridge_constructor.data")
-    print(f"\t Salt: 0x{salt.hex()}")
-    print(f"\t Predicted address: {predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)}")
+    bridge_address = predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)
+    click.echo("Tx 3: deploy ERC20Bridge")
+    click.echo(f"\t To: {create_call_address}")
+    click.echo(f"\t Contract method selector: performCreate2")
+    click.echo(f"\t Value: 0")
+    click.echo(f"\t Data: see eth_token_bridge_constructor.data")
+    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Predicted address: {bridge_address}")
+
+    if len(get_config_item(["xch", "portal_launcher_id"])) != 64:
+        click.echo("")
+        click.echo("Warning: xch.portal_launcher_id is not set. You should launch the portal, and only then use this function. This will ensure 'initializePuzzleHashes' is called in the same transaction.")
+        return
+    
+    click.echo("Tx 4: call initializePuzzleHashes")
+    click.echo(f"\t To: {bridge_address}")
+    click.echo(f"\t Contract ABI: take from artifacts/contracts/ERC20Bridge.sol/ERC20Bridge.json")
+    click.echo(f"\t Contract method selector: initializePuzzleHashes")
+    click.echo(f"\t Value: 0")
+    click.echo(f"\t Data: see below")
+    _get_xch_info(chain, bridge_address)
 
 
 async def securely_launch_singleton(
@@ -300,18 +314,22 @@ async def launch_xch_portal(offer):
 @deployment.command()
 @click.option('--other-chain', required=True, help='Other blockchain config entry key (e.g., eth/bse)')
 def get_xch_info(other_chain: str):
+    _get_xch_info(other_chain, get_config_item([other_chain, "erc20_bridge_address"]))
+
+
+def _get_xch_info(other_chain: str, erc_20_bridge_address: str):
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
     portal_threshold = get_config_item(["xch", "portal_threshold"])
 
     minter_puzzle = get_cat_minter_puzzle(
         portal_launcher_id,
         other_chain.encode(),
-        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
+        bytes.fromhex(erc_20_bridge_address.replace("0x", ""))
     )
 
     burner_puzzle = get_cat_burner_puzzle(
         other_chain.encode(),
-        bytes.fromhex(get_config_item([other_chain, "erc20_bridge_address"]).replace("0x", ""))
+        bytes.fromhex(erc_20_bridge_address.replace("0x", ""))
     )
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
