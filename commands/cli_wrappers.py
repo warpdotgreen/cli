@@ -7,15 +7,14 @@ from chia.util.ints import uint16
 from pathlib import Path
 import sys
 import asyncio
-from functools import update_wrapper
+from functools import update_wrapper, wraps
 import logging
 
 def async_func(f):
-    f = asyncio.coroutine(f)
-    def wrapper(*args, **kwargs):
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(f(*args, **kwargs))
-    return update_wrapper(wrapper, f)
+    @wraps(f)
+    async def wrapper(*args, **kwargs):
+        return await f(*args, **kwargs)
+    return wrapper
 
 async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
     try:
