@@ -26,6 +26,7 @@ from chia.wallet.lineage_proof import LineageProof
 from commands.deployment import print_spend_instructions
 from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk
 from chia.util.bech32m import encode_puzzle_hash
+import secrets
 
 PORTAL_COIN_ID_SAVE_FILE = "last_spent_portal_coinid"
 
@@ -343,3 +344,74 @@ async def broadcast_spend(
         )
     )
     print_spend_instructions(sb, coin_id)
+
+
+def get_attestation_message(
+    challenge: bytes32,
+    validator_index: int,
+) -> str:
+    return f"Validator #{validator_index} attests having access to their cold private XCH key by signing this message with the following challenge: {challenge.hex()}".encode()
+
+
+@rekey.command()
+def create_challenge():
+    challenge = secrets.token_hex(32)
+    click.echo(f"Challenge: {challenge}")
+
+
+@rekey.command()
+@click.option('--challenge', required=True, help='The 32-byte challenge to sign')
+@click.option('--validator-index', required=True, help='Your validator index')
+@click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
+def sign_challenge(
+    challenge: str,
+    validator_index: int,
+    use_debug_method: bool
+):
+    if len(challenge) != 64:
+        click.echo("Challenge must be 32 bytes long!")
+        return
+    
+    validator_index = int(validator_index)
+    challenge: bytes32 = bytes.fromhex(challenge)
+
+    attestation_message = get_attestation_message(challenge, validator_index)
+    click.echo(f"Message: {attestation_message}")
+
+    attestation_message_hash: bytes32 = Program.to(attestation_message).get_tree_hash()
+    click.echo(f"Message hash: {attestation_message_hash.hex()}")
+
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+
+    get_cold_key_signature(attestation_message_hash, validator_index, current_multisig_keys[validator_index], use_debug_method)
+
+
+@rekey.command()
+@click.option('--challenge', required=True, help='The 32-byte challenge')
+@click.option('--sig', required=True, help='The signature given by the validator')
+def verify_challenge(
+    challenge: str,
+    sig: str,
+):
+    if len(challenge) != 64:
+        click.echo("Challenge must be 32 bytes long!")
+        return
+    
+    challenge: bytes32 = bytes.fromhex(challenge)
+    validator_index, sig = sig.split('-')
+
+    sig: G2Element = G2Element.from_bytes(bytes.fromhex(sig))
+    validator_index = int(validator_index)
+
+    attestation_message = get_attestation_message(challenge, validator_index)
+    click.echo(f"Message: {attestation_message}")
+
+    attestation_message_hash: bytes32 = Program.to(attestation_message).get_tree_hash()
+    click.echo(f"Message hash: {attestation_message_hash.hex()}")
+
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+
+    if not AugSchemeMPL.verify(current_multisig_keys[validator_index], attestation_message_hash, sig):
+        raise ValueError("Invalid signature!")
+
+    click.echo("Signature is valid!")
