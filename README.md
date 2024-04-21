@@ -109,7 +109,7 @@ On Chia, messages are picked up by looking for the following output condition:
     Then, run:
 
     ```bash
-    npm i
+    npm i --force
     npx hardhat compile
     ```
 
