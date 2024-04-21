@@ -56,13 +56,61 @@ On Chia, messages are picked up by looking for the following output condition:
 3. Install all required packages:
 
     ```bash
-    pip install -r requirements.txt
+    pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools
+    pip install --extra-index-url https://pypi.chia.net/simple/ chia-blockchain==2.2.0
+    pip install web3
+    pip install nostr-sdk
+    pip install asyncio
+    pip install sqlalchemy
+    pip install qrcode
     ```
     
-4. Install npm packages
+4. Compile EVM contracts
+
+    Create `hardhat.config.ts` in the root directory with the following contents:
+
+    ```js
+    import { HardhatUserConfig } from "hardhat/config";
+    import "@nomicfoundation/hardhat-toolbox";
+    import "hardhat-gas-reporter";
+
+    const config: HardhatUserConfig = {
+      solidity: {
+        version: "0.8.20",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      etherscan: {
+        customChains: [
+          {
+            network: "base_sepolia",
+            chainId: 84532,
+            urls: {
+              apiURL: "https://api-sepolia.basescan.org/api",
+              browserURL: "https://sepolia.basescan.org/"
+            }
+          }
+        ]
+      },
+      gasReporter: {
+        currency: 'USD',
+        L1: "ethereum",
+        L2: "base",
+      },
+    };
+
+    export default config;
+    ```
+
+    Then, run:
 
     ```bash
     npm i
+    npx hardhat compile
     ```
 
 ## Test
