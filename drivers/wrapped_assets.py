@@ -88,6 +88,9 @@ def get_wrapped_tail(
     source: bytes,
     source_chain_token_contract_address: bytes,
 ) -> Program:
+  if len(source_chain_token_contract_address) < 32:
+    source_chain_token_contract_address = b'\x00' * (32 - len(source_chain_token_contract_address)) + source_chain_token_contract_address
+    
   return WRAPPED_TAIL_MOD.curry(
     get_cat_minter_puzzle(
       portal_receiver_launcher_id, source_chain, source

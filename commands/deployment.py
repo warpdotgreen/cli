@@ -16,7 +16,7 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
-from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle
+from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle, get_wrapped_tail
 from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk, solution_for_conditions
 from commands.config import get_config_item
 from chia_rs import G1Element, AugSchemeMPL
@@ -110,7 +110,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
 
     portal_logic_address = predict_create2_address(create_call_address, salt, portal_constructor_data)
 
-    portal_initialization_data = portal_initialization_data = portal_contract.encodeABI(
+    portal_initialization_data = portal_contract.encodeABI(
         fn_name='initialize',
         args=[
             Web3.to_bytes(hexstr=deployer_safe_address),
@@ -119,6 +119,8 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
             get_config_item([chain, "portal_threshold"])
         ]
     )
+    open("portal_initialization.data", "w").write(portal_initialization_data)
+    
     proxy_constructor_data = w3.eth.contract(
         abi=proxy_artifact['abi'],
         bytecode=proxy_artifact['bytecode']
@@ -336,3 +338,19 @@ def _get_xch_info(other_chain: str, erc_20_bridge_address: str):
     click.echo(f"Portal signature threshold: {portal_threshold}")
     click.echo(f"Burner puzzle hash: {burner_puzzle.get_tree_hash().hex()}")
     click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
+
+@deployment.command()
+@click.option('--chain', required=True, help='Other blockchain config entry key (eth/bse)')
+@click.option('--address', required=True, help='ERC20 contract address')
+def get_wrapped_erc20_asset_id(chain: str, address: str):
+    portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
+    erc20_bridge_address = bytes.fromhex(get_config_item([chain, "erc20_bridge_address"]).replace("0x", ""))
+
+    address: bytes = bytes.fromhex(address.replace("0x", ""))
+    tail = get_wrapped_tail(
+        portal_launcher_id,
+        chain.encode(),
+        erc20_bridge_address,
+        address
+    )
+    print(f"Tail hash: {tail.get_tree_hash().hex()}")
