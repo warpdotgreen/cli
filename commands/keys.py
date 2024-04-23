@@ -5,7 +5,6 @@ from chia.wallet.derive_keys import _derive_path, master_sk_to_wallet_sk_unharde
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import calculate_synthetic_public_key, DEFAULT_HIDDEN_PUZZLE_HASH, puzzle_hash_for_synthetic_public_key
 from chia_rs import AugSchemeMPL, PrivateKey
 from chia.util.bech32m import encode_puzzle_hash
-from commands.config import get_config_item
 from eth_account import Account
 from web3.auto import w3
 from nostr_sdk import Keys

@@ -1,8 +1,13 @@
 import json
 from typing import List
+import click
 
 def load_config():
-    return json.loads(open('config.json', 'r').read())
+    try:
+        return json.loads(open('config.json', 'r').read())
+    except:
+        click.echo("Warning: Failed to load config.json")
+        return {}
 
 config = load_config()
 
