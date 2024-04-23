@@ -27,6 +27,8 @@ import secrets
 import json
 from commands.cli_wrappers import async_func
 
+DEPLOYMENT_SALT = hashlib.sha256(b"you cannot imagine how many times yak manually changed this string during testing").digest()
+
 def print_spend_instructions(
     sb: SpendBundle,
     spent_coin_id: bytes
@@ -39,23 +41,25 @@ def print_spend_instructions(
     click.echo("To follow in mempool: chia rpc full_node get_mempool_items_by_coin_name '{\"coin_name\": \"" + spent_coin_id.hex() + "\"}'")
     click.echo("To confirm: chia rpc full_node get_coin_record_by_name '{\"name\": \"" + spent_coin_id.hex() + "\"}'")
 
+
 @click.group()
 def deployment():
     pass
 
-def predict_create2_address(sender, salt, init_code):
+
+def predict_create2_address(sender, init_code):
     sender_address_bytes = Web3.to_bytes(hexstr=sender)
-    salt_bytes = Web3.to_bytes(salt) if isinstance(salt, str) else salt
     init_code_bytes = Web3.to_bytes(hexstr=init_code)
     
     create2_prefix = b'\xff'
-    create2_inputs = create2_prefix + sender_address_bytes + salt_bytes + Web3.keccak(init_code_bytes)
+    create2_inputs = create2_prefix + sender_address_bytes + DEPLOYMENT_SALT + Web3.keccak(init_code_bytes)
     create2_hash = Web3.keccak(create2_inputs)
     
     contract_address_bytes = create2_hash[12:]
     
     contract_address = Web3.to_checksum_address(contract_address_bytes)
     return contract_address
+
 
 @deployment.command()
 @click.option('--weth-address', required=True, help="WETH contract address to be used by the bridge (set to 'meth' to also deploy mETH contract)")
@@ -90,8 +94,6 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
     create_call_address = get_config_item([chain, "create_call_address"])
 
-    salt = hashlib.sha256(b"you cannot imagine how many times yak manually changed this string during testing").digest()
-
     meth_contract = w3.eth.contract(
         abi=millieth_artifact['abi'],
         bytecode=millieth_artifact['bytecode']
@@ -99,7 +101,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     meth_constructor_data = meth_contract.constructor().build_transaction()['data']
     open("millieth.data", "w").write(meth_constructor_data)
 
-    weth_address = predict_create2_address(create_call_address, salt, meth_constructor_data)
+    weth_address = predict_create2_address(create_call_address, meth_constructor_data)
 
     portal_contract = w3.eth.contract(
         abi=portal_artifact['abi'],
@@ -108,7 +110,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     portal_constructor_data = portal_contract.constructor().build_transaction()['data']
     open("portal_constructor.data", "w").write(portal_constructor_data)
 
-    portal_logic_address = predict_create2_address(create_call_address, salt, portal_constructor_data)
+    portal_logic_address = predict_create2_address(create_call_address, portal_constructor_data)
 
     portal_initialization_data = portal_contract.encodeABI(
         fn_name='initialize',
@@ -133,7 +135,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     })['data']
     open("proxy_constructor.data", "w").write(proxy_constructor_data)
 
-    portal_address = predict_create2_address(create_call_address, salt, proxy_constructor_data)
+    portal_address = predict_create2_address(create_call_address, proxy_constructor_data)
 
     eth_token_bridge_constructor_data = w3.eth.contract(
         abi=erc20_bridge_artiface['abi'],
@@ -160,7 +162,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
         click.echo(f"\t Contract method selector: performCreate2")
         click.echo(f"\t Value: 0")
         click.echo(f"\t Data: see millieth.data")
-        click.echo(f"\t Salt: 0x{salt.hex()}")
+        click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
         click.echo(f"\t Predicted address: {weth_address}")
 
     click.echo("Tx 1: deploy Portal")
@@ -168,7 +170,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     click.echo(f"\t Contract method selector: performCreate2")
     click.echo(f"\t Value: 0")
     click.echo(f"\t Data: see portal_constructor.data")
-    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
     click.echo(f"\t Predicted address: {portal_logic_address}")
 
     click.echo("Tx 2: deploy TransparentUpgradeableProxy")
@@ -176,16 +178,16 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     click.echo(f"\t Contract method selector: performCreate2")
     click.echo(f"\t Value: 0")
     click.echo(f"\t Data: see proxy_constructor.data")
-    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
     click.echo(f"\t Predicted address: {portal_address}")
 
-    bridge_address = predict_create2_address(create_call_address, salt, eth_token_bridge_constructor_data)
+    bridge_address = predict_create2_address(create_call_address, eth_token_bridge_constructor_data)
     click.echo("Tx 3: deploy ERC20Bridge")
     click.echo(f"\t To: {create_call_address}")
     click.echo(f"\t Contract method selector: performCreate2")
     click.echo(f"\t Value: 0")
     click.echo(f"\t Data: see eth_token_bridge_constructor.data")
-    click.echo(f"\t Salt: 0x{salt.hex()}")
+    click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
     click.echo(f"\t Predicted address: {bridge_address}")
 
     if len(get_config_item(["xch", "portal_launcher_id"])) != 64:
@@ -197,7 +199,6 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
     click.echo(f"\t To: {bridge_address}")
     click.echo(f"\t Contract ABI: take from artifacts/contracts/ERC20Bridge.sol/ERC20Bridge.json")
     click.echo(f"\t Contract method selector: initializePuzzleHashes")
-    click.echo(f"\t Value: 0")
     click.echo(f"\t Data: see below")
     _get_xch_info(chain, bridge_address)
 
@@ -313,6 +314,7 @@ async def launch_xch_portal(offer):
         [("the", "portal")]
     )
 
+
 @deployment.command()
 @click.option('--other-chain', required=True, help='Other blockchain config entry key (e.g., eth/bse)')
 def get_xch_info(other_chain: str):
@@ -339,6 +341,7 @@ def _get_xch_info(other_chain: str, erc_20_bridge_address: str):
     click.echo(f"Burner puzzle hash: {burner_puzzle.get_tree_hash().hex()}")
     click.echo(f"Minter puzzle hash: {minter_puzzle.get_tree_hash().hex()}")
 
+
 @deployment.command()
 @click.option('--chain', required=True, help='Other blockchain config entry key (eth/bse)')
 @click.option('--address', required=True, help='ERC20 contract address')
@@ -354,3 +357,64 @@ def get_wrapped_erc20_asset_id(chain: str, address: str):
         address
     )
     print(f"Tail hash: {tail.get_tree_hash().hex()}")
+
+
+@deployment.command()
+@click.option('--asset-id', required=True, help="CAT asset id (tail hash) - use 'xch' for XCH")
+@click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
+@click.option('--chain', required=True, help="Id of network where you want to deploy (e.g., eth/bse)")
+def get_wrapped_cat_deployment_data(asset_id: str, tip: int, chain: str):
+    if asset_id == 'xch':
+        asset_id = "00" * 32
+    if len(asset_id) != 64:
+        click.echo("Asset id must be 32 bytes long")
+        return
+
+    asset_id: bytes32 = bytes.fromhex(asset_id)
+    tip = int(tip)
+
+    click.echo("Constructing txes based on config...")
+    w3 = Web3(Web3.HTTPProvider(get_config_item([chain, "rpc_url"])))
+
+    wrapped_cat_artifact = json.loads(
+        open('artifacts/contracts/WrappedCAT.sol/WrappedCAT.json', 'r').read()
+      )
+    
+    deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
+    create_call_address = get_config_item([chain, "create_call_address"])
+
+    wrapped_cat_constructor_data = w3.eth.contract(
+        abi=wrapped_cat_artifact['abi'],
+        bytecode=wrapped_cat_artifact['bytecode']
+    ).constructor(
+        todo
+        # Web3.to_bytes(hexstr=portal_logic_address),
+        # Web3.to_bytes(hexstr=deployer_safe_address),
+        # portal_initialization_data
+    ).build_transaction({
+        'gas': 5000000000
+    })['data']
+    data_filename = f"wrapped_cat.{asset_id[:3].hex()}.data"
+    open(data_filename, "w").write(wrapped_cat_constructor_data)
+
+    wrapped_cat_address = predict_create2_address(create_call_address, wrapped_cat_constructor_data)
+
+    click.echo("")
+    click.echo("")
+    click.echo("Deployment batch")
+    click.echo("-------------------")
+
+    click.echo("Tx 1: deploy WrappedCAT")
+    click.echo(f"\t To: {create_call_address}")
+    click.echo(f"\t Contract method selector: performCreate2")
+    click.echo(f"\t Value: 0")
+    click.echo(f"\t Data: see {data_filename}")
+    click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
+    click.echo(f"\t Predicted address: {wrapped_cat_address}")
+    
+    click.echo("Tx 4: call initializePuzzleHashes")
+    click.echo(f"\t To: {wrapped_cat_address}")
+    click.echo(f"\t Contract ABI: take from artifacts/contracts/WrappedCAT.sol/WrappedCAT.json")
+    click.echo(f"\t Contract method selector: initializePuzzleHashes")
+    click.echo(f"\t Data: see below")
+    _get_evm_info(chain, asset_id, wrapped_cat_address)
