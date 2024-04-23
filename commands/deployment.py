@@ -17,6 +17,7 @@ from chia.types.coin_spend import CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle, get_wrapped_tail
+from drivers.wrapped_cats import get_locker_puzzle, get_unlocker_puzzle
 from chia.wallet.puzzles.p2_delegated_conditions import puzzle_for_pk, solution_for_conditions
 from commands.config import get_config_item
 from chia_rs import G1Element, AugSchemeMPL
@@ -363,7 +364,15 @@ def get_wrapped_erc20_asset_id(chain: str, address: str):
 @click.option('--asset-id', required=True, help="CAT asset id (tail hash) - use 'xch' for XCH")
 @click.option('--tip', required=True, help="Tip, in parts out of 10000 (e.g., 30 means 0.3%)")
 @click.option('--chain', required=True, help="Id of network where you want to deploy (e.g., eth/bse)")
-def get_wrapped_cat_deployment_data(asset_id: str, tip: int, chain: str):
+@click.option('--erc20-name', required=True, help="Name of the new ERC-20 asset")
+@click.option('--erc20-symbol', required=True, help="Symbol of the new ERC-20 asset")
+def get_wrapped_cat_deployment_data(
+    asset_id: str,
+    tip: int,
+    chain: str,
+    erc20_name: str,
+    erc20_symbol: str
+):
     if asset_id == 'xch':
         asset_id = "00" * 32
     if len(asset_id) != 64:
@@ -373,6 +382,13 @@ def get_wrapped_cat_deployment_data(asset_id: str, tip: int, chain: str):
     asset_id: bytes32 = bytes.fromhex(asset_id)
     tip = int(tip)
 
+    mojo_per_cat = 1000
+    if asset_id == b"\x00" * 32:
+        cat_decimals = 10 ** 12
+    mojoToTokenRatio = 10 ** 18 // cat_decimals
+
+    click.echo(f"Mojo to token ratio: {mojoToTokenRatio}")
+
     click.echo("Constructing txes based on config...")
     w3 = Web3(Web3.HTTPProvider(get_config_item([chain, "rpc_url"])))
 
@@ -380,17 +396,20 @@ def get_wrapped_cat_deployment_data(asset_id: str, tip: int, chain: str):
         open('artifacts/contracts/WrappedCAT.sol/WrappedCAT.json', 'r').read()
       )
     
-    deployer_safe_address = get_config_item([chain, "deployer_safe_address"])
     create_call_address = get_config_item([chain, "create_call_address"])
+
+    portal_address = get_config_item([chain, "portal_address"])
 
     wrapped_cat_constructor_data = w3.eth.contract(
         abi=wrapped_cat_artifact['abi'],
         bytecode=wrapped_cat_artifact['bytecode']
     ).constructor(
-        todo
-        # Web3.to_bytes(hexstr=portal_logic_address),
-        # Web3.to_bytes(hexstr=deployer_safe_address),
-        # portal_initialization_data
+        erc20_name,
+        erc20_symbol,
+        Web3.to_bytes(hexstr=portal_address),
+        tip,
+        mojoToTokenRatio,
+        Web3.to_bytes(hexstr=b"xch".hex()) # other chain
     ).build_transaction({
         'gas': 5000000000
     })['data']
@@ -417,4 +436,44 @@ def get_wrapped_cat_deployment_data(asset_id: str, tip: int, chain: str):
     click.echo(f"\t Contract ABI: take from artifacts/contracts/WrappedCAT.sol/WrappedCAT.json")
     click.echo(f"\t Contract method selector: initializePuzzleHashes")
     click.echo(f"\t Data: see below")
-    _get_evm_info(chain, asset_id, wrapped_cat_address)
+    _get_wrapped_cat_info(chain, asset_id, bytes.fromhex(wrapped_cat_address.replace("0x", "")))
+
+
+@deployment.command()
+@click.option('--chain', required=True, help='EVM blockchain config entry key (e.g., eth/bse)')
+@click.option('--asset-id', required=True, help="CAT asset id (tail hash) - use 'xch' for XCH")
+@click.option('--contract', required=True, help="Wrapped CAT contract address")
+def get_wrapped_cat_info(chain: str, asset_id: str, contract: str):
+    if asset_id == 'xch':
+        asset_id = "00" * 32
+    if len(asset_id) != 64:
+        click.echo("Asset id must be 32 bytes long")
+        return
+    
+    _get_wrapped_cat_info(
+        chain,
+        bytes.fromhex(asset_id),
+        bytes.fromhex(contract.replace("0x", ""))
+    )
+
+
+def _get_wrapped_cat_info(evm_chain: str, asset_id: bytes32, contract_address: bytes):
+    portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
+    locker_puzzle = get_locker_puzzle(
+        evm_chain.encode(),
+        contract_address,
+        portal_launcher_id,
+        asset_id
+    )
+    unlocker_puzzle = get_unlocker_puzzle(
+        evm_chain.encode(),
+        contract_address,
+        portal_launcher_id,
+        asset_id
+    )
+
+    click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
+    click.echo(f"Asset id: {asset_id.hex()}")
+    click.echo(f"Contract address (no checksum): {contract_address.hex()}")
+    click.echo(f"Locker puzzle hash: {locker_puzzle.get_tree_hash().hex()}")
+    click.echo(f"Unlocker puzzle hash: {unlocker_puzzle.get_tree_hash().hex()}")
