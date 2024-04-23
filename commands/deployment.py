@@ -409,7 +409,7 @@ def get_wrapped_cat_deployment_data(
         Web3.to_bytes(hexstr=portal_address),
         tip,
         mojoToTokenRatio,
-        Web3.to_bytes(hexstr=b"xch".hex()) # other chain
+        Web3.to_bytes(hexstr="0x" + b"xch".hex()) # other chain
     ).build_transaction({
         'gas': 5000000000
     })['data']
@@ -417,6 +417,8 @@ def get_wrapped_cat_deployment_data(
     open(data_filename, "w").write(wrapped_cat_constructor_data)
 
     wrapped_cat_address = predict_create2_address(create_call_address, wrapped_cat_constructor_data)
+
+    print(f'npx hardhat verify {wrapped_cat_address} \'{erc20_name}\' \'{erc20_symbol}\' {portal_address} {tip} {mojoToTokenRatio} {"0x" + b"xch".hex()}')
 
     click.echo("")
     click.echo("")
