@@ -24,13 +24,13 @@ On Chia, messages are picked up by looking for the following output condition:
 
 ## Install
 
-1. Clone theGitHub repository and enter the `bridge` directory by running:
+1. Clone theGitHub repository and enter the `cli` directory by running:
 
     ```bash
-    git clone https://github.com/warpdotgreen/bridge.git -b master
+    git clone https://github.com/warpdotgreen/cli.git -b master
     ```
     ```bash
-    cd bridge
+    cd cli
     ```
 
 2. Create and activate a virtual environment:
