@@ -11,10 +11,9 @@ from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
 from chia.wallet.trading.offer import OFFER_MOD
 from commands.keys import mnemonic_to_validator_pk
-from chia.util.bech32m import decode_puzzle_hash
 from chia.wallet.trading.offer import OFFER_MOD_HASH
 from typing import List
-from chia_rs import PrivateKey, AugSchemeMPL, G1Element, G2Element
+from chia_rs import AugSchemeMPL, G1Element, G2Element
 from chia.types.spend_bundle import SpendBundle
 from chia.types.blockchain_format.program import INFINITE_COST
 from typing import Tuple

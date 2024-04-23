@@ -5,9 +5,7 @@ from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter, Sing
 from datetime import timedelta
 import logging
 import time
-
-relays = get_config_item(["nostr", "relays"])
-my_private_key = Keys.from_mnemonic(get_config_item(["nostr", "my_mnemonic"]), None)
+import click
 
 def encode_signature(
     origin_chain: bytes,
@@ -60,6 +58,14 @@ def send_signature(
         open("messages.txt", "a").write(sig + "\n")
     except:
         open("messages.txt", "w").write(sig + "\n")
+
+    
+    try:
+        relays = get_config_item(["nostr", "relays"])
+        my_private_key = Keys.from_mnemonic(get_config_item(["nostr", "my_mnemonic"]), None)
+    except:
+        click.echo("Nostr: failed to load config; skipping signature sending.")
+        return
 
     try:
         [route_data, coin_data, sig_data] = sig.split("-")
