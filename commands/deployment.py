@@ -196,7 +196,7 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
         click.echo("Warning: xch.portal_launcher_id is not set. You should launch the portal, and only then use this function. This will ensure 'initializePuzzleHashes' is called in the same transaction.")
         return
     
-    click.echo("Tx 4: call initializePuzzleHashes")
+    click.echo("Tx 2: call initializePuzzleHashes")
     click.echo(f"\t To: {bridge_address}")
     click.echo(f"\t Contract ABI: take from artifacts/contracts/ERC20Bridge.sol/ERC20Bridge.json")
     click.echo(f"\t Contract method selector: initializePuzzleHashes")
