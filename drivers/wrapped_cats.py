@@ -26,7 +26,7 @@ def get_unlocker_puzzle(
     message_source_chain: bytes,
     message_source: bytes,
     portal_receiver_launcher_id: bytes32,
-    asset_id: bytes32
+    asset_id: bytes32 | None
 ) -> Program:
   return UNLOCKER_MOD.curry(
     CAT_MOD_HASH,
@@ -34,7 +34,7 @@ def get_unlocker_puzzle(
     get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash(),
     message_source_chain,
     raw_hash([b"\x01", message_source]),
-    asset_id
+    [] if asset_id is None else []
   )
 
 
@@ -42,7 +42,7 @@ def get_locker_puzzle(
     message_destination_chain: bytes,
     message_destination: bytes,
     portal_receiver_launcher_id: bytes32,
-    asset_id: bytes32
+    asset_id: bytes32 | None
 ) -> Program:
   return LOCKER_MOD.curry(
     message_destination_chain,
@@ -58,7 +58,7 @@ def get_locker_puzzle(
         asset_id
       ).get_tree_hash()
     ).get_tree_hash(),
-    asset_id
+    [] if asset_id is None else asset_id
   )
 
 

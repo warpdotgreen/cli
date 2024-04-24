@@ -461,6 +461,9 @@ def get_wrapped_cat_info(chain: str, asset_id: str, contract: str):
 
 def _get_wrapped_cat_info(evm_chain: str, asset_id: bytes32, contract_address: bytes):
     portal_launcher_id = bytes.fromhex(get_config_item(["xch", "portal_launcher_id"]))
+    if asset_id == b"\x00" * 32:
+        asset_id = None
+
     locker_puzzle = get_locker_puzzle(
         evm_chain.encode(),
         contract_address,
@@ -475,7 +478,7 @@ def _get_wrapped_cat_info(evm_chain: str, asset_id: bytes32, contract_address: b
     )
 
     click.echo(f"Portal launcher id: {portal_launcher_id.hex()}")
-    click.echo(f"Asset id: {asset_id.hex()}")
+    click.echo(f"Asset id: {'None' if asset_id is None else asset_id.hex()}")
     click.echo(f"Contract address (no checksum): {contract_address.hex()}")
     click.echo(f"Locker puzzle hash: {locker_puzzle.get_tree_hash().hex()}")
     click.echo(f"Unlocker puzzle hash: {unlocker_puzzle.get_tree_hash().hex()}")
