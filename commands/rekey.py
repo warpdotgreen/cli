@@ -397,6 +397,7 @@ def sign_challenge(
 @click.option('--pubkey', help='The pubkey to verify the signature against (required if multisig_keys not set in config)')
 def verify_challenge(
     challenge: str,
+    pubkey: str,
     sig: str,
 ):
     if len(challenge) != 64:
