@@ -361,10 +361,12 @@ def create_challenge():
 @rekey.command()
 @click.option('--challenge', required=True, help='The 32-byte challenge to sign')
 @click.option('--validator-index', required=True, help='Your validator index')
+@click.option('--pubkey', help='Your validator pubkey')
 @click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
 def sign_challenge(
     challenge: str,
     validator_index: int,
+    pubkey: str,
     use_debug_method: bool
 ):
     if len(challenge) != 64:
@@ -380,14 +382,19 @@ def sign_challenge(
     attestation_message_hash: bytes32 = Program.to(attestation_message).get_tree_hash()
     click.echo(f"Message hash: {attestation_message_hash.hex()}")
 
-    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+    if pubkey is not None and len(pubkey) > 0:
+        pubkey = G1Element.from_bytes(bytes.fromhex(pubkey))
+    else:
+        current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+        pubkey = current_multisig_keys[validator_index]
 
-    get_cold_key_signature(attestation_message_hash, validator_index, current_multisig_keys[validator_index], use_debug_method)
+    get_cold_key_signature(attestation_message_hash, validator_index, pubkey, use_debug_method)
 
 
 @rekey.command()
 @click.option('--challenge', required=True, help='The 32-byte challenge')
 @click.option('--sig', required=True, help='The signature given by the validator')
+@click.option('--pubkey', help='The pubkey to verify the signature against (required if multisig_keys not set in config)')
 def verify_challenge(
     challenge: str,
     sig: str,
@@ -408,9 +415,13 @@ def verify_challenge(
     attestation_message_hash: bytes32 = Program.to(attestation_message).get_tree_hash()
     click.echo(f"Message hash: {attestation_message_hash.hex()}")
 
-    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+    if pubkey is not None and len(pubkey) > 0:
+        pubkey = G1Element.from_bytes(bytes.fromhex(pubkey))
+    else:
+        current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+        pubkey = current_multisig_keys[validator_index]
 
-    if not AugSchemeMPL.verify(current_multisig_keys[validator_index], attestation_message_hash, sig):
+    if not AugSchemeMPL.verify(pubkey, attestation_message_hash, sig):
         raise ValueError("Invalid signature!")
 
     click.echo("Signature is valid!")
