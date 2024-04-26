@@ -34,7 +34,7 @@ def get_unlocker_puzzle(
     get_message_coin_puzzle_1st_curry(portal_receiver_launcher_id).get_tree_hash(),
     message_source_chain,
     raw_hash([b"\x01", message_source]),
-    [] if asset_id is None else []
+    [] if asset_id is None else asset_id
   )
 
 
