@@ -433,7 +433,7 @@ def get_wrapped_cat_deployment_data(
     click.echo(f"\t Salt: 0x{DEPLOYMENT_SALT.hex()}")
     click.echo(f"\t Predicted address: {wrapped_cat_address}")
     
-    click.echo("Tx 4: call initializePuzzleHashes")
+    click.echo("Tx 2: call initializePuzzleHashes")
     click.echo(f"\t To: {wrapped_cat_address}")
     click.echo(f"\t Contract ABI: take from artifacts/contracts/WrappedCAT.sol/WrappedCAT.json")
     click.echo(f"\t Contract method selector: initializePuzzleHashes")
