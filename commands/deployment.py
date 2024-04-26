@@ -382,7 +382,7 @@ def get_wrapped_cat_deployment_data(
     asset_id: bytes32 = bytes.fromhex(asset_id)
     tip = int(tip)
 
-    mojo_per_cat = 1000
+    cat_decimals = 1000
     if asset_id == b"\x00" * 32:
         cat_decimals = 10 ** 12
     mojoToTokenRatio = 10 ** 18 // cat_decimals
