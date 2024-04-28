@@ -520,6 +520,7 @@ class ChiaFollower:
 
                 await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
 
+                nonce = earliest_unprocessed_coin_record.coin.name()
                 skip_coin_ids.append(nonce)
 
             if not reorg:
