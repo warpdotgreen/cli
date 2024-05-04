@@ -31,7 +31,7 @@ export async function getSig(
     return ethers.concat(signatures);
 }
 
-describe("Portal", function () {
+describe.only("Portal", function () {
     let portal: Portal;
     let mockReceiver: PortalMessageReceiverMock;
     let owner: HardhatEthersSigner;
@@ -75,6 +75,17 @@ describe("Portal", function () {
             expect(await portal.isSigner(signer2.address)).to.be.true;
             expect(await portal.isSigner(signer3.address)).to.be.true;
         });
+
+        it("Should only run the 'initialize' function once without reverting", async function () {
+            await expect(
+                portal.initialize(
+                    owner.address,
+                    messageToll,
+                    [signer1.address, signer2.address, signer3.address],
+                    2
+                )
+            ).to.be.revertedWithCustomError(portal, "InvalidInitialization");
+        });
     });
 
     describe("sendMessage", function () {
@@ -105,6 +116,30 @@ describe("Portal", function () {
         it("Should fail if message toll is incorrect", async function () {
             await expect(portal.sendMessage(xchChain, puzzleHash, message))
                 .to.be.revertedWith("!toll");
+        });
+
+        it("Should fail if block.coinbase rejects payment", async function () {
+            const PaymentRejectingCoinbaseFactory = await ethers.getContractFactory("PaymentRejectingCoinbase");
+            const paymentRejectingCoinbase = await PaymentRejectingCoinbaseFactory.deploy(portal.target);
+
+            await ethers.provider.send("hardhat_setCoinbase", [
+                paymentRejectingCoinbase.target,
+            ]);
+
+            await expect(
+                    portal.sendMessage(
+                        xchChain,
+                        puzzleHash,
+                        message,
+                        { value: messageToll }
+                    )
+            ).to.be.revertedWith("!toll");
+
+            // test cleanup
+            // https://hardhat.org/hardhat-network/docs/reference#coinbase
+            await ethers.provider.send("hardhat_setCoinbase", [
+                "0xc014ba5ec014ba5ec014ba5ec014ba5ec014ba5e",
+            ]);
         });
     });
 
@@ -151,6 +186,15 @@ describe("Portal", function () {
             );
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!signer");
+        });
+
+        it("Should fail is not enough sigs are used", async function () {
+            let sig = await getSig(
+                nonce, xchChain, puzzleHash, mockReceiver.target.toString(), message,
+                [signer1]
+            );
+            await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
+                .to.be.revertedWith("!len");
         });
     });
 
