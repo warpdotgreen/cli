@@ -13,7 +13,8 @@ describe("WrappedCAT", function () {
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
     let signer: HardhatEthersSigner;
-    let otherChain = "0x786368";
+    let otherChain = "0x786368"; // "xch"
+    let invalidOtherChain = "0x747374"; // "tst"
     
     const messageToll = ethers.parseEther("0.001");
     const tip = 30n; // 0.3%
@@ -98,6 +99,41 @@ describe("WrappedCAT", function () {
                 )
             ).to.be.revertedWith("!msg");
         });
+
+        it("Should fail if source chain is wrong", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+
+            const sig = await getSig(
+                nonce1, invalidOtherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, invalidOtherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.be.revertedWith("!msg");
+        });
+
+        it("Should fail if msg.sender is not portal", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+
+            await expect(
+                wrappedCAT.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, message
+                )
+            ).to.be.revertedWith("!msg");
+        });
     });
 
     describe("bridgeBack", function () {
@@ -152,6 +188,42 @@ describe("WrappedCAT", function () {
                 [user, portal],
                 [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]
             );
+        });
+
+        it("Should revert if incorrect message toll is used", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+            const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
+
+            const sig = await getSig(
+                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.changeTokenBalances(
+                wrappedCAT,
+                [receiver, portal],
+                [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
+            );
+
+            // setup complete, test actually starts here
+            const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
+            
+            expect(
+                wrappedCAT.connect(user).bridgeBack(
+                    receiverPh,
+                    amountToBridgeBackMojo,
+                    { value: (await portal.messageToll()) / 2n }    
+                )
+            ).to.be.revertedWith("!toll");
         });
     });
 });
