@@ -31,7 +31,7 @@ export async function getSig(
     return ethers.concat(signatures);
 }
 
-describe.only("Portal", function () {
+describe("Portal", function () {
     let portal: Portal;
     let mockReceiver: PortalMessageReceiverMock;
     let owner: HardhatEthersSigner;
@@ -119,11 +119,11 @@ describe.only("Portal", function () {
         });
 
         it("Should fail if block.coinbase rejects payment", async function () {
-            const PaymentRejectingCoinbaseFactory = await ethers.getContractFactory("PaymentRejectingCoinbase");
-            const paymentRejectingCoinbase = await PaymentRejectingCoinbaseFactory.deploy(portal.target);
+            const UncallableFactory = await ethers.getContractFactory("Uncallable");
+            const uncallable = await UncallableFactory.deploy(portal.target);
 
             await ethers.provider.send("hardhat_setCoinbase", [
-                paymentRejectingCoinbase.target,
+                uncallable.target,
             ]);
 
             await expect(

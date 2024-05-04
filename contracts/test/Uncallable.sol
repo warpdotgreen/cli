@@ -3,10 +3,12 @@
 
 pragma solidity ^0.8.20;
 
-/* used as coinbase in some tests */
-/* simply rejects payments from an address given in the constructor */
+import "../interfaces/IWETH.sol";
 
-contract PaymentRejectingCoinbase {
+/* used as coinbase in some tests, and as caller to MilliETH in others */
+/* simply rejects .call's from an address given in the constructor */
+
+contract Uncallable {
     address public immutable blacklistedAddress;
 
     constructor(address _blacklistedAddress) {
@@ -15,5 +17,9 @@ contract PaymentRejectingCoinbase {
 
     function call() external payable returns (bool) {
         return msg.sender != blacklistedAddress;
+    }
+
+    function withdrawMilliETH(uint256 _amount) external {
+        IWETH(blacklistedAddress).withdraw(_amount);
     }
 }
