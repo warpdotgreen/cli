@@ -98,7 +98,7 @@ The repository includes several tests. To run puzzle tests:
    
 To run a specific test, append part of the test's name to the command. For example, `sh test.sh healthz` (Linux/MacOS) or `.\test.bat healthz` (Windows) will run only test(s) containing the word `healthz`. If no name is included, all tests will be run.
 
-To run contract tests, you can simply use `npx hardhat test`.
+To run contract tests, you can simply use `npx hardhat test` - or `npx hardhat coverage` to also check test coverage.
 
 ## License
 

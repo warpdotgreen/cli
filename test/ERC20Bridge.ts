@@ -131,6 +131,15 @@ wethTokens.forEach(wethToken => {
                   erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount, { value: messageToll / 2n})
                 ).to.be.revertedWith("!toll");
             });
+
+            it("Should fail if no message toll is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", token.decimals);
+
+                await expect(
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount)
+                ).to.be.revertedWith("!toll");
+            });
         });
 
         describe("receiveMessage", function () {
@@ -239,6 +248,25 @@ wethTokens.forEach(wethToken => {
                 await expect(tx).to.emit(portal, "MessageSent");
             });
 
+            if(wethToken.type === "MilliETH") {
+                it("Should fail if there is leftover ether", async function () {
+                    const receiver = ethers.encodeBytes32String("receiverOnChia");
+                    const ethToSend = ethers.parseEther("1");
+
+                    await expect(
+                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageToll + 1n })
+                    ).to.be.revertedWith("!amnt");
+                });
+
+                it("Should fail if ether amount after deducting message toll is too low", async function () {
+                    const receiver = ethers.encodeBytes32String("receiverOnChia");
+
+                    await expect(
+                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: messageToll + 1n })
+                    ).to.be.revertedWith("!amnt");
+                });
+            }
+
             it("Should fail if msg.value is too low", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
                 var ethToSend = messageToll * 2n / 3n;
@@ -338,6 +366,61 @@ wethTokens.forEach(wethToken => {
                         { value: messageToll }
                     )
                 ).to.be.reverted;
+            });
+
+            it("Should fail if greater message toll is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", token.decimals);
+
+                await expect(
+                    erc20Bridge.connect(owner).bridgeToChiaWithPermit(
+                        mockERC20.target,
+                        receiver,
+                        amount / chiaToERC20AmountFactor,
+                        deadline,
+                        ownerSignature.v, ownerSignature.r, ownerSignature.s,
+                        { value: messageToll * 2n }
+                    )
+                ).to.be.revertedWith("!toll");
+            });
+
+            it("Should fail if lower message toll is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", token.decimals);
+
+                await expect(
+                  erc20Bridge.connect(owner).bridgeToChiaWithPermit(
+                        mockERC20.target,
+                        receiver,
+                        amount / chiaToERC20AmountFactor,
+                        deadline,
+                        ownerSignature.v, ownerSignature.r, ownerSignature.s,
+                        { value: messageToll / 2n }
+                    )
+                ).to.be.revertedWith("!toll");
+            });
+
+            it("Should fail if no message toll is given", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const amount = ethers.parseUnits("10", token.decimals);
+
+                await expect(
+                  erc20Bridge.connect(owner).bridgeToChiaWithPermit(
+                        mockERC20.target,
+                        receiver,
+                        amount / chiaToERC20AmountFactor,
+                        deadline,
+                        ownerSignature.v, ownerSignature.r, ownerSignature.s
+                    )
+                ).to.be.revertedWith("!toll");
+            });
+        });
+
+        describe("receive", function () {
+            it("Should revert if someone tries to incorrectly send ether", async function () {
+                await expect(
+                    user.sendTransaction({ to: erc20Bridge.target, value: ethers.parseEther("1") })
+                ).to.be.revertedWith("!sender");
             });
         });
     });
