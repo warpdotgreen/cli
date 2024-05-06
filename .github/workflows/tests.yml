@@ -53,6 +53,7 @@ jobs:
 
     - name: Run Hardhat tests
       run: |
+        cp hardha.config.example.ts hardhat.config.ts
         npx hardhat test
 
     - name: Check test coverage for Solidity contracts
