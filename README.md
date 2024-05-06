@@ -56,13 +56,8 @@ On Chia, messages are picked up by looking for the following output condition:
 3. Install all required packages:
 
     ```bash
-    pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools
-    pip install --extra-index-url https://pypi.chia.net/simple/ chia-blockchain==2.2.0
-    pip install web3
-    pip install nostr-sdk
-    pip install asyncio
-    pip install sqlalchemy
-    pip install qrcode
+    pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
+    pip install -r requirements.txt
     ```
     
 4. Compile EVM contracts
