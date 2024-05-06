@@ -24,6 +24,13 @@ On Chia, messages are picked up by looking for the following output condition:
 
 ## Install
 
+0. Ensure prerequisity software is installed. This repo has been tested with `python 3.10` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+
+  ```bash
+  curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
+  chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
+  ```
+
 1. Clone theGitHub repository and enter the `cli` directory by running:
 
     ```bash
