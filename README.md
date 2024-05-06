@@ -23,15 +23,7 @@ On Chia, messages are picked up by looking for the following output condition:
 ```
 
 ## Install
-1. Ask yourself if it is worth it. This repo comes with a dockerfile, so you can simply do
-2. Ensure prerequisity software is installed. This repo has been tested with `python 3.10` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
-
-  ```bash
-  curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
-  chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
-  ```
-
-3. Clone theGitHub repository and enter the `cli` directory by running:
+1. Clone this repository and enter the `cli` directory by running:
 
     ```bash
     git clone https://github.com/warpdotgreen/cli.git -b master
@@ -39,6 +31,20 @@ On Chia, messages are picked up by looking for the following output condition:
     ```bash
     cd cli
     ```
+2. Ask yourself if it is worth it. This repo comes with a dockerfile, so you can simply do:
+  ```bash
+  docker build . -t cli
+  echo '{}' > config.json
+  touch data.db
+  docker run -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db cli --help
+  ```
+
+3. Ensure prerequisity software is installed. This repo has been tested with `python 3.10` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+
+  ```bash
+  curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
+  chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
+  ```
 
 4. Create and activate a virtual environment:
 
@@ -70,23 +76,13 @@ On Chia, messages are picked up by looking for the following output condition:
 
 ## Test
 
-The repository includes several tests. To run puzzle tests:
-
-  * Linux/MacOS
-    
+The repository includes several tests. To run tests:
     ```bash
-    sh test.sh
+    ./test.sh
+    npx hardhat test
     ```
 
-  * Windows
-
-    ```powershell
-    .\test.bat
-    ```
-   
-To run a specific test, append part of the test's name to the command. For example, `sh test.sh healthz` (Linux/MacOS) or `.\test.bat healthz` (Windows) will run only test(s) containing the word `healthz`. If no name is included, all tests will be run.
-
-To run contract tests, you can simply use `npx hardhat test` - or `npx hardhat coverage` to also check test coverage.
+To check contract test coverage: `npx hardhat coverage`.
 
 ## License
 
