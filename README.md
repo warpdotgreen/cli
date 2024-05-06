@@ -39,7 +39,7 @@ On Chia, messages are picked up by looking for the following output condition:
     docker run -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db cli --help
     ```
 
-3. Ensure prerequisity software is installed. This repo has been tested with `python 3.10/3.11` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+3. Ensure prerequisite software is installed. This repo has been tested with `python 3.10/3.11` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
 
     ```bash
     curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
