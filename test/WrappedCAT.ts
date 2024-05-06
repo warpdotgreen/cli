@@ -217,11 +217,11 @@ describe("WrappedCAT", function () {
             // setup complete, test actually starts here
             const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
             
-            expect(
+            await expect(
                 wrappedCAT.connect(user).bridgeBack(
                     receiverPh,
                     amountToBridgeBackMojo,
-                    { value: (await portal.messageToll()) / 2n }    
+                    { value: ((await portal.messageToll()) / 10n) }    
                 )
             ).to.be.revertedWith("!toll");
         });
