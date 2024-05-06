@@ -78,10 +78,10 @@ On Chia, messages are picked up by looking for the following output condition:
 
 The repository includes several tests. To run tests:
 
-    ```bash
-    ./test.sh
-    npx hardhat test
-    ```
+```bash
+./test.sh
+npx hardhat test
+```
 
 To check contract test coverage: `npx hardhat coverage`.
 
