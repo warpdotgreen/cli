@@ -1,0 +1,54 @@
+name: Run Tests
+
+on:
+  push:
+    branches:
+      - master
+      - actions
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.11
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
+        pip install -r requirements.txt
+
+    - name: Run pytest
+      run: |
+        python -m pytest
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18'
+
+    - name: Install npm dependencies
+      run: npm install
+
+    - name: Run Hardhat tests
+      run: |
+        npx hardhat test
+
+    - name: Check test coverage for Solidity contracts
+      run: |
+        COVERAGE=$(npx hardhat coverage)
+        SECOND_PART=$(echo "$COVERAGE" | awk -F 'contracts/ |' '{print $2}')
+        PARTS=$(echo "$SECOND_PART" | cut -d '|' -f 2-5)
+        if [ "$(echo "$PARTS" | tr -d '[:space:]')" = "100|100|100|100" ]; then
+            echo "Test coverage is 100% for the contracts/*.sol"
+        else
+            echo "Test coverage is less than 100% for contracts/*.sol"
+            exit 1
+        fi
