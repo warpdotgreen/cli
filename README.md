@@ -77,6 +77,7 @@ On Chia, messages are picked up by looking for the following output condition:
 ## Test
 
 The repository includes several tests. To run tests:
+
     ```bash
     ./test.sh
     npx hardhat test
