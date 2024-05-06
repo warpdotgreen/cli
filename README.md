@@ -23,15 +23,15 @@ On Chia, messages are picked up by looking for the following output condition:
 ```
 
 ## Install
-
-0. Ensure prerequisity software is installed. This repo has been tested with `python 3.10` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+1. Ask yourself if it is worth it. This repo comes with a dockerfile, so you can simply do
+2. Ensure prerequisity software is installed. This repo has been tested with `python 3.10` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
 
   ```bash
   curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
   chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
   ```
 
-1. Clone theGitHub repository and enter the `cli` directory by running:
+3. Clone theGitHub repository and enter the `cli` directory by running:
 
     ```bash
     git clone https://github.com/warpdotgreen/cli.git -b master
@@ -40,20 +40,20 @@ On Chia, messages are picked up by looking for the following output condition:
     cd cli
     ```
 
-2. Create and activate a virtual environment:
+4. Create and activate a virtual environment:
 
       ```bash
       python3 -m venv venv
       ```
   
-3. Install all required packages:
+5. Install all required packages:
 
     ```bash
     pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
     pip install -r requirements.txt
     ```
     
-4. Compile EVM contracts
+6. Compile EVM contracts
 
     Create `hardhat.config.ts` in the root directory:
 
