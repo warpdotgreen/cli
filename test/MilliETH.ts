@@ -91,5 +91,29 @@ describe("MilliETH", function () {
               milliETH.connect(user).withdraw(excessiveAmount)
             ).to.be.revertedWithCustomError(milliETH, "ERC20InsufficientBalance");
         });
+
+        it("Should reject withdrawals when tokens cannot be returned", async function () {
+            const withdrawAmount = ethers.parseUnits("1000", 3); // 1000 milliETH
+            
+            const UncallableFactory = await ethers.getContractFactory("Uncallable");
+            const uncallable = await UncallableFactory.deploy(milliETH.target);
+            
+            await milliETH.connect(user).transfer(uncallable.target, withdrawAmount);
+            
+            await ethers.provider.send("hardhat_setCoinbase", [
+                uncallable.target,
+            ]);
+
+            await expect(
+                uncallable.withdrawMilliETH(withdrawAmount)
+            ).to.be.revertedWith("!sent");
+
+            // test cleanup
+            // https://hardhat.org/hardhat-network/docs/reference#coinbase
+            await ethers.provider.send("hardhat_setCoinbase", [
+                "0xc014ba5ec014ba5ec014ba5ec014ba5ec014ba5e",
+            ]);
+
+        });
     });
 });

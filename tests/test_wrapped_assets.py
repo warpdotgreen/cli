@@ -27,7 +27,8 @@ from drivers.portal import get_message_coin_puzzle, get_message_coin_solution, B
 NONCE = 1337
 SOURCE_CHAIN = b'eth'
 SOURCE = to_eth_address("eth_token_master")
-SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS = to_eth_address("erc20")
+SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32 = to_eth_address("erc20")
+SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32 = b'\x00' * (32 - len(SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32)) + SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32
 ETH_RECEIVER = to_eth_address("eth_receiver")
 
 class TestWrappedAssets:
@@ -79,10 +80,13 @@ class TestWrappedAssets:
         receiver_puzzle: Program = one_puzzle
         receiver_puzzle_hash = one_puzzle_hash
 
+        amount_b32 = bytes.fromhex(hex(10000)[2:]) # 10.000 CATs
+        amount_b32 = b'\x00' * (32 - len(amount_b32)) + amount_b32
+
         message: Program = Program.to([
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32,
             receiver_puzzle_hash,
-            10000 # 10.000 CATs
+            amount_b32
         ])
 
         message_coin_puzzle = get_message_coin_puzzle(
@@ -168,7 +172,7 @@ class TestWrappedAssets:
             portal_launcher_id,
             SOURCE_CHAIN,
             SOURCE,
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32,
         )
         wrapped_asset_tail_hash = wrapped_asset_tail.get_tree_hash()
 
@@ -236,7 +240,7 @@ class TestWrappedAssets:
         cat_burn_inner_puzzle = get_cat_burn_inner_puzzle(
             SOURCE_CHAIN,
             SOURCE,
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32,
             ETH_RECEIVER,
             1
         )
@@ -300,7 +304,7 @@ class TestWrappedAssets:
             last_cat_coin.parent_coin_info,
             wrapped_asset_tail_hash,
             10000,
-            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS,
+            SOURCE_CHAIN_TOKEN_CONTRACT_ADDRESS_B32,
             ETH_RECEIVER,
             burner_coin
         )
