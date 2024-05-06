@@ -42,22 +42,8 @@ On Chia, messages are picked up by looking for the following output condition:
 
 2. Create and activate a virtual environment:
 
-    * Linux/MacOS
-
       ```bash
       python3 -m venv venv
-      ```
-      ```bash
-      . ./venv/bin/activate
-      ```
-
-    * Windows
-
-      ```powershell
-      python -m venv venv
-      ```
-      ```powershell
-      .\venv\Scripts\Activate.ps1
       ```
   
 3. Install all required packages:
@@ -78,7 +64,7 @@ On Chia, messages are picked up by looking for the following output condition:
     Then, run:
 
     ```bash
-    npm i --force
+    npm i
     npx hardhat compile
     ```
 

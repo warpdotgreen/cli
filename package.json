@@ -8,11 +8,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Yakuhito/bridge.git"
+    "url": "git+https://github.com/warpdotgreen/cli.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "yakuhito",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/Yakuhito/bridge/issues"
   },
@@ -23,7 +23,6 @@
     "@typechain/ethers-v6": "^0.5.1",
     "@typechain/hardhat": "^9.1.0",
     "hardhat": "^2.19.4",
-    "hardhat-gas-reporter": "^2.1.1",
     "typechain": "^8.3.2"
   },
   "dependencies": {
