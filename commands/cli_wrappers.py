@@ -33,7 +33,7 @@ async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
             await node_client.healthz()
             return node_client
         except Exception as e:
-            logging.error("Failed to get node using specified url", exc_info=True)
+            # logging.error("Failed to get node using specified url", exc_info=True)
             pass  
         root_path = Path(get_config_item([chain_name, "chia_root"]))
         config = load_config(root_path, "config.yaml")
