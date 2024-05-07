@@ -7,7 +7,7 @@ import "./interfaces/IWETH.sol";
 
 /**
  * @title   milliETH Token Contract
- * @notice  milliETH is an ERC-20token, where 1 milliETH is equivalent to 1/1000th of one ether.
+ * @notice  milliETH is an ERC-20 token, where 1 milliETH is equivalent to 1/1000th of one ether.
  * @dev     No fees or tips. The token only has 3 decimals.
  */
 contract MilliETH is ERC20, IWETH {
@@ -20,7 +20,7 @@ contract MilliETH is ERC20, IWETH {
     /**
      * @notice  Returns milliETH's number of decimals, which is 3.
      * @dev     Overrides the decimals method to set milliETH decimals to 3.
-     * @return  The number of decimals for milliETH tokens.
+     * @return  decimals The number of decimals for milliETH tokens.
      */
     function decimals() public pure override returns (uint8) {
         return 3;

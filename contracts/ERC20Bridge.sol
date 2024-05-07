@@ -16,13 +16,13 @@ interface ERC20Decimals {
 
 /**
  * @title   ERC-20 Bridge for the warp.green protocol
- * @dev     Not compatible with fee-on-transfer or rebasing tokens. The contract assumes 1 token now is 1 token in the future, and that transferring `a` tokens will result to exactly `a` tokens being granted to the recipient (not more, not less).
  * @notice  Allows wrapping ERC-20 tokens on Chia and unwrapping them back to the original network using warp.green.
+ * @dev     Not compatible with fee-on-transfer or rebasing tokens. The contract assumes 1 token now is 1 token in the future, and that transferring `a` tokens will result to exactly `a` tokens being granted to the recipient (not more, not less).
  */
 contract ERC20Bridge is IPortalMessageReceiver {
     /**
      * @notice  When wrapping or unwrapping ERC-20s, a tip is sent to the warp.green protocol. The tip is expressed in basis points.
-     * @dev     Tip is calculated as amount * tip / 10000 - the remaining amount is sent to the recipient.
+     * @dev     Tip is calculated as amount * tip / 10000; the remaining amount is sent to the recipient.
      */
     uint16 public immutable tip;
 
@@ -248,9 +248,9 @@ contract ERC20Bridge is IPortalMessageReceiver {
      * @param   _assetContract  Address of the ERC-20 token to bridge.
      * @param   _transferAsset  Whether to transfer the asset to this contract or not. If false, the tokens must already be owned by this contract.
      * @param   _receiver  Receiver puzzle hash for the wrapped tokens.
-     * @param   _amount  Amount of CAT tokens to be minted on Chia (in mojo).
+     * @param   _amount  Amount of CAT tokens to be minted on Chia (in mojos).
      * @param   _messageToll Message toll in wei required by the portal to relay the message.
-     * @param   _mojoToTokenFactor  A power of 10 to convert from CAT amount (mojo) to the ERC-20 token's smallest unit.
+     * @param   _mojoToTokenFactor  A power of 10 to convert from CAT amount (mojos) to the ERC-20 token's smallest unit.
      */
     function _handleBridging(
         address _assetContract,

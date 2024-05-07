@@ -11,8 +11,8 @@ import "./interfaces/IPortalMessageReceiver.sol";
 
 /**
  * @title   warp.green Portal Contract
- * @notice  Manages the sending and receiving of cross-chain messages by leveraging a trusted set of validators.
- * @dev     Sits behind a TransparentUpgradeableProxy. Owner is a cold multisig (Safe{Wallet}) controlled by a majority of the trusted validators.
+ * @notice  Manages the sending and receiving of cross-chain messages via a trusted set of validators.
+ * @dev     Sits behind a TransparentUpgradeableProxy. Owner is a cold key multisig (Safe{Wallet}) controlled by a majority of the trusted validators.
  */
 contract Portal is Initializable, OwnableUpgradeable {
     /**

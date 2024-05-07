@@ -95,7 +95,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
 
     /**
      * @notice  Receives and processes messages from the warp.green portal
-     * @dev     Uses the warp.green Portal contract as an oracle; verifies message and handles the unwrapping process.
+     * @dev     Uses the warp.green portal contract as an oracle; verifies message and handles the unwrapping process.
      * @param   _source_chain Message source chain ID (e.g., "xch").
      * @param   _source Message source (puzzle hash). Must match the locker puzzle hash.
      * @param   _contents Message contents - receiver address and mojo amount.
