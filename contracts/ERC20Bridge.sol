@@ -104,8 +104,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
     }
 
     /**
-     * @notice  eceives and processes messages from the warp.green portal
-     * @dev     Uses the warp.green Portal contract as an oracle; verifies message and handles the unweapping process.
+     * @notice  Receives and processes messages from the warp.green portal
+     * @dev     Uses the warp.green Portal contract as an oracle; verifies message and handles the unwrapping process.
      * @param   _source_chain  Message source chain id (e.g., "xch").
      * @param   _source  Message source (puzzle hash).
      * @param   _contents  Message contents - asset contract, receiver, and mojo amount.
