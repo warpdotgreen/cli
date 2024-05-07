@@ -1,0 +1,68 @@
+name: Run Tests
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Clean workspace
+      uses: Chia-Network/actions/clean-workspace@main
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - uses: Chia-Network/actions/setup-python@main
+      with:
+        python-version: '3.11'
+
+    - name: Create 'test-plots' Directory
+      run: mkdir -p ~/.chia/test-plots
+
+    - uses: Chia-Network/actions/create-venv@main
+      id: create-venv
+
+    - uses: Chia-Network/actions/activate-venv@main
+      with:
+        directories: ${{ steps.create-venv.outputs.activate-venv-directories }}
+
+    - name: Install Python dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
+        pip install -r requirements.txt
+
+    - name: Run pytest
+      run: |
+        pytest tests/ -s -v --durations 0 -W ignore::DeprecationWarning
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18'
+
+    - name: Install npm dependencies
+      run: npm install
+
+    - name: Run Hardhat tests
+      run: |
+        cp hardhat.config.example.ts hardhat.config.ts
+        npx hardhat test
+
+    - name: Check test coverage for Solidity contracts
+      run: |
+        COVERAGE=$(npx hardhat coverage)
+        SECOND_PART=$(echo "$COVERAGE" | awk -F 'contracts/ |' '{print $2}')
+        PARTS=$(echo "$SECOND_PART" | cut -d '|' -f 2-5)
+        if [ "$(echo "$PARTS" | tr -d '[:space:]')" = "100|100|100|100" ]; then
+            echo "Test coverage is 100% for the contracts/*.sol"
+        else
+            echo "Test coverage is less than 100% for contracts/*.sol"
+            exit 1
+        fi
