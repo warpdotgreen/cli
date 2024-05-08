@@ -38,6 +38,10 @@ async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
         root_path = Path(get_config_item([chain_name, "chia_root"]))
         config = load_config(root_path, "config.yaml")
         self_hostname = config["self_hostname"]
+        try:
+            self_hostname = get_config_item([chain_name, "chia_hostname"])
+        except:
+            pass
         rpc_port = config["full_node"]["rpc_port"]
         node_client: FullNodeRpcClient = await FullNodeRpcClient.create(
             self_hostname, uint16(rpc_port), root_path, config
