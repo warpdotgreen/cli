@@ -83,6 +83,30 @@ def get_cold_key_signature(
     click.echo("QR code saved to qr.png")
 
 
+def verify_signatrue(
+    thing_that_was_signed: bytes32,
+    sig: str,
+    pubkey: str | None
+):
+    validator_index, sig = sig.split('-')
+
+    sig: G2Element = G2Element.from_bytes(bytes.fromhex(sig))
+    validator_index = int(validator_index)
+
+    click.echo(f"Signed data: {thing_that_was_signed.hex()}")
+
+    if pubkey is not None and len(pubkey) > 0:
+        pubkey = G1Element.from_bytes(bytes.fromhex(pubkey))
+    else:
+        current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+        pubkey = current_multisig_keys[validator_index]
+
+    if not AugSchemeMPL.verify(pubkey, thing_that_was_signed, sig):
+        raise ValueError("Invalid signature!")
+
+    click.echo("Signature is valid!")
+
+
 async def get_latest_portal_coin_data(node: FullNodeRpcClient) -> Tuple[
     CoinSpend,
     bytes32,
@@ -134,22 +158,12 @@ def rekey():
     pass
 
 
-@rekey.command()
-@click.option('--new-message-keys', required=True, help='New set of hot keys, separated by commas')
-@click.option('--new-message-threshold', required=True, help='New threshold required for messages')
-@click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
-@click.option('--new-update-threshold', required=True, help='New threshold required for updates')
-@click.option('--validator-index', required=True, help='Your validator index')
-@click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
-def sign_tx(
-    new_message_keys: str,
+def get_rekey_tx_message_to_sign(
+     new_message_keys: str,
     new_message_threshold: int,
     new_update_keys: str,
     new_update_threshold: int,
-    validator_index: int,
-    use_debug_method: bool
-):
-    validator_index = int(validator_index)
+) -> bytes32:
     new_message_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_message_keys.split(',')]
     new_update_keys: List[G1Element] = [G1Element.from_bytes(bytes.fromhex(key)) for key in new_update_keys.split(',')]
     new_message_threshold = int(new_message_threshold)
@@ -175,9 +189,59 @@ def sign_tx(
     )
     message_to_sign = updater_delegated_puzzle.get_tree_hash()
 
-    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
+    return message_to_sign
 
+
+@rekey.command()
+@click.option('--new-message-keys', required=True, help='New set of hot keys, separated by commas')
+@click.option('--new-message-threshold', required=True, help='New threshold required for messages')
+@click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
+@click.option('--new-update-threshold', required=True, help='New threshold required for updates')
+@click.option('--validator-index', required=True, help='Your validator index')
+@click.option('--use-debug-method', is_flag=True, default=False, help='Use debug signing method')
+def sign_tx(
+    new_message_keys: str,
+    new_message_threshold: int,
+    new_update_keys: str,
+    new_update_threshold: int,
+    validator_index: int,
+    use_debug_method: bool
+):
+    message_to_sign = get_rekey_tx_message_to_sign(
+        new_message_keys,
+        new_message_threshold,
+        new_update_keys,
+        new_update_threshold,
+    )
+
+    validator_index = int(validator_index)
+    current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
     get_cold_key_signature(message_to_sign, validator_index, current_multisig_keys[validator_index], use_debug_method)
+
+
+@rekey.command()
+@click.option('--new-message-keys', required=True, help='New set of hot keys, separated by commas')
+@click.option('--new-message-threshold', required=True, help='New threshold required for messages')
+@click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
+@click.option('--new-update-threshold', required=True, help='New threshold required for updates')
+@click.option('--sig', required=True, help='The signature to verify')
+@click.option('--pubkey', help='Optional: cold key pubkey associated with the signature. If not pro')
+def verify_tx_sig(
+    new_message_keys: str,
+    new_message_threshold: int,
+    new_update_keys: str,
+    new_update_threshold: int,
+    sig: str,
+    pubkey: str
+):
+    message_to_sign = get_rekey_tx_message_to_sign(
+        new_message_keys,
+        new_message_threshold,
+        new_update_keys,
+        new_update_threshold,
+    )
+
+    verify_signatrue(message_to_sign, sig, pubkey)
 
 
 @rekey.command()
@@ -405,10 +469,7 @@ def verify_challenge(
         return
     
     challenge: bytes32 = bytes.fromhex(challenge)
-    validator_index, sig = sig.split('-')
-
-    sig: G2Element = G2Element.from_bytes(bytes.fromhex(sig))
-    validator_index = int(validator_index)
+    validator_index = int(sig.split('-')[0])
 
     attestation_message = get_attestation_message(challenge, validator_index)
     click.echo(f"Message: {attestation_message}")
@@ -416,13 +477,4 @@ def verify_challenge(
     attestation_message_hash: bytes32 = Program.to(attestation_message).get_tree_hash()
     click.echo(f"Message hash: {attestation_message_hash.hex()}")
 
-    if pubkey is not None and len(pubkey) > 0:
-        pubkey = G1Element.from_bytes(bytes.fromhex(pubkey))
-    else:
-        current_multisig_keys = [G1Element.from_bytes(bytes.fromhex(key)) for key in get_config_item(["xch", "multisig_keys"])]
-        pubkey = current_multisig_keys[validator_index]
-
-    if not AugSchemeMPL.verify(pubkey, attestation_message_hash, sig):
-        raise ValueError("Invalid signature!")
-
-    click.echo("Signature is valid!")
+    verify_signatrue(attestation_message_hash, sig, pubkey)
