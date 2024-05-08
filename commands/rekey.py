@@ -225,7 +225,7 @@ def sign_tx(
 @click.option('--new-update-keys', required=True, help='New set of cold keys, separated by commas')
 @click.option('--new-update-threshold', required=True, help='New threshold required for updates')
 @click.option('--sig', required=True, help='The signature to verify')
-@click.option('--pubkey', help='Optional: cold key pubkey associated with the signature. If not pro')
+@click.option('--pubkey', help='Optional: cold key pubkey associated with the signature. If not provided, key will be taken from current multisig configuration.')
 def verify_tx_sig(
     new_message_keys: str,
     new_message_threshold: int,
