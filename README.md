@@ -4,7 +4,7 @@ A cross-chain messaging protocol - a portal betwen blockchains.
 
 ## Architecture
 
-Note: Technical overview available [here](https://pitch.com/v/warpdotgreen-xwmj7r).
+Note: Technical overview available [here](https://pitch.com/v/warpdotgreen-xwmj7r). Docs available [here](https://docs.warp.green).
 
 To connect the Chia and Ethereum/Base blockchains, a trusted set of parties (validators) is needed. These parties independently observe messages on the supported chains and generate a signature attesting the details. On the destination chain, a puzzle or contract accepts a majority of signatures and acts as an oracle, effectively allowing apps to send and receive messages between chains.
 
