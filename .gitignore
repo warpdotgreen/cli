@@ -170,3 +170,6 @@ data.db-journal
 messages.txt
 qr.png
 last_spent_portal_coinid
+
+# intellij
+.idea
