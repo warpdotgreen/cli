@@ -30,7 +30,7 @@ services:
   warp-cli:
     image: ghcr.io/warpdotgreen/cli:master
     volumes:
-      - ./config-tor-testnet.json:/app/config.json
+      - ./config.json:/app/config.json
       - /mnt/disk/warp-cli/data.db:/app/data.db
     command: listen
 ```
