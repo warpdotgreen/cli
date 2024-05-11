@@ -23,6 +23,32 @@ On Chia, messages are picked up by looking for the following output condition:
 ```
 
 ## Install
+### Docker Compose
+
+```yaml
+services:
+  warp-cli:
+    image: ghcr.io/warpdotgreen/cli:master
+    volumes:
+      - ./config-tor-testnet.json:/app/config.json
+      - /mnt/disk/warp-cli/data.db:/app/data.db
+    command: listen
+```
+
+### Docker run
+Clone this repository and enter the `cli` directory by running:
+
+  ```bash
+    git clone https://github.com/warpdotgreen/cli.git -b master
+    cd cli
+
+    docker build . -t cli
+    echo '{}' > config.json
+    touch data.db
+    docker run -it -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db cli --help
+  ```
+### Build from source
+
 1. Clone this repository and enter the `cli` directory by running:
 
     ```bash
@@ -31,35 +57,28 @@ On Chia, messages are picked up by looking for the following output condition:
     ```bash
     cd cli
     ```
-2. Ask yourself if it is worth it. This repo comes with a dockerfile, so you can simply do:
-    ```bash
-    docker build . -t cli
-    echo '{}' > config.json
-    touch data.db
-    docker run -it -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db cli --help
-    ```
-
-3. Ensure prerequisite software is installed. This repo has been tested with `python 3.10/3.11` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+    
+2. Ensure prerequisite software is installed. This repo has been tested with `python 3.10/3.11` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
 
     ```bash
     curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
     chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
     ```
 
-4. Create and activate a virtual environment:
+3. Create and activate a virtual environment:
 
       ```bash
       python3 -m venv venv
       ```
   
-5. Install all required packages:
+4. Install all required packages:
 
     ```bash
     pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
     pip install -r requirements.txt
     ```
     
-6. Compile EVM contracts
+5. Compile EVM contracts
 
     Create `hardhat.config.ts` in the root directory:
 
