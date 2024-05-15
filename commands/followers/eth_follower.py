@@ -88,7 +88,7 @@ class EthereumFollower:
            return logs[0]
         
         # self.max_query_block_limit * 3 // 4 is much more than the expected reorg window
-        self.last_safe_height = query_start_height - self.max_query_block_limit * 3 // 4
+        self.last_safe_height = max(self.last_safe_height, query_end_height - self.max_query_block_limit * 3 // 4)
         query_start_height = query_end_height + 1
     
 

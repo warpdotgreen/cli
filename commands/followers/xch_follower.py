@@ -380,7 +380,7 @@ class ChiaFollower:
                 last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
                 db.commit()
             except:
-                logging.error(f"Error syncing portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}", exc_info=True)
+                logging.error(f"{self.chain_id.decode()} portal follower: Error syncing portal coin {self.chain_id.decode()}-0x{last_synced_portal.coin_id.hex()}", exc_info=True)
                 sys.exit(1)
 
         node.close()
