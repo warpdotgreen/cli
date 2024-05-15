@@ -14,6 +14,7 @@ from drivers.portal import BRIDGING_PUZZLE_HASH
 from typing import Tuple
 import logging
 import asyncio
+import sys
 from sqlalchemy import and_
 from chia_rs import AugSchemeMPL, PrivateKey
 
@@ -203,6 +204,7 @@ class ChiaFollower:
                 )).all()
             except Exception as e:
                 logging.error(f"Error querying messages: {e}", exc_info=True)
+                sys.exit(1)
 
             for message in messages:
                 try:
@@ -210,6 +212,7 @@ class ChiaFollower:
                     db.commit()
                 except Exception as e:
                     logging.error(f"Error signing message {message.nonce.hex()}: {e}", exc_info=True)
+                    sys.exit(1)
 
             await asyncio.sleep(5)
 
@@ -314,7 +317,7 @@ class ChiaFollower:
             cr = await node.get_coin_record_by_name(new_synced_portal.coin_id)
             if cr.spent_block_index is None or cr.spent_block_index == 0:
                 self.syncing = False
-                
+
         if not self.syncing:
             messages = db.query(Message).filter(and_(
                 Message.destination_chain == self.chain_id,
@@ -373,8 +376,12 @@ class ChiaFollower:
         last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
 
         while True:
-            last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
-            db.commit()
+            try:
+                last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
+                db.commit()
+            except:
+                logging.error(f"Error syncing portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}", exc_info=True)
+                sys.exit(1)
 
         node.close()
         await node.await_closed()
@@ -479,70 +486,74 @@ class ChiaFollower:
         node = await self.getNode()
 
         while True:
-            last_synced_height = db.query(Message.block_number).filter(
-                Message.source_chain == self.chain_id
-            ).order_by(Message.block_number.desc()).first()
+            try:
+                last_synced_height = db.query(Message.block_number).filter(
+                    Message.source_chain == self.chain_id
+                ).order_by(Message.block_number.desc()).first()
 
-            if last_synced_height is None:
-                last_synced_height = get_config_item([self.chain, 'min_height'])
-            else:
-                last_synced_height = last_synced_height[0]
+                if last_synced_height is None:
+                    last_synced_height = get_config_item([self.chain, 'min_height'])
+                else:
+                    last_synced_height = last_synced_height[0]
 
-            unfiltered_coin_records = await node.get_coin_records_by_puzzle_hash(
-                BRIDGING_PUZZLE_HASH,
-                include_spent_coins=True,
-                start_height=last_synced_height - 1
-            )
-            if unfiltered_coin_records is None:
-                await asyncio.sleep(30)
-                continue
+                unfiltered_coin_records = await node.get_coin_records_by_puzzle_hash(
+                    BRIDGING_PUZZLE_HASH,
+                    include_spent_coins=True,
+                    start_height=last_synced_height - 1
+                )
+                if unfiltered_coin_records is None:
+                    await asyncio.sleep(30)
+                    continue
 
-            # because get_coin_records_by_puzzle_hash can be quite resource exensive, we'll process all results
-            # instead of only one and calling again
-            skip_coin_ids = []
-            reorg = False
-            while not reorg:
-                earliest_unprocessed_coin_record = None
-                for coin_record in unfiltered_coin_records:
-                    nonce = coin_record.coin.name()
-                    if nonce in skip_coin_ids:
-                        continue
+                # because get_coin_records_by_puzzle_hash can be quite resource exensive, we'll process all results
+                # instead of only one and calling again
+                skip_coin_ids = []
+                reorg = False
+                while not reorg:
+                    earliest_unprocessed_coin_record = None
+                    for coin_record in unfiltered_coin_records:
+                        nonce = coin_record.coin.name()
+                        if nonce in skip_coin_ids:
+                            continue
 
-                    if coin_record.coin.amount < self.per_message_toll:
-                        skip_coin_ids.append(nonce)
-                        continue
+                        if coin_record.coin.amount < self.per_message_toll:
+                            skip_coin_ids.append(nonce)
+                            continue
 
-                    message_in_db = db.query(Message).filter(and_(
-                        Message.nonce == nonce,
-                        Message.source_chain == self.chain_id
-                    )).first()
-                    if message_in_db is not None:
-                        skip_coin_ids.append(nonce)
-                        continue
+                        message_in_db = db.query(Message).filter(and_(
+                            Message.nonce == nonce,
+                            Message.source_chain == self.chain_id
+                        )).first()
+                        if message_in_db is not None:
+                            skip_coin_ids.append(nonce)
+                            continue
 
-                    if earliest_unprocessed_coin_record is None or coin_record.confirmed_block_index < earliest_unprocessed_coin_record.confirmed_block_index:
-                        earliest_unprocessed_coin_record = coin_record
+                        if earliest_unprocessed_coin_record is None or coin_record.confirmed_block_index < earliest_unprocessed_coin_record.confirmed_block_index:
+                            earliest_unprocessed_coin_record = coin_record
 
-                if earliest_unprocessed_coin_record is None:
-                    break
+                    if earliest_unprocessed_coin_record is None:
+                        break
 
-                # wait for this to actually be confirmed :)
-                while earliest_unprocessed_coin_record.confirmed_block_index + self.sign_min_height > (await self.get_current_height(node)):
-                    await asyncio.sleep(10)
+                    # wait for this to actually be confirmed :)
+                    while earliest_unprocessed_coin_record.confirmed_block_index + self.sign_min_height > (await self.get_current_height(node)):
+                        await asyncio.sleep(10)
 
-                coin_record_copy = await node.get_coin_record_by_name(earliest_unprocessed_coin_record.coin.name())
-                if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
-                    logging.info(f"{self.chain} message follower: Coin {self.chain}-0x{earliest_unprocessed_coin_record.coin.name().hex()}: possible reorg; re-processing")
-                    reorg = True
-                    break
+                    coin_record_copy = await node.get_coin_record_by_name(earliest_unprocessed_coin_record.coin.name())
+                    if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
+                        logging.info(f"{self.chain} message follower: Coin {self.chain}-0x{earliest_unprocessed_coin_record.coin.name().hex()}: possible reorg; re-processing")
+                        reorg = True
+                        break
 
-                await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
+                    await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
 
-                nonce = earliest_unprocessed_coin_record.coin.name()
-                skip_coin_ids.append(nonce)
+                    nonce = earliest_unprocessed_coin_record.coin.name()
+                    skip_coin_ids.append(nonce)
 
-            if not reorg:
-                await asyncio.sleep(30)
+                if not reorg:
+                    await asyncio.sleep(30)
+            except:
+                logging.error(f"{self.chain_id.decode()} message listener: error", exc_info=True)
+                sys.exit(1)
 
 
         node.close()

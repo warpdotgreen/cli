@@ -8,6 +8,7 @@ from web3 import Web3
 import logging
 import json
 import asyncio
+import sys
 
 class EthereumFollower:
     chain: str
@@ -110,87 +111,90 @@ class EthereumFollower:
       contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
 
       while True:
-         next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+        try:
+            next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
-         if next_message_event is None:
-            logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
-            
-            while next_message_event is None:
-               await asyncio.sleep(30)
-               next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+            if next_message_event is None:
+                logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
+                
+                while next_message_event is None:
+                  await asyncio.sleep(30)
+                  next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
-            continue
+                continue
 
-         event_block_number = next_message_event['blockNumber']
+            event_block_number = next_message_event['blockNumber']
 
-         if not self.is_optimism:
-            # L1 - mainnet confirmations can be obtained from block number
-            eth_block_number = web3.eth.block_number
-
-            while event_block_number + self.sign_min_height > eth_block_number:
-                await asyncio.sleep(5)
+            if not self.is_optimism:
+                # L1 - mainnet confirmations can be obtained from block number
                 eth_block_number = web3.eth.block_number
-         else:
-            # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
-            # in short, since we're trusting the sequencer anyway, we can also trust:
-            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/
-            # to relay L1 block numbers accurately
-            # self.sign_min_height is then the min. number of confirmations in L1 blocks
-            # you can find the address for the contract at https://docs.base.org/docs/base-contracts
-            block = web3.eth.get_block(event_block_number, full_transactions=True)
-            relevant_tx = None
-            for tx in block.transactions:
-                if tx.to and tx.to == self.l1_block_contract_address:
-                    relevant_tx = tx
-                    break
-            
-            if relevant_tx is None:
-                logging.error(f"{self.chain_id.decode()} message listener: could not find L1Block update tx for block {event_block_number}; sleeping 30s and retrying...")
-                await asyncio.sleep(30)
+
+                while event_block_number + self.sign_min_height > eth_block_number:
+                    await asyncio.sleep(5)
+                    eth_block_number = web3.eth.block_number
+            else:
+                # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
+                # in short, since we're trusting the sequencer anyway, we can also trust:
+                # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/
+                # to relay L1 block numbers accurately
+                # self.sign_min_height is then the min. number of confirmations in L1 blocks
+                # you can find the address for the contract at https://docs.base.org/docs/base-contracts
+                block = web3.eth.get_block(event_block_number, full_transactions=True)
+                relevant_tx = None
+                for tx in block.transactions:
+                    if tx.to and tx.to == self.l1_block_contract_address:
+                        relevant_tx = tx
+                        break
+                
+                if relevant_tx is None:
+                    logging.error(f"{self.chain_id.decode()} message listener: could not find L1Block update tx for block {event_block_number}; sleeping 30s and retrying...")
+                    await asyncio.sleep(30)
+                    continue
+                
+                
+                raw_input = bytes(relevant_tx.input)
+                # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
+                input_offset = 28
+                event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
+                logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number}) for {self.chain_id.decode()}-{next_message_event['args']['nonce'].hex()}")
+                
+                if self.l1_block_contract is None:
+                  self.l1_block_contract = web3.eth.contract(
+                    address=Web3.to_checksum_address(self.l1_block_contract_address),
+                    abi=open("l1_block_abi.json", "r").read()
+                  )
+
+                l1_block_number = self.l1_block_contract.functions.number().call()
+                while event_l1_block_number + self.sign_min_height > l1_block_number:
+                    await asyncio.sleep(10)
+                    l1_block_number = self.l1_block_contract.functions.number().call()
+                    logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
+
+            next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+            if next_message_event_copy is None:
+                logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
+                last_synced_height -= self.max_query_block_limit
+                self.last_safe_height -= 10 * self.max_query_block_limit
                 continue
             
+            next_message = self.eventObjectToMessage(next_message_event)
+            next_message_copy = self.eventObjectToMessage(next_message_event_copy)
+
+            if next_message.nonce != next_message_copy.nonce or next_message.source != next_message_copy.source or next_message.destination_chain != next_message_copy.destination_chain or next_message.destination != next_message_copy.destination or next_message.contents != next_message_copy.contents or next_message.block_number != next_message_copy.block_number: 
+                logging.info(f"{self.chain_id.decode()} message listener: message event mismatch; assuming reorg and retrying...")
+                last_synced_height -= self.max_query_block_limit
+                self.last_safe_height -= 10 * self.max_query_block_limit
+                continue
             
-            raw_input = bytes(relevant_tx.input)
-            # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
-            input_offset = 28
-            event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
-            logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number}) for {self.chain_id.decode()}-{next_message_event['args']['nonce'].hex()}")
-            
-            if self.l1_block_contract is None:
-              self.l1_block_contract = web3.eth.contract(
-                address=Web3.to_checksum_address(self.l1_block_contract_address),
-                abi=open("l1_block_abi.json", "r").read()
-              )
+            logging.info(f"{self.chain_id.decode()} message listener: Adding message #{self.chain_id.decode()}-{next_message.nonce.hex()}")
+            db.add(next_message)
+            db.commit()
 
-            l1_block_number = self.l1_block_contract.functions.number().call()
-            while event_l1_block_number + self.sign_min_height > l1_block_number:
-                await asyncio.sleep(10)
-                l1_block_number = self.l1_block_contract.functions.number().call()
-                logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
-
-         next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
-         if next_message_event_copy is None:
-            logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
-            last_synced_height -= self.max_query_block_limit
-            self.last_safe_height -= 10 * self.max_query_block_limit
-            continue
-         
-         next_message = self.eventObjectToMessage(next_message_event)
-         next_message_copy = self.eventObjectToMessage(next_message_event_copy)
-
-         if next_message.nonce != next_message_copy.nonce or next_message.source != next_message_copy.source or next_message.destination_chain != next_message_copy.destination_chain or next_message.destination != next_message_copy.destination or next_message.contents != next_message_copy.contents or next_message.block_number != next_message_copy.block_number: 
-            logging.info(f"{self.chain_id.decode()} message listener: message event mismatch; assuming reorg and retrying...")
-            last_synced_height -= self.max_query_block_limit
-            self.last_safe_height -= 10 * self.max_query_block_limit
-            continue
-         
-         logging.info(f"{self.chain_id.decode()} message listener: Adding message #{self.chain_id.decode()}-{next_message.nonce.hex()}")
-         db.add(next_message)
-         db.commit()
-
-         latest_synced_nonce_int += 1
-         last_synced_height = event_block_number
-
+            latest_synced_nonce_int += 1
+            last_synced_height = event_block_number
+        except:
+            logging.exception(f"{self.chain_id.decode()} message listener: Exception occurred", exc_info=True)
+            sys.exit(1)
   
     async def signMessage(self, db, web3: Web3, message: Message):
       encoded_message = web3.solidity_keccak(
@@ -240,17 +244,21 @@ class EthereumFollower:
       web3 = self.getWeb3()
 
       while True:
-          messages = []
-          messages = db.query(Message).filter(and_(
-              Message.destination_chain == self.chain_id,
-              Message.sig == b''
-          )).all()
+          try:
+              messages = []
+              messages = db.query(Message).filter(and_(
+                  Message.destination_chain == self.chain_id,
+                  Message.sig == b''
+              )).all()
 
-          for message in messages:
-              await self.signMessage(db, web3, message)
-              db.commit()
+              for message in messages:
+                  await self.signMessage(db, web3, message)
+                  db.commit()
 
-          await asyncio.sleep(5)
+              await asyncio.sleep(5)
+          except:
+              logging.exception(f"{self.chain_id.decode()} message signer: Exception occurred", exc_info=True)
+              sys.exit(1)
 
 
     def run(self, loop):
