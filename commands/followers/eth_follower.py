@@ -26,6 +26,7 @@ class EthereumFollower:
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
         self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
         self.is_optimism = is_optimism
+        self.syncing = True
         if self.is_optimism:
           self.l1_block_contract_address = get_config_item([self.chain, 'l1_block_contract_address'])
 
@@ -63,21 +64,18 @@ class EthereumFollower:
       if self.last_safe_height <= 0:
           self.last_safe_height = start_height
 
-      time_to_stop = False
-      query_start_height = self.last_safe_height if self.last_safe_height > start_height else start_height # cache
-      query_end_height = query_start_height + self.max_query_block_limit - 1
-
       nonce_hex = "0x" + self.nonceIntToBytes(nonce)
-      logs = []
-      while not time_to_stop:
+      query_start_height = max(self.last_safe_height, start_height) # cache
+
+      while True:
         current_block_height = web3.eth.block_number
-        if query_end_height > current_block_height:
-            query_end_height = current_block_height
-            time_to_stop = True
 
-        if not time_to_stop:
-          logging.info(f"{self.chain_id.decode()} message listener: long query for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height} (normal if catching up)")
+        if query_start_height >= current_block_height:
+            return None
 
+        query_end_height = min(query_start_height + self.max_query_block_limit - 1, current_block_height)
+        
+        logging.info(f"Searching for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height}...")
         logs = contract.events.MessageSent().get_logs(
             fromBlock=query_start_height,
             toBlock=query_end_height,
@@ -86,18 +84,11 @@ class EthereumFollower:
 
         logs = [_ for _ in logs]
         if len(logs) > 0:
-           break
+           return logs[0]
         
-        query_start_height = query_end_height
-        query_end_height = query_start_height + self.max_query_block_limit - 1
-      
-      # query_start_height will be the last used query_end_height
-      self.last_safe_height = query_start_height - self.max_query_block_limit * 2 // 3
-
-      if len(logs) == 0:
-          return None
-      
-      return logs[0]
+        # self.max_query_block_limit * 3 // 4 is much more than the expected reorg window
+        self.last_safe_height = query_start_height - self.max_query_block_limit * 3 // 4
+        query_start_height = query_end_height + 1
     
 
     async def messageListener(self):
@@ -124,7 +115,6 @@ class EthereumFollower:
          if next_message_event is None:
             logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
             
-            # helios does not suport filters yet :(
             while next_message_event is None:
                await asyncio.sleep(30)
                next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
@@ -164,7 +154,7 @@ class EthereumFollower:
             # https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/src/L2/L1Block.sol/#L112
             input_offset = 28
             event_l1_block_number = int(raw_input[input_offset:input_offset + 8].hex(), 16)
-            logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number})")
+            logging.info(f"{self.chain_id.decode()} message listener: Confirming message with L1 block number {event_l1_block_number} (L2: {event_block_number}) for {self.chain_id.decode()}-{next_message_event['args']['nonce'].hex()}")
             
             if self.l1_block_contract is None:
               self.l1_block_contract = web3.eth.contract(

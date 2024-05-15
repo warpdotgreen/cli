@@ -27,6 +27,7 @@ class ChiaFollower:
     unspent_portal_id: bytes
     unspent_portal_id_lock: asyncio.Lock
     per_message_toll: bytes
+    syncing: bool
 
     def __init__(self, chain: str):
         self.chain = chain
@@ -36,6 +37,7 @@ class ChiaFollower:
         self.unspent_portal_id = None
         self.unspent_portal_id_lock = asyncio.Lock()
         self.per_message_toll = int(get_config_item([chain, "per_message_toll"]))
+        self.syncing = True
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -187,6 +189,10 @@ class ChiaFollower:
     async def messageSigner(self):
         db = self.getDb()
 
+        while not self.syncing:
+            logging.info(f"{self.chain_id.decode} message signer: Waiting to be synced before signing messages...")
+            await asyncio.sleep(10)
+
         while True:
             messages = []
             try:
@@ -226,6 +232,7 @@ class ChiaFollower:
                 return parent_state
             
             # else, unspent - just wait patiently
+            self.syncing = False
             await self.setUnspentPortalId(last_synced_portal.coin_id)
             await asyncio.sleep(5)
             return last_synced_portal
@@ -303,14 +310,23 @@ class ChiaFollower:
 
         await self.setUnspentPortalId(new_synced_portal.coin_id)
 
-        messages = db.query(Message).filter(and_(
-            Message.destination_chain == self.chain_id,
-            Message.sig != SIG_USED_VALUE
-        )).all()
-        for message in messages:
-            _, __, ___, coin_id, ____ = decode_signature(message.sig.decode())
-            if coin_id != new_synced_portal.coin_id:
-                await self.signMessage(db, message)
+        if self.syncing:
+            cr = await node.get_coin_record_by_name(new_synced_portal.coin_id)
+            if cr.spent_block_index is None or cr.spent_block_index == 0:
+                self.syncing = False
+                
+        if not self.syncing:
+            messages = db.query(Message).filter(and_(
+                Message.destination_chain == self.chain_id,
+                Message.sig != SIG_USED_VALUE
+            )).all()
+            for message in messages:
+                try:
+                    _, __, ___, coin_id, ____ = decode_signature(message.sig.decode())
+                    if coin_id != new_synced_portal.coin_id:
+                        await self.signMessage(db, message)
+                except:
+                    logging.info(f"Message {self.chain}-{message.nonce.hex()}: error when decoding signature/signing - {message.sig.decode()}", exc_info=True)
 
         return new_synced_portal
     
@@ -353,6 +369,8 @@ class ChiaFollower:
             db.commit()
 
         logging.info(f"Latest portal coin: {self.chain}-0x{last_synced_portal.coin_id.hex()}")
+
+        last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
 
         while True:
             last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
