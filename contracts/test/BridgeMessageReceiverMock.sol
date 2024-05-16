@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /* ChatGPT tracks all over the place */
-pragma solidity ^0.8.20;
+pragma solidity 0.8.23;
 
 import "../interfaces/IPortalMessageReceiver.sol";
 
