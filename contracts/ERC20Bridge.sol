@@ -178,8 +178,12 @@ contract ERC20Bridge is IPortalMessageReceiver {
      * @dev     Wraps ether into an ERC-20, sends portal tip, and sends a message to mint tokens on Chia.
      * @param   _receiver  Receiver puzzle hash for the wrapped tokens.
      */
-    function bridgeEtherToChia(bytes32 _receiver) external payable {
+    function bridgeEtherToChia(
+        bytes32 _receiver,
+        uint256 _maxMessageToll
+    ) external payable {
         uint256 messageToll = IPortal(portal).messageToll();
+        require(messageToll <= _maxMessageToll, "!toll");
 
         uint256 amountAfterToll = msg.value - messageToll;
         require(

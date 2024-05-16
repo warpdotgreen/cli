@@ -281,7 +281,7 @@ wethTokens.forEach(wethToken => {
                 const expectedCATs = ethToSend / wethToken.wethToEthRatio;
                 let expectedTipInCAT = expectedCATs * tip / 10000n;
 
-                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageToll });
+                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll, { value: ethToSend + messageToll });
                 await expect(tx).to.changeTokenBalances(
                     weth,
                     [erc20Bridge, portal],
@@ -296,7 +296,7 @@ wethTokens.forEach(wethToken => {
                     const ethToSend = ethers.parseEther("1");
 
                     await expect(
-                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend + messageToll + 1n })
+                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll, { value: ethToSend + messageToll + 1n })
                     ).to.be.revertedWith("!amnt");
                 });
 
@@ -304,7 +304,7 @@ wethTokens.forEach(wethToken => {
                     const receiver = ethers.encodeBytes32String("receiverOnChia");
 
                     await expect(
-                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: messageToll + 1n })
+                        erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll, { value: messageToll + 1n })
                     ).to.be.revertedWith("!amnt");
                 });
             }
@@ -314,7 +314,7 @@ wethTokens.forEach(wethToken => {
                 var ethToSend = messageToll * 2n / 3n;
                 
                 await expect(
-                    erc20Bridge.connect(user).bridgeEtherToChia(receiver, { value: ethToSend })
+                    erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll, { value: ethToSend })
                 ).to.be.reverted;
             });
 
@@ -322,8 +322,17 @@ wethTokens.forEach(wethToken => {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");
 
                 await expect(
-                    erc20Bridge.connect(user).bridgeEtherToChia(receiver)
+                    erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll)
                 ).to.be.reverted;
+            });
+
+            it("Should revert if maxMessageToll is too low", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const ethToSend = ethers.parseEther("1");
+
+                await expect(
+                    erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll - 1n, { value: ethToSend + messageToll })
+                ).to.be.revertedWith("!toll");
             });
         });
 
