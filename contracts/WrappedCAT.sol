@@ -85,7 +85,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     function initializePuzzleHashes(
         bytes32 _lockerPuzzleHash,
         bytes32 _unlockerPuzzleHash
-    ) public {
+    ) external {
         require(
             lockerPuzzleHash == bytes32(0) && unlockerPuzzleHash == bytes32(0),
             "nope"
@@ -107,7 +107,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes3 _source_chain,
         bytes32 _source,
         bytes32[] calldata _contents
-    ) public {
+    ) external {
         require(
             msg.sender == portal &&
                 _source == lockerPuzzleHash &&
@@ -128,7 +128,10 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
      * @param   _receiver Puzzle hash of the receiver on Chia.
      * @param   _mojoAmount Amount of CAT tokens (in mojos) to unlock on Chia.
      */
-    function bridgeBack(bytes32 _receiver, uint256 _mojoAmount) public payable {
+    function bridgeBack(
+        bytes32 _receiver,
+        uint256 _mojoAmount
+    ) external payable {
         require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         uint256 transferTip = (_mojoAmount * tip) / 10000;
