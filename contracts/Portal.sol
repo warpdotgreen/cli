@@ -26,6 +26,11 @@ contract Portal is Initializable, OwnableUpgradeable {
     mapping(bytes32 => bool) private usedNonces;
 
     /**
+     * @dev  Tracks which source or destination chains are supported by this portal.
+     */
+    mapping(bytes3 => bool) public supportedChains;
+
+    /**
      * @notice  The 'fee' required to send a message via the portal. The toll is sent to the block's miner in the same transaction - it is not kept by the protocol.
      * @dev     The value is sent to block.coinbase.
      */
@@ -95,6 +100,13 @@ contract Portal is Initializable, OwnableUpgradeable {
     event MessageTollUpdated(uint256 newFee);
 
     /**
+     * @notice  Indicates a change in the supported chains list.
+     * @param   chainId The id of the chain being updated.
+     * @param   supported Whether the chain is supported.
+     */
+    event SupportedChainUpdated(bytes3 chainId, bool supported);
+
+    /**
      * @notice  Initializes the contract with signers and settings for message handling.
      * @dev     Sets initial owners, message toll, signers, and signature threshold. Can only be called once.
      * @param   _coldMultisig The address that will own the contract.
@@ -106,7 +118,8 @@ contract Portal is Initializable, OwnableUpgradeable {
         address _coldMultisig,
         uint256 _messageToll,
         address[] calldata _signers,
-        uint256 _signatureThreshold
+        uint256 _signatureThreshold,
+        bytes3[] calldata _supportedChains
     ) external initializer {
         __Ownable_init(_coldMultisig);
 
@@ -115,6 +128,10 @@ contract Portal is Initializable, OwnableUpgradeable {
 
         for (uint256 i = 0; i < _signers.length; i++) {
             isSigner[_signers[i]] = true;
+        }
+
+        for (uint256 i = 0; i < _supportedChains.length; i++) {
+            supportedChains[_supportedChains[i]] = true;
         }
     }
 
@@ -137,6 +154,8 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] calldata _contents
     ) external payable {
         require(msg.value == messageToll, "!toll");
+        require(supportedChains[_destination_chain], "!dest");
+
         ethNonce += 1;
 
         (bool success, ) = block.coinbase.call{value: msg.value}(new bytes(0));
@@ -169,6 +188,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] calldata _contents,
         bytes memory _sigs
     ) external {
+        require(supportedChains[_source_chain], "!src");
         require(_sigs.length == signatureThreshold * 65, "!len");
 
         bytes32 messageHash = keccak256(
@@ -297,5 +317,21 @@ contract Portal is Initializable, OwnableUpgradeable {
         messageToll = _newValue;
 
         emit MessageTollUpdated(_newValue);
+    }
+
+    /**
+     * @notice  Updates the supported status of a chain with a given id.
+     * @dev     Only callable by the contract owner (validator cold key multisig).
+     * @param   _chainId 3-byte identifier of the chain.
+     * @param   _supported New value (true - supported, false - not supported).
+     */
+    function updateSupportedChain(
+        bytes3 _chainId,
+        bool _supported
+    ) external onlyOwner {
+        require(supportedChains[_chainId] != _supported, "!diff");
+        supportedChains[_chainId] = _supported;
+
+        emit SupportedChainUpdated(_chainId, _supported);
     }
 }

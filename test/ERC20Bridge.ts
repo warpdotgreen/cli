@@ -47,7 +47,7 @@ wethTokens.forEach(wethToken => {
 
             const PortalFactory = await ethers.getContractFactory("Portal");
             portal = await PortalFactory.deploy();
-            await portal.initialize(owner.address, messageToll, [ signer.address ], 1);
+            await portal.initialize(owner.address, messageToll, [ signer.address ], 1, [ otherChain ]);
             portalAddress = portal.target as string;
 
             const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");

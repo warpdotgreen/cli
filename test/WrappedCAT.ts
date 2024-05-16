@@ -15,6 +15,7 @@ describe("WrappedCAT", function () {
     let signer: HardhatEthersSigner;
     let otherChain = "0x786368"; // "xch"
     let invalidOtherChain = "0x747374"; // "tst"
+    // /\ supported, but invalid in the sense that it's not the message source
     
     const messageToll = ethers.parseEther("0.001");
     const tip = 30n; // 0.3%
@@ -28,7 +29,7 @@ describe("WrappedCAT", function () {
 
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
-        await portal.initialize(owner.address, messageToll, [ signer.address ], 1);
+        await portal.initialize(owner.address, messageToll, [ signer.address ], 1, [ xchChain, invalidOtherChain ]);
 
         const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
         wrappedCAT = await WrappedCATFactory.deploy(

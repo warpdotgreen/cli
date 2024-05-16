@@ -46,6 +46,7 @@ describe("Portal", function () {
     const nonce = ethers.encodeBytes32String("nonce1");
     const puzzleHash = ethers.encodeBytes32String("puzzleHash");
     const xchChain = "0x786368";
+    const nonSupportedChain = "0x6e6f6e"; // b"non".hex()
     const message = [
         ethers.encodeBytes32String("message-part-1"),
         ethers.encodeBytes32String("message-part-2")
@@ -60,7 +61,8 @@ describe("Portal", function () {
             owner.address,
             messageToll,
             [signer1.address, signer2.address, signer3.address],
-            2
+            2,
+            [ xchChain ]
         );
         const MockReceiverFactory = await ethers.getContractFactory("PortalMessageReceiverMock");
         mockReceiver = await MockReceiverFactory.deploy();
@@ -82,7 +84,8 @@ describe("Portal", function () {
                     owner.address,
                     messageToll,
                     [signer1.address, signer2.address, signer3.address],
-                    2
+                    2,
+                    [ xchChain ]
                 )
             ).to.be.revertedWithCustomError(portal, "InvalidInitialization");
         });
@@ -111,6 +114,11 @@ describe("Portal", function () {
         it("Should fail if message toll is not given", async function () {
             await expect(portal.sendMessage(xchChain, puzzleHash, message, {value: messageToll - 1n}))
                 .to.be.revertedWith("!toll");
+        });
+
+        it("Should fail if message destination is not supported", async function () {
+            await expect(portal.sendMessage(nonSupportedChain, puzzleHash, message, {value: messageToll}))
+                .to.be.revertedWith("!dest");
         });
 
         it("Should fail if message toll is incorrect", async function () {
@@ -168,6 +176,15 @@ describe("Portal", function () {
             await portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig);
             await expect(portal.receiveMessage(nonce, xchChain, puzzleHash, mockReceiver.target, message, sig))
                 .to.be.revertedWith("!nonce");
+        });
+
+        it("Should fail is message is received from unsupported chain", async function () {
+            const sig = await getSig(
+                nonce, nonSupportedChain, puzzleHash, mockReceiver.target.toString(), message,
+                [signer2, signer3]
+            );
+            await expect(portal.receiveMessage(nonce, nonSupportedChain, puzzleHash, mockReceiver.target, message, sig))
+                .to.be.revertedWith("!src");
         });
 
         it("Should fail is same sig is used twice", async function () {
@@ -335,6 +352,34 @@ describe("Portal", function () {
                 portal.connect(owner).updateMessageToll(messageToll)
             ).to.be.revertedWith("!diff");
             expect(await portal.messageToll()).to.equal(messageToll);
+        });
+    });
+
+    describe("updateSupportedChain", function () {
+        it("Should allow owner to add supported chain", async function () {
+            await expect(portal.connect(owner).updateSupportedChain(nonSupportedChain, true))
+                .to.emit(portal, "SupportedChainUpdated").withArgs(nonSupportedChain, true);
+            expect(await portal.supportedChains(nonSupportedChain)).to.be.true;
+        });
+
+        it("Should allow owner to remove supported chains", async function () {
+            await expect(portal.connect(owner).updateSupportedChain(xchChain, false))
+                .to.emit(portal, "SupportedChainUpdated").withArgs(xchChain, false);
+            expect(await portal.supportedChains(nonSupportedChain)).to.be.false;
+        });
+
+        it("Should not allow non-owner to update supported chains", async function () {
+            await expect(
+                portal.updateSupportedChain(xchChain, false)
+            ).to.be.revertedWithCustomError(portal, "OwnableUnauthorizedAccount");
+            expect(await portal.supportedChains(xchChain)).to.be.true;
+        });
+
+        it("Should fail if current value is already set to new value", async function () {
+            await expect(
+                portal.connect(owner).updateSupportedChain(xchChain, true)
+            ).to.be.revertedWith("!diff");
+            expect(await portal.supportedChains(xchChain)).to.be.true;
         });
     });
 });
