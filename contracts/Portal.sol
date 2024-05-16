@@ -127,6 +127,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         signatureThreshold = _signatureThreshold;
 
         for (uint256 i = 0; i < _signers.length; i++) {
+            require(_signers[i] != address(0), "!signer");
             isSigner[_signers[i]] = true;
         }
 
@@ -289,7 +290,9 @@ contract Portal is Initializable, OwnableUpgradeable {
      * @param   _newValue New authorization status (true for authorized, false for not authorized).
      */
     function updateSigner(address _signer, bool _newValue) external onlyOwner {
+        require(_signer != address(0), "!signer");
         require(isSigner[_signer] != _newValue, "!diff");
+
         isSigner[_signer] = _newValue;
 
         emit SignerUpdated(_signer, _newValue);

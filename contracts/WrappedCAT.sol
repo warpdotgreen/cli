@@ -69,6 +69,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
         require(_tip > 0 && _tip <= 1000, "!tip");
+        require(_portal != address(0), "!portal");
 
         portal = _portal;
         tip = _tip;

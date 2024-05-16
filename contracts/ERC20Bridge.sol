@@ -79,6 +79,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         bytes3 _otherChain
     ) {
         require(_tip > 0 && _tip <= 1000, "!tip");
+        require(_iweth != address(0) && _portal != address(0), "!addrs");
 
         tip = _tip;
         portal = _portal;

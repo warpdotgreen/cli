@@ -41,8 +41,6 @@ describe("Portal", function () {
     let signer2: HardhatEthersSigner;
     let signer3: HardhatEthersSigner;
 
-    const abiCoder = new ethers.AbiCoder();
-
     const nonce = ethers.encodeBytes32String("nonce1");
     const puzzleHash = ethers.encodeBytes32String("puzzleHash");
     const xchChain = "0x786368";
@@ -88,6 +86,20 @@ describe("Portal", function () {
                     [ xchChain ]
                 )
             ).to.be.revertedWithCustomError(portal, "InvalidInitialization");
+        });
+
+        it("Should not allow one of the signers to be the zero address", async function () {
+            const PortalFactory = await ethers.getContractFactory("Portal");
+            const newPortal = await PortalFactory.deploy();
+            await expect(
+                newPortal.initialize(
+                    owner.address,
+                    messageToll,
+                    [signer1.address, signer2.address, ethers.ZeroAddress, signer3.address],
+                    2,
+                    [ xchChain ]
+                )
+            ).to.be.revertedWith("!signer");
         });
     });
 
@@ -308,6 +320,12 @@ describe("Portal", function () {
                 portal.connect(owner).updateSigner(signer1.address, true)
             ).to.be.revertedWith("!diff");
             expect(await portal.isSigner(signer1.address)).to.be.true;
+        });
+
+        it("Should fail if signer is the zero address", async function () {
+            await expect(
+                portal.connect(owner).updateSigner(ethers.ZeroAddress, true)
+            ).to.be.revertedWith("!signer");
         });
     });
 

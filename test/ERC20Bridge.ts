@@ -95,6 +95,26 @@ wethTokens.forEach(wethToken => {
                     )
                 ).to.be.revertedWith("!tip");
             });
+
+            it("Should not allow portal address to be address(0)", async function () {
+                const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
+
+                await expect(
+                    ERC20BridgeFactory.deploy(
+                        tip, ethers.ZeroAddress, weth.target, wethToken.wethToEthRatio, otherChain
+                    )
+                ).to.be.revertedWith("!addrs");
+            });
+
+            it("Should not allow WETH address to be address(0)", async function () {
+                const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
+
+                await expect(
+                    ERC20BridgeFactory.deploy(
+                        tip, portalAddress, ethers.ZeroAddress, wethToken.wethToEthRatio, otherChain
+                    )
+                ).to.be.revertedWith("!addrs");
+            });
         });
 
         describe("bridgeToChia", function () {
