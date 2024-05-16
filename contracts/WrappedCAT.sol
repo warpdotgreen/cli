@@ -56,7 +56,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
      * @param   _name Name of the token.
      * @param   _symbol Symbol of the token.
      * @param   _portal Address of the warp.green portal contract.
-     * @param   _tip Tip percentage (in basis points) paid to the portal.
+     * @param   _tip Tip percentage (in basis points) paid to the portal. (0.01 - 10%)
      * @param   _mojoToTokenRatio Conversion ratio from mojos to token units.
      * @param   _otherChain ID of chain where CATs are locked (e.g., Chia).
      */
@@ -68,6 +68,8 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         uint64 _mojoToTokenRatio,
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
+        require(_tip > 0 && _tip <= 1000, "!tip");
+
         portal = _portal;
         tip = _tip;
         mojoToTokenRatio = _mojoToTokenRatio;

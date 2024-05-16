@@ -52,6 +52,28 @@ describe("WrappedCAT", function () {
             await expect(wrappedCAT.initializePuzzleHashes(lockerPuzzleHash, unlockerPuzzleHash))
                 .to.be.revertedWith("nope");
         });
+
+        it("Should not allow a tip that is too high", async function () {
+                const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
+                const invalidTip = 10001n; // 100.01%
+
+                await expect(
+                    WrappedCATFactory.deploy(
+                        "Wrapped CAT", "wCAT", portal.target, invalidTip, chiaToERC20AmountFactor, otherChain
+                    )
+                ).to.be.revertedWith("!tip");
+            });
+
+            it("Should not allow a tip that is too low", async function () {
+                const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
+                const invalidTip = 0; // 0%
+
+                await expect(
+                    WrappedCATFactory.deploy(
+                        "Wrapped CAT", "wCAT", portal.target, invalidTip, chiaToERC20AmountFactor, otherChain
+                    )
+                ).to.be.revertedWith("!tip");
+            });
     });
 
     describe("receiveMessage", function () {

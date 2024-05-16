@@ -73,6 +73,28 @@ wethTokens.forEach(wethToken => {
                 await expect(erc20Bridge.initializePuzzleHashes(burnPuzzleHash, mintPuzzleHash))
                     .to.be.revertedWith("nope");
             });
+
+            it("Should not allow a tip that is too high", async function () {
+                const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
+                const invalidTip = 10001n; // 100.01%
+
+                await expect(
+                    ERC20BridgeFactory.deploy(
+                        invalidTip, portalAddress, weth.target, wethToken.wethToEthRatio, otherChain
+                    )
+                ).to.be.revertedWith("!tip");
+            });
+
+            it("Should not allow a tip that is too low", async function () {
+                const ERC20BridgeFactory = await ethers.getContractFactory("ERC20Bridge");
+                const invalidTip = 0; // 0%
+
+                await expect(
+                    ERC20BridgeFactory.deploy(
+                        invalidTip, portalAddress, weth.target, wethToken.wethToEthRatio, otherChain
+                    )
+                ).to.be.revertedWith("!tip");
+            });
         });
 
         describe("bridgeToChia", function () {

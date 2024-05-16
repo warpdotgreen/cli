@@ -64,7 +64,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
 
     /**
      * @notice  ERC20Bridge constructor
-     * @param   _tip The percentage (in basis points) used as a tip for the warp.green protocol
+     * @param   _tip The percentage (in basis points) used as a tip for the warp.green protocol (0.01 - 10%)
      * @param   _portal Address of the warp.green portal contract
      * @param   _iweth Address of the WETH contract or its equivalent
      * @param   _wethToEthRatio The conversion ratio from 1 'wei' of WETH to ETH, considering the difference in decimals
@@ -78,6 +78,8 @@ contract ERC20Bridge is IPortalMessageReceiver {
         uint64 _wethToEthRatio,
         bytes3 _otherChain
     ) {
+        require(_tip > 0 && _tip <= 1000, "!tip");
+
         tip = _tip;
         portal = _portal;
         iweth = _iweth;
