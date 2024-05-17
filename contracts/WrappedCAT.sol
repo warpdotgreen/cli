@@ -136,6 +136,10 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         uint256 transferTip = (_mojoAmount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
+
         _burn(msg.sender, _mojoAmount * mojoToTokenRatio);
         _mint(portal, transferTip * mojoToTokenRatio);
 

@@ -182,6 +182,26 @@ wethTokens.forEach(wethToken => {
                   erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, amount)
                 ).to.be.revertedWith("!toll");
             });
+
+            it("Should take a minimum fee of at least 1 mojo", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const mojoAmount = 333n;
+
+                await mockERC20.mint(user.address, mojoAmount * chiaToERC20AmountFactor);
+                await mockERC20.connect(user).approve(erc20Bridge.target, mojoAmount * chiaToERC20AmountFactor);
+
+                await expect(
+                  erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, mojoAmount, { value: messageToll })
+                ).to.changeTokenBalances(
+                    mockERC20,
+                    [user, erc20Bridge, portal],
+                    [
+                        -mojoAmount * chiaToERC20AmountFactor, // bridged amount (including tip)
+                        (mojoAmount - 1n) * chiaToERC20AmountFactor, // bridged amount after tip
+                        1n * chiaToERC20AmountFactor // tip (min. 1 mojo, even though 0.3% of 333 is < 1)
+                    ]
+                );
+            });
         });
 
         describe("receiveMessage", function () {
@@ -308,6 +328,25 @@ wethTokens.forEach(wethToken => {
                     ).to.be.revertedWith("!amnt");
                 });
             }
+
+            it("Should use a minimum tip of 1 mojo", async function () {
+                const receiver = ethers.encodeBytes32String("receiverOnChia");
+                const expectedCATs = 10n;
+                const expectedTipInCATs = 1n;
+
+                const mojoToWeth = BigInt(wethToken.name === "WETHMock" ? 10 ** 15 : 1);
+                const wethToEth = BigInt(wethToken.name === "WETHMock" ? 1 : 10 ** 12);
+
+                const ethToSend = (expectedCATs + expectedTipInCATs) * mojoToWeth * wethToEth;
+
+                const tx = erc20Bridge.connect(user).bridgeEtherToChia(receiver, messageToll, { value: ethToSend + messageToll });
+                await expect(tx).to.changeTokenBalances(
+                    weth,
+                    [erc20Bridge, portal],
+                    [expectedCATs * mojoToWeth, expectedTipInCATs * mojoToWeth]
+                );
+                await expect(tx).to.emit(portal, "MessageSent");
+            });
 
             it("Should fail if msg.value is too low", async function () {
                 const receiver = ethers.encodeBytes32String("receiverOnChia");

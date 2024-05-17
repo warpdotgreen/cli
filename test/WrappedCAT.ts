@@ -204,9 +204,9 @@ describe("WrappedCAT", function () {
                 { value: await portal.messageToll() }    
             );
 
-            expect(tx).to.emit(portal, "MessageSent")
+            await expect(tx).to.emit(portal, "MessageSent")
                 .withArgs(
-                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
                     wrappedCAT.target,
                     xchChain,
                     unlockerPuzzleHash,
@@ -216,7 +216,60 @@ describe("WrappedCAT", function () {
                     ]
                 );
             
-            expect(tx).to.changeTokenBalances(
+            await expect(tx).to.changeTokenBalances(
+                wrappedCAT,
+                [user, portal],
+                [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]
+            );
+        });
+
+        it("Should have a minimum tip of 1 mojo", async function () {
+            const receiver = user.address;
+            const amount = ethers.parseUnits("10", 3);
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                ethers.zeroPadValue("0x" + amount.toString(16), 32)
+            ]
+            const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
+
+            const sig = await getSig(
+                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer]
+            );
+
+            await expect(
+                await portal.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.changeTokenBalances(
+                wrappedCAT,
+                [receiver, portal],
+                [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
+            );
+
+            // setup complete, test actually starts here
+            const amountToBridgeBackMojo = 333n;
+            const expectedTipMojo = 1n;
+
+            const tx = await wrappedCAT.connect(user).bridgeBack(
+                receiverPh,
+                amountToBridgeBackMojo,
+                { value: await portal.messageToll() }
+            );
+
+            await expect(tx).to.emit(portal, "MessageSent")
+                .withArgs(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    wrappedCAT.target,
+                    xchChain,
+                    unlockerPuzzleHash,
+                    [
+                        ethers.zeroPadValue(receiverPh, 32),
+                        ethers.zeroPadValue("0x0" + (amountToBridgeBackMojo - expectedTipMojo).toString(16), 32)
+                    ]
+                );
+
+            await expect(tx).to.changeTokenBalances(
                 wrappedCAT,
                 [user, portal],
                 [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]

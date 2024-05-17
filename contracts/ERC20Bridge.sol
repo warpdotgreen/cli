@@ -268,6 +268,9 @@ contract ERC20Bridge is IPortalMessageReceiver {
         uint256 _mojoToTokenFactor
     ) internal {
         uint256 transferTip = (_amount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
 
         bytes32[] memory message = new bytes32[](3);
         message[0] = bytes32(uint256(uint160(_assetContract)));
