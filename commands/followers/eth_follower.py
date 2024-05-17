@@ -132,6 +132,7 @@ class EthereumFollower:
                 while event_block_number + self.sign_min_height > eth_block_number:
                     await asyncio.sleep(5)
                     eth_block_number = web3.eth.block_number
+                    logging.info(f"{self.chain_id.decode()} message listener: Waiting for block {event_block_number + self.sign_min_height} to confirm message; current block: {eth_block_number}")
             else:
                 # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
                 # in short, since we're trusting the sequencer anyway, we can also trust:
