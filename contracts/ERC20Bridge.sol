@@ -9,6 +9,7 @@ import "./interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 
 interface ERC20Decimals {
     function decimals() external returns (uint8);
@@ -144,8 +145,11 @@ contract ERC20Bridge is IPortalMessageReceiver {
         } else {
             IWETH(iweth).withdraw(amount);
 
-            payable(receiver).transfer((amount - transferTip) * wethToEthRatio);
-            payable(portal).transfer(transferTip * wethToEthRatio);
+            Address.sendValue(
+                payable(receiver),
+                (amount - transferTip) * wethToEthRatio
+            );
+            Address.sendValue(payable(portal), transferTip * wethToEthRatio);
         }
     }
 

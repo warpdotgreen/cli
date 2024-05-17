@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 
 /**
  * @title   warp.green Portal Contract
@@ -258,7 +259,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         uint256[] calldata _amounts
     ) external onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
-            payable(_receivers[i]).transfer(_amounts[i]);
+            Address.sendValue(payable(_receivers[i]), _amounts[i]);
         }
     }
 
