@@ -60,8 +60,8 @@ class ChiaFollower:
         return setup_database()
 
 
-    async def getNode(self):
-        return await get_node_client(self.chain)
+    async def getNode(self, log: bool = True):
+        return await get_node_client(self.chain, log)
 
 
     # to save space, used_chains_and_nonces has a special format:
@@ -566,3 +566,19 @@ class ChiaFollower:
         self.loop.create_task(self.messageSigner())
         self.loop.create_task(self.portalFollower())
         self.loop.create_task(self.messageListener())
+
+    async def wait_for_node(self, log: bool = True):
+        while True:
+            try:
+                node = await self.getNode(log)
+                await node.healthz()
+
+                status = await node.get_blockchain_state()
+                assert status['sync']['synced']
+
+                node.close()
+                await node.await_closed()
+                return
+            except:
+                logging.info(f"Could not connect to {self.chain} node; trying again in 10s")
+                await asyncio.sleep(10)

@@ -1,24 +1,25 @@
 import click
-from commands.cli_wrappers import async_func
 from commands.models import *
-from commands.config import get_config_item
-from web3 import Web3
 import time
 import logging
-import json
 from commands.followers.eth_follower import EthereumFollower
 from commands.followers.xch_follower import ChiaFollower
 import asyncio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+@click.option('--log-startup-connection-errors', is_flag=True, default=False)
 @click.command()
-def listen():
+def listen(log_startup_connection_errors: bool):
     eth_follower = EthereumFollower("eth", False)
     bse_follower = EthereumFollower("bse", True)
     xch_follower = ChiaFollower("xch")
 
-    loop = asyncio.get_event_loop()
+    asyncio.run(xch_follower.wait_for_node(log_startup_connection_errors))
+    asyncio.run(eth_follower.wait_for_node(log_startup_connection_errors))
+    asyncio.run(bse_follower.wait_for_node(log_startup_connection_errors))
+
+    loop = asyncio.new_event_loop()
     xch_follower.run(loop)
     eth_follower.run(loop)
     bse_follower.run(loop)

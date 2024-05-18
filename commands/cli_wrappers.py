@@ -25,14 +25,14 @@ def async_func(f):
 
     return wrapper
 
-async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
+async def get_node_client(chain_name: str = "xch", log: bool = True) -> FullNodeRpcClient:
     try:
         try:
             chia_url = get_config_item([chain_name, "chia_url"])
             node_client = HTTPFullNodeRpcClient(chia_url)
             await node_client.healthz()
             return node_client
-        except Exception as e:
+        except: # Exception as e:
             # logging.error("Failed to get node using specified url", exc_info=True)
             pass  
         root_path = Path(get_config_item([chain_name, "chia_root"]))
@@ -48,11 +48,12 @@ async def get_node_client(chain_name: str = "xch") -> FullNodeRpcClient:
         )
         await node_client.healthz()
         return node_client
-    except Exception as e:
-        logging.error("Failed to get node; retrying in 5 s. Error:")
-        logging.error(e)
-        await asyncio.sleep(5)
-        return get_node_client(chain_name)
+    except:
+        if log:
+            logging.error(f"Failed to get {chain_name} node", exc_info=True)
+        node_client.close()
+        await node_client.await_closed()
+        return None
 
 def with_node(f):
     @functools.wraps(f)

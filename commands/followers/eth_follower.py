@@ -267,3 +267,14 @@ class EthereumFollower:
 
       self.loop.create_task(self.messageListener())
       self.loop.create_task(self.messageSigner())
+
+    async def wait_for_node(self, log_startup_connection_errors: bool):
+      while True:
+        try:
+            web3 = self.getWeb3()
+            web3.eth.block_number
+
+            return
+        except:
+            logging.info(f"Could not connect to {self.chain} node; trying again in 10s", exc_info=log_startup_connection_errors)
+            await asyncio.sleep(10)
