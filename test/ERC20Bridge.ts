@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { ERC20Mock, Portal, WETHMock, MilliETH, ERC20Bridge } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { getSig } from "./Portal";
+import { getPrivateKeys, getSig } from "./Portal";
 
 const wethTokens = [
   { name: "WETHMock", decimals: 18n, wethToEthRatio: 1n,  type: "WETHMock" },
@@ -26,6 +26,7 @@ wethTokens.forEach(wethToken => {
         let owner: HardhatEthersSigner;
         let user: HardhatEthersSigner;
         let signer: HardhatEthersSigner;
+        let signerSk: string;
         let portalAddress: string;
         let otherChain = "0x786368";
         
@@ -38,6 +39,8 @@ wethTokens.forEach(wethToken => {
 
         beforeEach(async function () {
             [owner, user, signer] = await ethers.getSigners();
+            const [_, __, _signerSk] = await getPrivateKeys(3);
+            signerSk = _signerSk;
 
             const ERC20Factory = await ethers.getContractFactory("ERC20Mock");
             mockERC20 = await ERC20Factory.deploy("MockToken", "MTK", token.decimals);
@@ -232,8 +235,10 @@ wethTokens.forEach(wethToken => {
                 await mockERC20.mint(erc20Bridge.target, amount * chiaToERC20AmountFactor);
 
                 const sig = await getSig(
+                    portal,
                     nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
-                    [signer]
+                    [signer],
+                    [signerSk]
                 );
                 await expect(
                     portal.receiveMessage(
@@ -263,8 +268,10 @@ wethTokens.forEach(wethToken => {
                 await weth.transfer(erc20Bridge.target, wethAmount);
 
                 const sig = await getSig(
+                    portal,
                     nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
-                    [signer]
+                    [signer],
+                    [signerSk]
                 );
                 await expect(
                     portal.receiveMessage(
@@ -300,8 +307,10 @@ wethTokens.forEach(wethToken => {
                 ]
 
                 const sig = await getSig(
+                    portal,
                     nonce1, otherChain, invalidPuzzle, erc20Bridge.target.toString(), message,
-                    [signer]
+                    [signer],
+                    [signerSk]
                 );
                 await expect(portal.receiveMessage(nonce1, otherChain, invalidPuzzle, erc20Bridge.target, message, sig))
                     .to.be.revertedWith("!msg");
@@ -315,8 +324,10 @@ wethTokens.forEach(wethToken => {
                 ]
 
                 const sig = await getSig(
+                    portal,
                     nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
-                    [signer]
+                    [signer],
+                    [signerSk]
                 );
                 await expect(portal.receiveMessage(nonce1, otherChain, burnPuzzleHash, erc20Bridge.target, message, sig))
                     .to.be.revertedWith("!amnt");
@@ -336,8 +347,10 @@ wethTokens.forEach(wethToken => {
                     ]
 
                     const sig = await getSig(
+                        portal,
                         nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
-                        [signer]
+                        [signer],
+                        [signerSk]
                     );
 
                     await mockERC20.mint(erc20Bridge.target, totalAmountMojo * mojoToTokenFactor);

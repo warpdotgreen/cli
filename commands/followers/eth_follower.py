@@ -1,9 +1,8 @@
 from commands.models import *
 from commands.config import get_config_item
 from sqlalchemy import and_
-from typing import Tuple
-from eth_account.messages import encode_defunct
-from commands.followers.sig import encode_signature, decode_signature, send_signature
+from eth_account.messages import encode_typed_data
+from commands.followers.sig import encode_signature, send_signature
 from web3 import Web3
 import logging
 import json
@@ -14,6 +13,7 @@ class EthereumFollower:
     chain: str
     chain_id: bytes
     sign_min_height: int
+    portal_address: str
     private_key: str
     is_optimism: bool
     max_query_block_limit: int = 1000
@@ -25,6 +25,7 @@ class EthereumFollower:
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
+        self.portal_address = get_config_item([self.chain, 'portal_address'])
         self.private_key = get_config_item([self.chain, 'my_hot_private_key'])
         self.is_optimism = is_optimism
         self.syncing = True
@@ -97,7 +98,6 @@ class EthereumFollower:
       web3 = self.getWeb3()
 
       portal_contract_abi = json.loads(open("artifacts/contracts/Portal.sol/Portal.json", "r").read())["abi"]
-      portal_contract_address = get_config_item([self.chain, 'portal_address'])
       
       latest_message_in_db = db.query(Message).filter(
          Message.source_chain == self.chain_id
@@ -108,7 +108,7 @@ class EthereumFollower:
       
       logging.info(f"Last synced nonce: {self.chain_id.decode()}-{latest_synced_nonce_int}")
 
-      contract = web3.eth.contract(address=portal_contract_address, abi=portal_contract_abi)
+      contract = web3.eth.contract(address=self.portal_address, abi=portal_contract_abi)
 
       while True:
         try:
@@ -197,46 +197,60 @@ class EthereumFollower:
             sys.exit(1)
   
     async def signMessage(self, db, web3: Web3, message: Message):
-      encoded_message = web3.solidity_keccak(
-          ['bytes32', 'bytes3', 'bytes32', 'address', 'bytes32[]'],
-          [
-              message.nonce,
-              message.source_chain,
-              message.source,
-              Web3.to_checksum_address("0x" + message.destination[-40:].hex()),
-              split_message_contents(message.contents)
-          ]
-      )
-      signed_message = web3.eth.account.sign_message(
-         encode_defunct(encoded_message),
-         self.private_key
-      )
-      
-      # uint8(v), bytes32(r), bytes32(s)
-      v = hex(signed_message.v)[2:]
-      if len(v) < 2:
-          v = "0" * (2 - len(v)) + v
-      r = hex(signed_message.r)[2:]
-      if len(r) < 64:
-         r = (64 - len(r)) * "0" + r
-      s = hex(signed_message.s)[2:]
-      if len(s) < 64:
-          s = (64 - len(s)) * "0" + s
-      sig = bytes.fromhex(v + r + s)
+        domain = {
+            'name': 'warp.green Portal',
+            'version': '1',
+            'chainId': web3.eth.chain_id,
+            'verifyingContract': self.portal_address,
+        }
+        types = {
+            'Message': [
+                {'name': 'nonce', 'type': 'bytes32'},
+                {'name': 'source_chain', 'type': 'bytes3'},
+                {'name': 'source', 'type': 'bytes32'},
+                {'name': 'destination', 'type': 'address'},
+                {'name': 'contents', 'type': 'bytes32[]'},
+            ]
+        }
 
-      logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
+        encoded_data = encode_typed_data(
+            domain,
+            types,
+            {
+                'nonce': '0x' + message.nonce.hex(),
+                'source_chain': '0x' + message.source_chain.hex(),
+                'source': '0x' + message.source.hex(),
+                'destination': Web3.to_checksum_address("0x" + message.destination[-40:].hex()),
+                'contents': ['0x' + content.hex() for content in split_message_contents(message.contents)],
+            }
+        )
+        signed_message = web3.eth.account.sign_message(encoded_data, private_key=self.private_key)
 
-      message.sig = encode_signature(
-          message.source_chain,
-          message.destination_chain,
-          message.nonce,
-          None,
-          sig
-      ).encode()
-      db.commit()
-      logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
+        # uint8(v), bytes32(r), bytes32(s)
+        v = hex(signed_message.v)[2:]
+        if len(v) < 2:
+            v = "0" * (2 - len(v)) + v
+        r = hex(signed_message.r)[2:]
+        if len(r) < 64:
+            r = (64 - len(r)) * "0" + r
+        s = hex(signed_message.s)[2:]
+        if len(s) < 64:
+            s = (64 - len(s)) * "0" + s
+        sig = bytes.fromhex(v + r + s)
 
-      send_signature(message.sig.decode())
+        logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
+
+        message.sig = encode_signature(
+            message.source_chain,
+            message.destination_chain,
+            message.nonce,
+            None,
+            sig
+        ).encode()
+        db.commit()
+        logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
+
+        send_signature(message.sig.decode())
 
 
     async def messageSigner(self):

@@ -3,19 +3,21 @@
 
 pragma solidity 0.8.23;
 
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./interfaces/IPortalMessageReceiver.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "./interfaces/IPortalMessageReceiver.sol";
 
 /**
  * @title   warp.green Portal Contract
  * @notice  Manages the sending and receiving of cross-chain messages via a trusted set of validators.
  * @dev     Sits behind a TransparentUpgradeableProxy. Owner is a cold key multisig (Safe{Wallet}) controlled by a majority of the trusted validators.
  */
-contract Portal is Initializable, OwnableUpgradeable {
+contract Portal is Initializable, OwnableUpgradeable, EIP712Upgradeable {
     /**
      * @dev  Tracks the incremental nonce for Ethereum-originating messages.
      */
@@ -46,6 +48,15 @@ contract Portal is Initializable, OwnableUpgradeable {
      * @notice  The number of signatures required to relay a message.
      */
     uint256 public signatureThreshold;
+
+    /**
+     * @notice  EIP-712 type hash for a message struct.
+     * @dev     Declared as a constant so it's computed only once at compile time.
+     */
+    bytes32 private constant MESSAGE_TYPE_HASH =
+        keccak256(
+            "Message(bytes32 nonce,bytes3 source_chain,bytes32 source,address destination,bytes32[] contents)"
+        );
 
     /**
      * @notice  Logs when a message is successfully sent.
@@ -123,6 +134,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes3[] calldata _supportedChains
     ) external initializer {
         __Ownable_init(_coldMultisig);
+        __EIP712_init("warp.green Portal", "1");
 
         messageToll = _messageToll;
         signatureThreshold = _signatureThreshold;
@@ -193,17 +205,19 @@ contract Portal is Initializable, OwnableUpgradeable {
         require(supportedChains[_source_chain], "!src");
         require(_sigs.length == signatureThreshold * 65, "!len");
 
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(
-                        _nonce,
-                        _source_chain,
-                        _source,
-                        _destination,
-                        _contents
-                    )
+        bytes32 key = keccak256(abi.encodePacked(_source_chain, _nonce));
+        require(!usedNonces[key], "!nonce");
+        usedNonces[key] = true;
+
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    MESSAGE_TYPE_HASH,
+                    _nonce,
+                    _source_chain,
+                    _source,
+                    _destination,
+                    keccak256(abi.encodePacked(_contents))
                 )
             )
         );
@@ -222,15 +236,11 @@ contract Portal is Initializable, OwnableUpgradeable {
                 s := mload(add(_sigs, add(33, ib)))
             }
 
-            address signer = ecrecover(messageHash, v, r, s);
+            address signer = ECDSA.recover(messageHash, v, r, s);
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");
             lastSigner = signer;
         }
-
-        bytes32 key = keccak256(abi.encodePacked(_source_chain, _nonce));
-        require(!usedNonces[key], "!nonce");
-        usedNonces[key] = true;
 
         IPortalMessageReceiver(_destination).receiveMessage(
             _nonce,

@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Portal, WrappedCAT } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { getSig } from "./Portal";
+import { getPrivateKeys, getSig } from "./Portal";
 
 const xchChain = "0x786368";
 const receiverPh = ethers.encodeBytes32String("receiver-puzzle-hash");
@@ -13,6 +13,7 @@ describe("WrappedCAT", function () {
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
     let signer: HardhatEthersSigner;
+    let signerSk: string;
     let otherChain = "0x786368"; // "xch"
     let invalidOtherChain = "0x747374"; // "tst"
     // /\ supported, but invalid in the sense that it's not the message source
@@ -26,6 +27,8 @@ describe("WrappedCAT", function () {
 
     beforeEach(async function () {
         [owner, user, signer] = await ethers.getSigners();
+        const [_, __, _signerSk] = getPrivateKeys(3);
+        signerSk = _signerSk;
 
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
@@ -98,8 +101,10 @@ describe("WrappedCAT", function () {
             const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -122,8 +127,10 @@ describe("WrappedCAT", function () {
             ]
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, unlockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -141,8 +148,10 @@ describe("WrappedCAT", function () {
             ]
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -161,8 +170,10 @@ describe("WrappedCAT", function () {
             ]
 
             const sig = await getSig(
+                portal,
                 nonce1, invalidOtherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -199,8 +210,10 @@ describe("WrappedCAT", function () {
             const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
