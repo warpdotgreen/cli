@@ -202,6 +202,20 @@ wethTokens.forEach(wethToken => {
                     ]
                 );
             });
+
+            if(token.decimals == 3) {
+                it("Should fail if bridged amount is 0 after fee", async function () {
+                    const receiver = ethers.encodeBytes32String("receiverOnChia");
+                    const mojoAmount = 1n;
+
+                    await mockERC20.mint(user.address, mojoAmount * chiaToERC20AmountFactor);
+                    await mockERC20.connect(user).approve(erc20Bridge.target, mojoAmount * chiaToERC20AmountFactor);
+
+                    await expect(
+                        erc20Bridge.connect(user).bridgeToChia(mockERC20.target, receiver, mojoAmount, { value: messageToll })
+                    ).to.be.revertedWith("!amnt");
+                });
+            }
         });
 
         describe("receiveMessage", function () {
@@ -292,6 +306,54 @@ wethTokens.forEach(wethToken => {
                 await expect(portal.receiveMessage(nonce1, otherChain, invalidPuzzle, erc20Bridge.target, message, sig))
                     .to.be.revertedWith("!msg");
             });
+
+            it("Should fail if amount to transfer is zero", async function () {
+                const message = [
+                    ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                    ethers.zeroPadValue(user.address, 32),
+                    "0x" + "00".repeat(32)
+                ]
+
+                const sig = await getSig(
+                    nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
+                    [signer]
+                );
+                await expect(portal.receiveMessage(nonce1, otherChain, burnPuzzleHash, erc20Bridge.target, message, sig))
+                    .to.be.revertedWith("!amnt");
+            });
+
+            if(token.decimals <= 6) {
+                it("Should have a minimum fee of 1 mojo", async function () {
+                    const totalAmountMojo = 3n;
+                    const expectedFeeToken = 1n;
+
+                    const mojoToTokenFactor = 10n ** BigInt(token.decimals - 3);
+
+                    const message = [
+                        ethers.zeroPadValue(mockERC20.target.toString(), 32),
+                        ethers.zeroPadValue(user.address, 32),
+                        ethers.zeroPadValue("0x0" + totalAmountMojo.toString(16), 32)
+                    ]
+
+                    const sig = await getSig(
+                        nonce1, otherChain, burnPuzzleHash, erc20Bridge.target.toString(), message,
+                        [signer]
+                    );
+
+                    await mockERC20.mint(erc20Bridge.target, totalAmountMojo * mojoToTokenFactor);
+                    await expect(
+                        await portal.receiveMessage(nonce1, otherChain, burnPuzzleHash, erc20Bridge.target, message, sig)
+                    ).to.changeTokenBalances(
+                        mockERC20,
+                        [erc20Bridge.target, user.address, portal.target],
+                        [
+                            -totalAmountMojo * mojoToTokenFactor,
+                            totalAmountMojo * mojoToTokenFactor - expectedFeeToken,
+                            expectedFeeToken
+                        ]
+                    );
+                });
+            }
         });
 
         describe("bridgeEtherToChia", function () {

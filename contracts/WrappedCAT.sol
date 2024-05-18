@@ -118,6 +118,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
 
         uint256 amount = uint256(_contents[1]) * mojoToTokenRatio;
         uint256 transferTip = (amount * tip) / 10000;
+        require(transferTip > 0 && amount > transferTip, "!amnt");
 
         _mint(address(uint160(uint256(_contents[0]))), amount - transferTip);
         _mint(portal, transferTip);
@@ -139,6 +140,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         if (transferTip == 0) {
             transferTip = 1;
         }
+        require(_mojoAmount > transferTip, "!amnt");
 
         _burn(msg.sender, _mojoAmount * mojoToTokenRatio);
         _mint(portal, transferTip * mojoToTokenRatio);

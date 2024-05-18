@@ -134,6 +134,10 @@ contract ERC20Bridge is IPortalMessageReceiver {
         amount = (amount * 10 ** (ERC20Decimals(assetContract).decimals() - 3)); // transform from mojos to ETH wei
 
         uint256 transferTip = (amount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
+        require(amount > transferTip, "!amnt");
 
         if (assetContract != iweth) {
             SafeERC20.safeTransfer(
@@ -275,6 +279,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
         if (transferTip == 0) {
             transferTip = 1;
         }
+        require(_amount > transferTip, "!amnt");
 
         bytes32[] memory message = new bytes32[](3);
         message[0] = bytes32(uint256(uint160(_assetContract)));
