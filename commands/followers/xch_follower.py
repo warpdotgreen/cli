@@ -49,7 +49,7 @@ class ChiaFollower:
             if coin_id is None:
                 await asyncio.sleep(0.1)
         return coin_id
-    
+
 
     async def setUnspentPortalId(self, coin_id: bytes):
         async with self.unspent_portal_id_lock:
@@ -217,15 +217,31 @@ class ChiaFollower:
             await asyncio.sleep(5)
 
 
+    async def get_coin_record_by_name(self, node: FullNodeRpcClient, coin_id: bytes, tries: int = -1) -> CoinRecord:
+        coin_record = await node.get_coin_record_by_name(coin_id)
+        while coin_record is None:
+            if tries == 0:
+                return None
+            elif tries > -1:
+                tries -= 1
+
+            logging.info(f"{self.chain_id.decode()}: Coin 0x{coin_id.hex()}: not found; waiting 5s")
+            await asyncio.sleep(5)
+            coin_record = await node.get_coin_record_by_name(coin_id)
+
+        return coin_record
+    
+
     async def syncPortal(
         self,
         db,
         node: FullNodeRpcClient,
         last_synced_portal: ChiaPortalState
     ) -> ChiaPortalState:
-        coin_record = await node.get_coin_record_by_name(last_synced_portal.coin_id)
+        coin_record = await self.get_coin_record_by_name(node, last_synced_portal.coin_id)
+
         if coin_record.spent_block_index == 0:
-            parent_coin_record = await node.get_coin_record_by_name(last_synced_portal.parent_id)
+            parent_coin_record = await self.get_coin_record_by_name(node, last_synced_portal.parent_id)
             if parent_coin_record.spent_block_index == 0:
                 logging.info(f"Portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}: parent is unspent; reverting.")
                 parent_state = db.query(ChiaPortalState).filter(
@@ -314,7 +330,7 @@ class ChiaFollower:
         await self.setUnspentPortalId(new_synced_portal.coin_id)
 
         if self.syncing:
-            cr = await node.get_coin_record_by_name(new_synced_portal.coin_id)
+            cr = await self.get_coin_record_by_name(node, new_synced_portal.coin_id)
             if cr.spent_block_index is None or cr.spent_block_index == 0:
                 self.syncing = False
 
@@ -346,7 +362,7 @@ class ChiaFollower:
 
         if last_synced_portal is None:
             logging.info(f"{self.chain}: No last synced portal found, using launcher...")
-            launcher_coin_record = await node.get_coin_record_by_name(portal_launcher_id)
+            launcher_coin_record = await self.get_coin_record_by_name(node, portal_launcher_id)
             assert launcher_coin_record.spent_block_index > 0
 
             launcher_spend = await node.get_puzzle_and_solution(portal_launcher_id, launcher_coin_record.spent_block_index)
@@ -436,7 +452,7 @@ class ChiaFollower:
 
 
     async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
-        parent_record = await node.get_coin_record_by_name(coin_record.coin.parent_coin_info)
+        parent_record = await self.get_coin_record_by_name(node, coin_record.coin.parent_coin_info)
         parent_spend = await node.get_puzzle_and_solution(
             coin_record.coin.parent_coin_info,
             parent_record.spent_block_index
@@ -538,7 +554,7 @@ class ChiaFollower:
                     while earliest_unprocessed_coin_record.confirmed_block_index + self.sign_min_height > (await self.get_current_height(node)):
                         await asyncio.sleep(10)
 
-                    coin_record_copy = await node.get_coin_record_by_name(earliest_unprocessed_coin_record.coin.name())
+                    coin_record_copy = await self.get_coin_record_by_name(node, earliest_unprocessed_coin_record.coin.name(), 3)
                     if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
                         logging.info(f"{self.chain} message follower: Coin {self.chain}-0x{earliest_unprocessed_coin_record.coin.name().hex()}: possible reorg; re-processing")
                         reorg = True
