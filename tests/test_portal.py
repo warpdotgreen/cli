@@ -5,18 +5,13 @@ from chia.util.bech32m import encode_puzzle_hash
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
-from chia.types.coin_spend import CoinSpend
+from chia_rs import CoinSpend, Program
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.util.bech32m import decode_puzzle_hash
-from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
-from commands.keys import mnemonic_to_validator_pk
-import secrets
 import pytest
 import pytest_asyncio
 import random
-import time
-import json
 
 from tests.utils import *
 from drivers.portal import *
@@ -89,7 +84,7 @@ class TestPortal:
 
         # 1. Launch portal receiver
         one_puzzle = Program.to(1)
-        one_puzzle_hash: bytes32 = Program(one_puzzle).get_tree_hash()
+        one_puzzle_hash: bytes32 = one_puzzle.get_tree_hash()
         one_address = encode_puzzle_hash(one_puzzle_hash, "txch")
 
         portal_updater_puzzle = get_multisig_inner_puzzle(
@@ -170,13 +165,13 @@ class TestPortal:
         )
 
         # nonce source_chain source destination message
-        message_to_sign: bytes = Program(Program.to([
+        message_to_sign: bytes = Program.to([
             SOURCE_CHAIN,
             NONCE,
             SOURCE,
             target,
             MESSAGE
-        ])).get_tree_hash()
+        ]).get_tree_hash()
         message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
         message_signature = AugSchemeMPL.aggregate(
             get_validator_set_sigs(
@@ -187,7 +182,7 @@ class TestPortal:
         )
 
         portal_spend_bundle = SpendBundle(
-            [CoinSpend(portal, portal_full_puzzle, portal_solution)],
+            [CoinSpend(portal, Program.from_program(portal_full_puzzle), Program.from_program(portal_solution))],
             message_signature
         )
 
@@ -203,7 +198,7 @@ class TestPortal:
             SOURCE,
             NONCE,
             target,
-            Program(MESSAGE).get_tree_hash(),
+            MESSAGE.get_tree_hash(),
         )
         message_coin = Coin(
             portal.name(),
@@ -287,7 +282,7 @@ class TestPortal:
             portal_launcher_id,
             new_portal_inner_puzzle,
         )
-        portal_update_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
+        portal_update_spend = CoinSpend(new_portal, Program.from_program(portal_puzzle), Program.from_program(portal_solution))
 
         sigs = get_validator_set_sigs(
             updater_delegated_puzzle.get_tree_hash(),
@@ -339,13 +334,13 @@ class TestPortal:
         )
 
         # nonce source_chain source destination message
-        message_to_sign: bytes = Program(Program.to([
+        message_to_sign: bytes = Program.to([
             SOURCE_CHAIN,
             NONCE + 1,
             SOURCE,
             target,
             MESSAGE
-        ])).get_tree_hash()
+        ]).get_tree_hash()
         message_to_sign += portal.name() + DEFAULT_CONSTANTS.AGG_SIG_ME_ADDITIONAL_DATA
         message_signature = AugSchemeMPL.aggregate(
             get_validator_set_sigs(
@@ -357,7 +352,7 @@ class TestPortal:
 
         portal_spend_bundle = SpendBundle(
             [
-                CoinSpend(portal, portal_full_puzzle, portal_solution)
+                CoinSpend(portal, Program.from_program(portal_full_puzzle), Program.from_program(portal_solution))
             ],
             message_signature
         )
@@ -414,7 +409,7 @@ class TestPortal:
         )
 
         portal = Coin(portal.name(), portal_puzzle.get_tree_hash(), 1)
-        portal_update_spend2 = CoinSpend(portal, portal_puzzle, portal_solution)
+        portal_update_spend2 = CoinSpend(portal, Program.from_program(portal_puzzle), Program.from_program(portal_solution))
 
         sigs = get_validator_set_sigs(
             updater_delegated_puzzle.get_tree_hash(),

@@ -1,10 +1,9 @@
-from chia.types.blockchain_format.program import Program
+from chia_rs import CoinSpend, Program
 from chia.wallet.trading.offer import Offer
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton, solution_for_singleton, lineage_proof_for_coinsol, pay_to_singleton_puzzle
 from chia.wallet.puzzles.p2_m_of_n_delegate_direct import puzzle_for_m_of_public_key_list, solution_for_delegated_puzzle
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.condition_opcodes import ConditionOpcode
-from chia.types.coin_spend import CoinSpend
 from chia_rs import G1Element
 from typing import List
 

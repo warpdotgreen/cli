@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -6,17 +6,17 @@ RUN python3 -m venv venv
 SHELL ["/bin/bash", "-c"]
 RUN source venv/bin/activate
 
-RUN pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-RUN apt-get update && apt-get install -y curl
+RUN apt-get update && apt-get install -y curl gcc build-essential
 RUN curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
 RUN chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
 
 RUN apt-get install -y nodejs
 RUN npm install -g npm@latest
+
+RUN pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.6
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 COPY package.json .
 COPY package-lock.json .

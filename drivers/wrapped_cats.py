@@ -1,10 +1,10 @@
-from drivers.utils import load_clvm_hex, raw_hash
 from drivers.portal import get_message_coin_puzzle_1st_curry, BRIDGING_PUZZLE_HASH
-from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from chia.wallet.trading.offer import OFFER_MOD_HASH
+from drivers.utils import load_clvm_hex, raw_hash
 from typing import List, Tuple
+from chia_rs import Program
 
 LOCKER_MOD = load_clvm_hex("puzzles/wrapped_cats/locker.clsp")
 

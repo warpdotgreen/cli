@@ -6,7 +6,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
-from chia.types.coin_spend import CoinSpend
+from chia_rs import CoinSpend, Program
 from chia.util.bech32m import decode_puzzle_hash
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.cat_wallet.cat_utils import construct_cat_puzzle
@@ -256,7 +256,7 @@ class TestWrappedCATs:
 
         # 1. Launch mock portal receiver (inner_puzzle = one_puzzle)
         one_puzzle = Program.to(1)
-        one_puzzle_hash: bytes32 = Program(one_puzzle).get_tree_hash()
+        one_puzzle_hash: bytes32 = one_puzzle.get_tree_hash()
         one_address = encode_puzzle_hash(one_puzzle_hash, "txch")
 
         tx_record = await wallet.send_transaction(1, 1, one_address, get_tx_config(1))
@@ -398,8 +398,8 @@ class TestWrappedCATs:
 
         message_coin_creation_spend = CoinSpend(
             portal,
-            portal_full_puzzle,
-            portal_solution
+            Program.from_program(portal_full_puzzle),
+            Program.from_program(portal_solution)
         )
         message_coin_creation_bundle = SpendBundle(
             [message_coin_creation_spend],

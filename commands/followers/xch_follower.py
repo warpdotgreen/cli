@@ -6,12 +6,12 @@ from chia.util.condition_tools import conditions_dict_for_solution
 from chia.types.blockchain_format.program import INFINITE_COST
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.blockchain_format.coin import Coin
-from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
 from chia.types.coin_record import CoinRecord
 from commands.followers.sig import encode_signature, decode_signature, send_signature
 from drivers.portal import BRIDGING_PUZZLE_HASH
 from typing import Tuple
+from chia_rs import Program
 import logging
 import asyncio
 import sys
@@ -143,13 +143,13 @@ class ChiaFollower:
         while source.startswith(b'\x00'):
             source = source[1:]
         # source_chain nonce source destination message
-        msg_bytes: bytes = Program(Program.to([
+        msg_bytes: bytes = Program.to([
             message.source_chain,
             message.nonce,
             source,
             message.destination,
             split_message_contents(message.contents)
-        ])).get_tree_hash()
+        ]).get_tree_hash()
         
         portal_id = await self.getUnspentPortalId()
         portal_state = db.query(ChiaPortalState).filter(

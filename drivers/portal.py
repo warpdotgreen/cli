@@ -1,5 +1,5 @@
 from drivers.utils import load_clvm_hex, raw_hash
-from chia.types.blockchain_format.program import Program
+from chia_rs import CoinSpend, Program
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     SINGLETON_LAUNCHER_HASH
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import SINGLETON_MOD_HASH

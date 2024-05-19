@@ -5,7 +5,8 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import claim_p2_singleton, pay
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
-from chia.types.coin_spend import CoinSpend, compute_additions
+from chia.types.coin_spend import compute_additions
+from chia_rs import Program, CoinSpend
 from chia.util.condition_tools import conditions_dict_for_solution
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
@@ -392,8 +393,8 @@ async def broadcast_spend(
     portal_coin = Coin(parent_record.coin.name(), portal_puzzle_hash, 1)
     portal_coin_spend = CoinSpend(
         portal_coin,
-        portal_puzzle,
-        portal_solution
+        Program.from_program(portal_puzzle),
+        Program.from_program(portal_solution)
     )
     coin_spends.append(portal_coin_spend)
 

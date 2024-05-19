@@ -13,7 +13,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
 from commands.keys import mnemonic_to_validator_pk
 from chia.types.blockchain_format.coin import Coin
-from chia.types.coin_spend import CoinSpend
+from chia_rs import Program, CoinSpend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle, get_wrapped_tail

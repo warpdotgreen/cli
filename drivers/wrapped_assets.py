@@ -1,9 +1,9 @@
 from drivers.utils import load_clvm_hex, raw_hash
 from drivers.portal import get_message_coin_puzzle_1st_curry, BRIDGING_PUZZLE_HASH
-from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from chia.types.blockchain_format.coin import Coin
+from chia_rs import Program
 
 WRAPPED_TAIL_MOD = load_clvm_hex("puzzles/wrapped_assets/wrapped_tail.clsp")
 WRAPPED_TAIL_MOD_HASH = WRAPPED_TAIL_MOD.get_tree_hash()

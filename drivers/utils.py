@@ -1,6 +1,6 @@
 from chia.types.blockchain_format.serialized_program import SerializedProgram
-from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
+from chia_rs import Program
 from typing import List
 import hashlib
 

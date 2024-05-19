@@ -58,7 +58,7 @@ Clone this repository and enter the `cli` directory by running:
     cd cli
     ```
     
-2. Ensure prerequisite software is installed. This repo has been tested with `python 3.10/3.11` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
+2. Ensure prerequisite software is installed. This repo has been tested with `python 3.10/3.11/3.12` and `nodejs v18`. If you have a different node version, uninstall and install the correct version via:
 
     ```bash
     curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
@@ -74,7 +74,7 @@ Clone this repository and enter the `cli` directory by running:
 4. Install all required packages:
 
     ```bash
-    pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
+    pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.6
     pip install -r requirements.txt
     ```
     
