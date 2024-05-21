@@ -92,7 +92,7 @@ class MessageBroadcaster:
             try:
                 events = client.get_events_of([filter], timedelta(seconds=5))
                 for event in events:
-                    if event.author().to_bech32() == signer.public_key().to_bech32():
+                    if event.author().to_bech32() == signer.public_key().to_bech32() and sig_data in event.content():
                         logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
                         return
             except:
