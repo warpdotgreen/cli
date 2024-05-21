@@ -413,6 +413,10 @@ class ChiaFollower:
     ):
         try:
             destination_chain = memo.first().as_atom()
+            if destination_chain != b'eth' and destination_chain != b'bse':
+                logging.info(f"Coin {self.chain}-{nonce.hex()}: message has invalid destination; skipping")
+                return
+
             destination = memo.rest().first().as_atom()
             contents_unparsed = memo.rest().rest()
         except:
