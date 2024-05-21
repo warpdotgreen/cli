@@ -9,7 +9,7 @@ from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
 from chia.types.coin_record import CoinRecord
-from commands.followers.sig import encode_signature, decode_signature, send_signature
+from commands.followers.sig import encode_signature, decode_signature
 from drivers.portal import BRIDGING_PUZZLE_HASH
 from typing import Tuple
 import logging
@@ -29,8 +29,9 @@ class ChiaFollower:
     unspent_portal_id_lock: asyncio.Lock
     per_message_toll: bytes
     syncing: bool
+    send_sig: any
 
-    def __init__(self, chain: str):
+    def __init__(self, chain: str, send_sig: any):
         self.chain = chain
         self.chain_id = chain.encode()
         self.private_key = PrivateKey.from_bytes(bytes.fromhex(get_config_item([chain, "my_hot_private_key"])))
@@ -39,6 +40,7 @@ class ChiaFollower:
         self.unspent_portal_id_lock = asyncio.Lock()
         self.per_message_toll = int(get_config_item([chain, "per_message_toll"]))
         self.syncing = True
+        self.send_sig = send_sig
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -184,7 +186,7 @@ class ChiaFollower:
         db.commit()
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
-        send_signature(message.sig.decode())
+        self.send_sig(message.sig.decode())
 
 
     async def messageSigner(self):
@@ -413,6 +415,10 @@ class ChiaFollower:
     ):
         try:
             destination_chain = memo.first().as_atom()
+            if destination_chain != b'eth' and destination_chain != b'bse':
+                logging.info(f"Coin {self.chain}-{nonce.hex()}: message has invalid destination; skipping")
+                return
+
             destination = memo.rest().first().as_atom()
             contents_unparsed = memo.rest().rest()
         except:
