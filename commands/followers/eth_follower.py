@@ -3,7 +3,7 @@ from commands.config import get_config_item
 from sqlalchemy import and_
 from typing import Tuple
 from eth_account.messages import encode_defunct
-from commands.followers.sig import encode_signature, decode_signature, send_signature
+from commands.followers.sig import encode_signature, decode_signature
 from web3 import Web3
 import logging
 import json
@@ -16,12 +16,13 @@ class EthereumFollower:
     sign_min_height: int
     private_key: str
     is_optimism: bool
+    send_sig: any
     max_query_block_limit: int = 1000
     last_safe_height: int = 0
     l1_block_contract_address: str
     l1_block_contract: any = None
     
-    def __init__(self, chain: str, is_optimism: bool):
+    def __init__(self, chain: str, is_optimism: bool, send_sig: any):
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
@@ -30,6 +31,8 @@ class EthereumFollower:
         self.syncing = True
         if self.is_optimism:
           self.l1_block_contract_address = get_config_item([self.chain, 'l1_block_contract_address'])
+        
+        self.send_sig = send_sig
 
 
     def getDb(self):
@@ -237,7 +240,7 @@ class EthereumFollower:
       db.commit()
       logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
-      send_signature(message.sig.decode())
+      self.send_sig(message.sig.decode())
 
 
     async def messageSigner(self):
