@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Portal, WrappedCAT } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { getSig } from "./Portal";
+import { getPrivateKeys, getSig } from "./Portal";
 
 const xchChain = "0x786368";
 const receiverPh = ethers.encodeBytes32String("receiver-puzzle-hash");
@@ -13,8 +13,10 @@ describe("WrappedCAT", function () {
     let owner: HardhatEthersSigner;
     let user: HardhatEthersSigner;
     let signer: HardhatEthersSigner;
+    let signerSk: string;
     let otherChain = "0x786368"; // "xch"
     let invalidOtherChain = "0x747374"; // "tst"
+    // /\ supported, but invalid in the sense that it's not the message source
     
     const messageToll = ethers.parseEther("0.001");
     const tip = 30n; // 0.3%
@@ -25,10 +27,12 @@ describe("WrappedCAT", function () {
 
     beforeEach(async function () {
         [owner, user, signer] = await ethers.getSigners();
+        const [_, __, _signerSk] = getPrivateKeys(3);
+        signerSk = _signerSk;
 
         const PortalFactory = await ethers.getContractFactory("Portal");
         portal = await PortalFactory.deploy();
-        await portal.initialize(owner.address, messageToll, [ signer.address ], 1);
+        await portal.initialize(owner.address, messageToll, [ signer.address ], 1, [ xchChain, invalidOtherChain ]);
 
         const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
         wrappedCAT = await WrappedCATFactory.deploy(
@@ -52,6 +56,38 @@ describe("WrappedCAT", function () {
             await expect(wrappedCAT.initializePuzzleHashes(lockerPuzzleHash, unlockerPuzzleHash))
                 .to.be.revertedWith("nope");
         });
+
+        it("Should not allow a tip that is too high", async function () {
+            const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
+            const invalidTip = 10001n; // 100.01%
+
+            await expect(
+                WrappedCATFactory.deploy(
+                    "Wrapped CAT", "wCAT", portal.target, invalidTip, chiaToERC20AmountFactor, otherChain
+                )
+            ).to.be.revertedWith("!tip");
+        });
+
+        it("Should not allow a tip that is too low", async function () {
+            const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
+            const invalidTip = 0; // 0%
+
+            await expect(
+                WrappedCATFactory.deploy(
+                    "Wrapped CAT", "wCAT", portal.target, invalidTip, chiaToERC20AmountFactor, otherChain
+                )
+            ).to.be.revertedWith("!tip");
+        });
+
+        it("Should not allow a portal address equal to addres(0)", async function () {
+            const WrappedCATFactory = await ethers.getContractFactory("WrappedCAT");
+
+            await expect(
+                WrappedCATFactory.deploy(
+                    "Wrapped CAT", "wCAT", ethers.ZeroAddress, tip, chiaToERC20AmountFactor, otherChain
+                )
+            ).to.be.revertedWith("!portal");
+        });
     });
 
     describe("receiveMessage", function () {
@@ -65,8 +101,10 @@ describe("WrappedCAT", function () {
             const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -89,8 +127,10 @@ describe("WrappedCAT", function () {
             ]
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, unlockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -98,6 +138,27 @@ describe("WrappedCAT", function () {
                     nonce1, otherChain, unlockerPuzzleHash, wrappedCAT.target, message, sig
                 )
             ).to.be.revertedWith("!msg");
+        });
+
+        it("Should fail for 0-amount mints", async function () {
+            const receiver = user.address;
+            const message = [
+                ethers.zeroPadValue(receiver, 32),
+                "0x" + '00'.repeat(32),
+            ]
+
+            const sig = await getSig(
+                portal,
+                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
+                [signer],
+                [signerSk]
+            );
+
+            await expect(
+                portal.receiveMessage(
+                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                )
+            ).to.be.revertedWith("!amnt");
         });
 
         it("Should fail if source chain is wrong", async function () {
@@ -109,8 +170,10 @@ describe("WrappedCAT", function () {
             ]
 
             const sig = await getSig(
+                portal,
                 nonce1, invalidOtherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -137,7 +200,7 @@ describe("WrappedCAT", function () {
     });
 
     describe("bridgeBack", function () {
-        it("Should correctly burn tokens, send tip, and send a message", async function () {
+        this.beforeEach(async function () {
             const receiver = user.address;
             const amount = ethers.parseUnits("10", 3);
             const message = [
@@ -147,8 +210,10 @@ describe("WrappedCAT", function () {
             const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
 
             const sig = await getSig(
+                portal,
                 nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
+                [signer],
+                [signerSk]
             );
 
             await expect(
@@ -160,20 +225,21 @@ describe("WrappedCAT", function () {
                 [receiver, portal],
                 [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
             );
+        });
 
-            // setup complete, test actually starts here
+        it("Should correctly burn tokens, send tip, and send a message", async function () {
             const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
             const expectedTipMojo = amountToBridgeBackMojo * tip / 10000n;
 
             const tx = await wrappedCAT.connect(user).bridgeBack(
                 receiverPh,
                 amountToBridgeBackMojo,
-                { value: await portal.messageToll() }    
+                { value: await portal.messageToll() }
             );
 
-            expect(tx).to.emit(portal, "MessageSent")
+            await expect(tx).to.emit(portal, "MessageSent")
                 .withArgs(
-                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
                     wrappedCAT.target,
                     xchChain,
                     unlockerPuzzleHash,
@@ -183,7 +249,36 @@ describe("WrappedCAT", function () {
                     ]
                 );
             
-            expect(tx).to.changeTokenBalances(
+            await expect(tx).to.changeTokenBalances(
+                wrappedCAT,
+                [user, portal],
+                [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]
+            );
+        });
+
+        it("Should have a minimum tip of 1 mojo", async function () {
+            const amountToBridgeBackMojo = 333n;
+            const expectedTipMojo = 1n;
+
+            const tx = await wrappedCAT.connect(user).bridgeBack(
+                receiverPh,
+                amountToBridgeBackMojo,
+                { value: await portal.messageToll() }
+            );
+
+            await expect(tx).to.emit(portal, "MessageSent")
+                .withArgs(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    wrappedCAT.target,
+                    xchChain,
+                    unlockerPuzzleHash,
+                    [
+                        ethers.zeroPadValue(receiverPh, 32),
+                        ethers.zeroPadValue("0x0" + (amountToBridgeBackMojo - expectedTipMojo).toString(16), 32)
+                    ]
+                );
+
+            await expect(tx).to.changeTokenBalances(
                 wrappedCAT,
                 [user, portal],
                 [-amountToBridgeBackMojo * chiaToERC20AmountFactor, expectedTipMojo * chiaToERC20AmountFactor]
@@ -191,39 +286,39 @@ describe("WrappedCAT", function () {
         });
 
         it("Should revert if incorrect message toll is used", async function () {
-            const receiver = user.address;
-            const amount = ethers.parseUnits("10", 3);
-            const message = [
-                ethers.zeroPadValue(receiver, 32),
-                ethers.zeroPadValue("0x" + amount.toString(16), 32)
-            ]
-            const expectedTip = amount * chiaToERC20AmountFactor * tip / 10000n;
-
-            const sig = await getSig(
-                nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target.toString(), message,
-                [signer]
-            );
+            const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
 
             await expect(
-                portal.receiveMessage(
-                    nonce1, otherChain, lockerPuzzleHash, wrappedCAT.target, message, sig
+                wrappedCAT.connect(user).bridgeBack(
+                    receiverPh,
+                    amountToBridgeBackMojo,
+                    { value: ((await portal.messageToll()) / 10n) }
                 )
-            ).to.changeTokenBalances(
-                wrappedCAT,
-                [receiver, portal],
-                [amount * chiaToERC20AmountFactor - expectedTip, expectedTip]
-            );
+            ).to.be.revertedWith("!toll");
+        });
 
-            // setup complete, test actually starts here
-            const amountToBridgeBackMojo = ethers.parseUnits("5", 3);
+        it("Should revert if amount=0", async function () {
+            const amountToBridgeBackMojo = 0n;
+
+            await expect(
+                wrappedCAT.connect(user).bridgeBack(
+                    receiverPh,
+                    amountToBridgeBackMojo,
+                    { value: (await portal.messageToll()) }
+                )
+            ).to.be.revertedWith("!amnt");
+        });
+
+        it("Should revert if tip=amount, causing bridged amount to be 0", async function () {
+            const amountToBridgeBackMojo = 1n;
             
             await expect(
                 wrappedCAT.connect(user).bridgeBack(
                     receiverPh,
                     amountToBridgeBackMojo,
-                    { value: ((await portal.messageToll()) / 10n) }    
+                    { value: (await portal.messageToll()) }
                 )
-            ).to.be.revertedWith("!toll");
+            ).to.be.revertedWith("!amnt");
         });
     });
 });

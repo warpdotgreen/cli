@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /* yak tracks all over the place */
-pragma solidity ^0.8.20;
+pragma solidity 0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./interfaces/IWETH.sol";

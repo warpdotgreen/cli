@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT License
 /* yak tracks all over the place */
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.23;
 
 import "./interfaces/IPortalMessageReceiver.sol";
 import "./interfaces/IPortal.sol";
@@ -9,6 +9,7 @@ import "./interfaces/IWETH.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 
 interface ERC20Decimals {
     function decimals() external returns (uint8);
@@ -64,7 +65,7 @@ contract ERC20Bridge is IPortalMessageReceiver {
 
     /**
      * @notice  ERC20Bridge constructor
-     * @param   _tip The percentage (in basis points) used as a tip for the warp.green protocol
+     * @param   _tip The percentage (in basis points) used as a tip for the warp.green protocol (0.01 - 10%)
      * @param   _portal Address of the warp.green portal contract
      * @param   _iweth Address of the WETH contract or its equivalent
      * @param   _wethToEthRatio The conversion ratio from 1 'wei' of WETH to ETH, considering the difference in decimals
@@ -78,6 +79,9 @@ contract ERC20Bridge is IPortalMessageReceiver {
         uint64 _wethToEthRatio,
         bytes3 _otherChain
     ) {
+        require(_tip > 0 && _tip <= 1000, "!tip");
+        require(_iweth != address(0) && _portal != address(0), "!addrs");
+
         tip = _tip;
         portal = _portal;
         iweth = _iweth;
@@ -130,6 +134,10 @@ contract ERC20Bridge is IPortalMessageReceiver {
         amount = (amount * 10 ** (ERC20Decimals(assetContract).decimals() - 3)); // transform from mojos to ETH wei
 
         uint256 transferTip = (amount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
+        require(amount > transferTip, "!amnt");
 
         if (assetContract != iweth) {
             SafeERC20.safeTransfer(
@@ -141,8 +149,11 @@ contract ERC20Bridge is IPortalMessageReceiver {
         } else {
             IWETH(iweth).withdraw(amount);
 
-            payable(receiver).transfer((amount - transferTip) * wethToEthRatio);
-            payable(portal).transfer(transferTip * wethToEthRatio);
+            Address.sendValue(
+                payable(receiver),
+                (amount - transferTip) * wethToEthRatio
+            );
+            Address.sendValue(payable(portal), transferTip * wethToEthRatio);
         }
     }
 
@@ -175,8 +186,12 @@ contract ERC20Bridge is IPortalMessageReceiver {
      * @dev     Wraps ether into an ERC-20, sends portal tip, and sends a message to mint tokens on Chia.
      * @param   _receiver  Receiver puzzle hash for the wrapped tokens.
      */
-    function bridgeEtherToChia(bytes32 _receiver) external payable {
+    function bridgeEtherToChia(
+        bytes32 _receiver,
+        uint256 _maxMessageToll
+    ) external payable {
         uint256 messageToll = IPortal(portal).messageToll();
+        require(messageToll <= _maxMessageToll, "!toll");
 
         uint256 amountAfterToll = msg.value - messageToll;
         require(
@@ -261,6 +276,10 @@ contract ERC20Bridge is IPortalMessageReceiver {
         uint256 _mojoToTokenFactor
     ) internal {
         uint256 transferTip = (_amount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
+        require(_amount > transferTip, "!amnt");
 
         bytes32[] memory message = new bytes32[](3);
         message[0] = bytes32(uint256(uint160(_assetContract)));

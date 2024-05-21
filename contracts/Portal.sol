@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT License
 /* yak tracks all over the place */
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.23;
 
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "./interfaces/IPortalMessageReceiver.sol";
 
 /**
@@ -14,7 +17,7 @@ import "./interfaces/IPortalMessageReceiver.sol";
  * @notice  Manages the sending and receiving of cross-chain messages via a trusted set of validators.
  * @dev     Sits behind a TransparentUpgradeableProxy. Owner is a cold key multisig (Safe{Wallet}) controlled by a majority of the trusted validators.
  */
-contract Portal is Initializable, OwnableUpgradeable {
+contract Portal is Initializable, OwnableUpgradeable, EIP712Upgradeable {
     /**
      * @dev  Tracks the incremental nonce for Ethereum-originating messages.
      */
@@ -24,6 +27,11 @@ contract Portal is Initializable, OwnableUpgradeable {
      * @dev  Tracks which messages have been relayd to ensure that no message is relayed more than once. Key is the keccak256 hash of the source chain and nonce.
      */
     mapping(bytes32 => bool) private usedNonces;
+
+    /**
+     * @dev  Tracks which source or destination chains are supported by this portal.
+     */
+    mapping(bytes3 => bool) public supportedChains;
 
     /**
      * @notice  The 'fee' required to send a message via the portal. The toll is sent to the block's miner in the same transaction - it is not kept by the protocol.
@@ -40,6 +48,15 @@ contract Portal is Initializable, OwnableUpgradeable {
      * @notice  The number of signatures required to relay a message.
      */
     uint256 public signatureThreshold;
+
+    /**
+     * @notice  EIP-712 type hash for a message struct.
+     * @dev     Declared as a constant so it's computed only once at compile time.
+     */
+    bytes32 private constant MESSAGE_TYPE_HASH =
+        keccak256(
+            "Message(bytes32 nonce,bytes3 source_chain,bytes32 source,address destination,bytes32[] contents)"
+        );
 
     /**
      * @notice  Logs when a message is successfully sent.
@@ -95,6 +112,13 @@ contract Portal is Initializable, OwnableUpgradeable {
     event MessageTollUpdated(uint256 newFee);
 
     /**
+     * @notice  Indicates a change in the supported chains list.
+     * @param   chainId The id of the chain being updated.
+     * @param   supported Whether the chain is supported.
+     */
+    event SupportedChainUpdated(bytes3 chainId, bool supported);
+
+    /**
      * @notice  Initializes the contract with signers and settings for message handling.
      * @dev     Sets initial owners, message toll, signers, and signature threshold. Can only be called once.
      * @param   _coldMultisig The address that will own the contract.
@@ -106,15 +130,22 @@ contract Portal is Initializable, OwnableUpgradeable {
         address _coldMultisig,
         uint256 _messageToll,
         address[] calldata _signers,
-        uint256 _signatureThreshold
+        uint256 _signatureThreshold,
+        bytes3[] calldata _supportedChains
     ) external initializer {
         __Ownable_init(_coldMultisig);
+        __EIP712_init("warp.green Portal", "1");
 
         messageToll = _messageToll;
         signatureThreshold = _signatureThreshold;
 
         for (uint256 i = 0; i < _signers.length; i++) {
+            require(_signers[i] != address(0), "!signer");
             isSigner[_signers[i]] = true;
+        }
+
+        for (uint256 i = 0; i < _supportedChains.length; i++) {
+            supportedChains[_supportedChains[i]] = true;
         }
     }
 
@@ -137,6 +168,8 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] calldata _contents
     ) external payable {
         require(msg.value == messageToll, "!toll");
+        require(supportedChains[_destination_chain], "!dest");
+
         ethNonce += 1;
 
         (bool success, ) = block.coinbase.call{value: msg.value}(new bytes(0));
@@ -169,19 +202,22 @@ contract Portal is Initializable, OwnableUpgradeable {
         bytes32[] calldata _contents,
         bytes memory _sigs
     ) external {
+        require(supportedChains[_source_chain], "!src");
         require(_sigs.length == signatureThreshold * 65, "!len");
 
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(
-                        _nonce,
-                        _source_chain,
-                        _source,
-                        _destination,
-                        _contents
-                    )
+        bytes32 key = keccak256(abi.encodePacked(_source_chain, _nonce));
+        require(!usedNonces[key], "!nonce");
+        usedNonces[key] = true;
+
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    MESSAGE_TYPE_HASH,
+                    _nonce,
+                    _source_chain,
+                    _source,
+                    _destination,
+                    keccak256(abi.encodePacked(_contents))
                 )
             )
         );
@@ -200,15 +236,11 @@ contract Portal is Initializable, OwnableUpgradeable {
                 s := mload(add(_sigs, add(33, ib)))
             }
 
-            address signer = ecrecover(messageHash, v, r, s);
+            address signer = ECDSA.recover(messageHash, v, r, s);
             require(isSigner[signer], "!signer");
             require(signer > lastSigner, "!order");
             lastSigner = signer;
         }
-
-        bytes32 key = keccak256(abi.encodePacked(_source_chain, _nonce));
-        require(!usedNonces[key], "!nonce");
-        usedNonces[key] = true;
 
         IPortalMessageReceiver(_destination).receiveMessage(
             _nonce,
@@ -237,7 +269,7 @@ contract Portal is Initializable, OwnableUpgradeable {
         uint256[] calldata _amounts
     ) external onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
-            payable(_receivers[i]).transfer(_amounts[i]);
+            Address.sendValue(payable(_receivers[i]), _amounts[i]);
         }
     }
 
@@ -269,7 +301,9 @@ contract Portal is Initializable, OwnableUpgradeable {
      * @param   _newValue New authorization status (true for authorized, false for not authorized).
      */
     function updateSigner(address _signer, bool _newValue) external onlyOwner {
+        require(_signer != address(0), "!signer");
         require(isSigner[_signer] != _newValue, "!diff");
+
         isSigner[_signer] = _newValue;
 
         emit SignerUpdated(_signer, _newValue);
@@ -297,5 +331,21 @@ contract Portal is Initializable, OwnableUpgradeable {
         messageToll = _newValue;
 
         emit MessageTollUpdated(_newValue);
+    }
+
+    /**
+     * @notice  Updates the supported status of a chain with a given id.
+     * @dev     Only callable by the contract owner (validator cold key multisig).
+     * @param   _chainId 3-byte identifier of the chain.
+     * @param   _supported New value (true - supported, false - not supported).
+     */
+    function updateSupportedChain(
+        bytes3 _chainId,
+        bool _supported
+    ) external onlyOwner {
+        require(supportedChains[_chainId] != _supported, "!diff");
+        supportedChains[_chainId] = _supported;
+
+        emit SupportedChainUpdated(_chainId, _supported);
     }
 }

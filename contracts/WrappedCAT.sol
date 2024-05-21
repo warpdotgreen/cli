@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT License
 /* yak tracks all over the place */
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.23;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -56,7 +56,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
      * @param   _name Name of the token.
      * @param   _symbol Symbol of the token.
      * @param   _portal Address of the warp.green portal contract.
-     * @param   _tip Tip percentage (in basis points) paid to the portal.
+     * @param   _tip Tip percentage (in basis points) paid to the portal. (0.01 - 10%)
      * @param   _mojoToTokenRatio Conversion ratio from mojos to token units.
      * @param   _otherChain ID of chain where CATs are locked (e.g., Chia).
      */
@@ -68,6 +68,9 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         uint64 _mojoToTokenRatio,
         bytes3 _otherChain
     ) ERC20(_name, _symbol) ERC20Permit(_name) {
+        require(_tip > 0 && _tip <= 1000, "!tip");
+        require(_portal != address(0), "!portal");
+
         portal = _portal;
         tip = _tip;
         mojoToTokenRatio = _mojoToTokenRatio;
@@ -83,7 +86,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
     function initializePuzzleHashes(
         bytes32 _lockerPuzzleHash,
         bytes32 _unlockerPuzzleHash
-    ) public {
+    ) external {
         require(
             lockerPuzzleHash == bytes32(0) && unlockerPuzzleHash == bytes32(0),
             "nope"
@@ -105,7 +108,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
         bytes3 _source_chain,
         bytes32 _source,
         bytes32[] calldata _contents
-    ) public {
+    ) external {
         require(
             msg.sender == portal &&
                 _source == lockerPuzzleHash &&
@@ -115,6 +118,7 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
 
         uint256 amount = uint256(_contents[1]) * mojoToTokenRatio;
         uint256 transferTip = (amount * tip) / 10000;
+        require(transferTip > 0 && amount > transferTip, "!amnt");
 
         _mint(address(uint160(uint256(_contents[0]))), amount - transferTip);
         _mint(portal, transferTip);
@@ -126,10 +130,18 @@ contract WrappedCAT is ERC20, ERC20Permit, IPortalMessageReceiver {
      * @param   _receiver Puzzle hash of the receiver on Chia.
      * @param   _mojoAmount Amount of CAT tokens (in mojos) to unlock on Chia.
      */
-    function bridgeBack(bytes32 _receiver, uint256 _mojoAmount) public payable {
+    function bridgeBack(
+        bytes32 _receiver,
+        uint256 _mojoAmount
+    ) external payable {
         require(msg.value == IPortal(portal).messageToll(), "!toll");
 
         uint256 transferTip = (_mojoAmount * tip) / 10000;
+        if (transferTip == 0) {
+            transferTip = 1;
+        }
+        require(_mojoAmount > transferTip, "!amnt");
+
         _burn(msg.sender, _mojoAmount * mojoToTokenRatio);
         _mint(portal, transferTip * mojoToTokenRatio);
 

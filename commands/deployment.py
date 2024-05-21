@@ -119,7 +119,8 @@ def get_evm_deployment_data(weth_address: str, tip: int, chain: str):
             Web3.to_bytes(hexstr=deployer_safe_address),
             wei_per_message_toll,
             [Web3.to_bytes(hexstr=addr) for addr in get_config_item([chain, "hot_addresses"])],
-            get_config_item([chain, "portal_threshold"])
+            get_config_item([chain, "portal_threshold"]),
+            [Web3.to_bytes(hexstr="0x" + b"xch".hex())]
         ]
     )
     open("portal_initialization.data", "w").write(portal_initialization_data)
