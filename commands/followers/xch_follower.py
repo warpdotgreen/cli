@@ -8,6 +8,7 @@ from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.consensus.block_record import BlockRecord
+from chia.types.coin_spend import CoinSpend
 from chia.types.coin_record import CoinRecord
 from commands.followers.sig import encode_signature, decode_signature
 from drivers.portal import BRIDGING_PUZZLE_HASH
