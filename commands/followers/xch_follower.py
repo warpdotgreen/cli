@@ -233,6 +233,15 @@ class ChiaFollower:
 
         return coin_record
     
+    async def get_puzzle_and_solution(self, node: FullNodeRpcClient, coin_id: bytes, height: int) -> CoinSpend:
+        spend = await node.get_puzzle_and_solution(coin_id, height)
+        while spend is None:
+            logging.info(f"Spend for coin {self.chain_id}-0x{coin_id} not found; retrying in 5s")
+            await asyncio.sleep(5)
+            spend = await node.get_puzzle_and_solution(coin_id, height)
+
+        return spend
+    
 
     async def syncPortal(
         self,
@@ -259,7 +268,7 @@ class ChiaFollower:
             return last_synced_portal
 
         # spent!
-        spend = await node.get_puzzle_and_solution(last_synced_portal.coin_id, coin_record.spent_block_index)
+        spend = await self.get_puzzle_and_solution(node, last_synced_portal.coin_id, coin_record.spent_block_index)
         conds = conditions_dict_for_solution(spend.puzzle_reveal, spend.solution, INFINITE_COST)
         create_coins = conds[ConditionOpcode.CREATE_COIN]
         new_ph = None
@@ -367,7 +376,7 @@ class ChiaFollower:
             launcher_coin_record = await self.get_coin_record_by_name(node, portal_launcher_id)
             assert launcher_coin_record.spent_block_index > 0
 
-            launcher_spend = await node.get_puzzle_and_solution(portal_launcher_id, launcher_coin_record.spent_block_index)
+            launcher_spend = await self.get_puzzle_and_solution(node, portal_launcher_id, launcher_coin_record.spent_block_index)
             conds = conditions_dict_for_solution(launcher_spend.puzzle_reveal, launcher_spend.solution, INFINITE_COST)
             create_coins = conds[ConditionOpcode.CREATE_COIN]
             assert len(create_coins) == 1 and create_coins[0].vars[1] == b'\x01'
@@ -459,7 +468,8 @@ class ChiaFollower:
 
     async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
         parent_record = await self.get_coin_record_by_name(node, coin_record.coin.parent_coin_info)
-        parent_spend = await node.get_puzzle_and_solution(
+        parent_spend = await self.get_puzzle_and_solution(
+            node,
             coin_record.coin.parent_coin_info,
             parent_record.spent_block_index
         )
