@@ -297,7 +297,7 @@ async def broadcast_spend(
             coin_spend.solution,
             INFINITE_COST
         )
-        create_coins = cond_dict[ConditionOpcode.CREATE_COIN]
+        create_coins = cond_dict.get(ConditionOpcode.CREATE_COIN, [])
 
         for cc_cond in create_coins:
             if cc_cond.vars[0] == OFFER_MOD_HASH and cc_cond.vars[1] == b'\x01':
