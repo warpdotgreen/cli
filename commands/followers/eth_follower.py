@@ -58,7 +58,9 @@ class EthereumFollower:
 
     def getWeb3(self) -> AsyncWeb3:
         headers = {
-            'User-Agent': 'requests/1.0.0'
+            'User-Agent': 'requests/1.0.0',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
         web3 = AsyncWeb3(AsyncHTTPProvider(get_config_item([self.chain, 'rpc_url']), request_kwargs={ 'headers': headers }))
         web3.middleware_onion.inject(custom_retry_middleware, name='custom_retry_middleware', layer=0)
