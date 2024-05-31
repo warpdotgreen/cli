@@ -1,14 +1,29 @@
+from typing import Any, Callable
 from commands.models import *
 from commands.config import get_config_item
 from sqlalchemy import and_
-from typing import Tuple
 from eth_account.messages import encode_typed_data
 from commands.followers.sig import encode_signature
-from web3 import Web3
-import logging
-import json
+from web3 import AsyncWeb3
+from web3.providers.async_rpc import AsyncHTTPProvider
+import aiohttp
 import asyncio
+import logging
+import asyncio
+import json
 import sys
+
+async def custom_retry_middleware(make_request: Callable[[str, Any], Any], web3: AsyncWeb3) -> Callable[[str, Any], Any]:
+    async def middleware(method: str, params: Any) -> Any:
+        while True:
+            try:
+                return await make_request(method, params)
+            except aiohttp.ClientResponseError as e:
+                logging.error(f"HTTP error when calling RPC: {e.status} {e.message}; retrying in 5s...")
+                await asyncio.sleep(5)
+
+    return middleware
+
 
 class EthereumFollower:
     chain: str
@@ -41,8 +56,11 @@ class EthereumFollower:
        return setup_database()
     
 
-    def getWeb3(self):
-       return Web3(Web3.HTTPProvider(get_config_item([self.chain, 'rpc_url'])))
+    def getWeb3(self) -> AsyncWeb3:
+        web3 = AsyncWeb3(AsyncHTTPProvider(get_config_item([self.chain, 'rpc_url'])))
+        web3.middleware_onion.inject(custom_retry_middleware, name='custom_retry_middleware', layer=0)
+
+        return web3
     
 
     def nonceIntToBytes(self, nonceInt: int) -> bytes:
@@ -66,7 +84,7 @@ class EthereumFollower:
 
 
     # warning: only use in the 'messageListener' thread
-    def getEventByIntNonce(self, web3, contract, nonce: int, start_height: int):
+    async def getEventByIntNonce(self, web3, contract, nonce: int, start_height: int):
       if self.last_safe_height <= 0:
           self.last_safe_height = start_height
 
@@ -74,7 +92,7 @@ class EthereumFollower:
       query_start_height = max(self.last_safe_height, start_height) # cache
 
       while True:
-        current_block_height = web3.eth.block_number
+        current_block_height = await web3.eth.block_number
 
         if query_start_height >= current_block_height:
             return None
@@ -82,7 +100,7 @@ class EthereumFollower:
         query_end_height = min(query_start_height + self.max_query_block_limit - 1, current_block_height)
         
         logging.info(f"Searching for {self.chain_id.decode()}-{nonce} from {query_start_height} to {query_end_height}...")
-        logs = contract.events.MessageSent().get_logs(
+        logs = await contract.events.MessageSent().get_logs(
             fromBlock=query_start_height,
             toBlock=query_end_height,
             argument_filters={"nonce": nonce_hex},
@@ -116,14 +134,14 @@ class EthereumFollower:
 
       while True:
         try:
-            next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+            next_message_event = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
             if next_message_event is None:
                 logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
                 
                 while next_message_event is None:
                   await asyncio.sleep(30)
-                  next_message_event = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+                  next_message_event = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
                 continue
 
@@ -131,11 +149,11 @@ class EthereumFollower:
 
             if not self.is_optimism:
                 # L1 - mainnet confirmations can be obtained from block number
-                eth_block_number = web3.eth.block_number
+                eth_block_number = await web3.eth.block_number
 
                 while event_block_number + self.sign_min_height > eth_block_number:
                     await asyncio.sleep(5)
-                    eth_block_number = web3.eth.block_number
+                    eth_block_number = await web3.eth.block_number
                     logging.info(f"{self.chain_id.decode()} message listener: Waiting for block {event_block_number + self.sign_min_height} to confirm message; current block: {eth_block_number}")
             else:
                 # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
@@ -144,7 +162,7 @@ class EthereumFollower:
                 # to relay L1 block numbers accurately
                 # self.sign_min_height is then the min. number of confirmations in L1 blocks
                 # you can find the address for the contract at https://docs.base.org/docs/base-contracts
-                block = web3.eth.get_block(event_block_number, full_transactions=True)
+                block = await web3.eth.get_block(event_block_number, full_transactions=True)
                 relevant_tx = None
                 for tx in block.transactions:
                     if tx.to and tx.to == self.l1_block_contract_address:
@@ -165,17 +183,17 @@ class EthereumFollower:
                 
                 if self.l1_block_contract is None:
                   self.l1_block_contract = web3.eth.contract(
-                    address=Web3.to_checksum_address(self.l1_block_contract_address),
+                    address=AsyncWeb3.to_checksum_address(self.l1_block_contract_address),
                     abi=open("l1_block_abi.json", "r").read()
                   )
 
-                l1_block_number = self.l1_block_contract.functions.number().call()
+                l1_block_number = await self.l1_block_contract.functions.number().call()
                 while event_l1_block_number + self.sign_min_height > l1_block_number:
                     await asyncio.sleep(10)
-                    l1_block_number = self.l1_block_contract.functions.number().call()
+                    l1_block_number = await self.l1_block_contract.functions.number().call()
                     logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
 
-            next_message_event_copy = self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
+            next_message_event_copy = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
             if next_message_event_copy is None:
                 logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
                 last_synced_height -= self.max_query_block_limit
@@ -201,11 +219,11 @@ class EthereumFollower:
             logging.exception(f"{self.chain_id.decode()} message listener: Exception occurred", exc_info=True)
             sys.exit(1)
   
-    async def signMessage(self, db, web3: Web3, message: Message):
+    async def signMessage(self, db, web3: AsyncWeb3, message: Message):
         domain = {
             'name': 'warp.green Portal',
             'version': '1',
-            'chainId': web3.eth.chain_id,
+            'chainId': await web3.eth.chain_id,
             'verifyingContract': self.portal_address,
         }
         types = {
@@ -225,7 +243,7 @@ class EthereumFollower:
                 'nonce': '0x' + message.nonce.hex(),
                 'source_chain': '0x' + message.source_chain.hex(),
                 'source': '0x' + message.source.hex(),
-                'destination': Web3.to_checksum_address("0x" + message.destination[-40:].hex()),
+                'destination': AsyncWeb3.to_checksum_address("0x" + message.destination[-40:].hex()),
                 'contents': ['0x' + content.hex() for content in split_message_contents(message.contents)],
             }
         )
@@ -290,7 +308,7 @@ class EthereumFollower:
       while True:
         try:
             web3 = self.getWeb3()
-            web3.eth.block_number
+            await web3.eth.block_number
 
             return
         except:
