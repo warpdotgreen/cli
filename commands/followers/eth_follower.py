@@ -88,6 +88,15 @@ class EthereumFollower:
       )
 
 
+    async def getBlockNumber(self, web3: AsyncWeb3) -> int:
+      while True:
+        try:
+           return await web3.eth.block_number
+        except:
+              logging.error(f"{self.chain_id.decode()} follower: could not get block number; trying again in 5s...", exc_info=True)
+              await asyncio.sleep(5)
+
+
     # warning: only use in the 'messageListener' thread
     async def getEventByIntNonce(self, web3, contract, nonce: int, start_height: int):
       if self.last_safe_height <= 0:
@@ -97,7 +106,7 @@ class EthereumFollower:
       query_start_height = max(self.last_safe_height, start_height) # cache
 
       while True:
-        current_block_height = await web3.eth.block_number
+        current_block_height = await self.getBlockNumber(web3)
 
         if query_start_height >= current_block_height:
             return None
@@ -154,11 +163,11 @@ class EthereumFollower:
 
             if not self.is_optimism:
                 # L1 - mainnet confirmations can be obtained from block number
-                eth_block_number = await web3.eth.block_number
+                eth_block_number = await self.getBlockNumber(web3)
 
                 while event_block_number + self.sign_min_height > eth_block_number:
                     await asyncio.sleep(5)
-                    eth_block_number = await web3.eth.block_number
+                    eth_block_number = await self.getBlockNumber(web3)
                     logging.info(f"{self.chain_id.decode()} message listener: Waiting for block {event_block_number + self.sign_min_height} to confirm message; current block: {eth_block_number}")
             else:
                 # L2 - https://jumpcrypto.com/writing/bridging-and-finality-op-and-arb/
