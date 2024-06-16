@@ -5,7 +5,6 @@ from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter, Sing
 from datetime import timedelta
 import logging
 import time
-import click
 import queue
 import threading
 import asyncio
