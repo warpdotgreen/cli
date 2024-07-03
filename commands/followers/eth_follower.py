@@ -250,6 +250,10 @@ class EthereumFollower:
             ]
         }
 
+        destination = message.destination.hex()[-40:]
+        if len(destination) < 40:
+           destination = "0" * (40 - len(destination)) + destination
+        destination = AsyncWeb3.to_checksum_address("0x" + destination)
         encoded_data = encode_typed_data(
             domain,
             types,
@@ -257,7 +261,7 @@ class EthereumFollower:
                 'nonce': '0x' + message.nonce.hex(),
                 'source_chain': '0x' + message.source_chain.hex(),
                 'source': '0x' + message.source.hex(),
-                'destination': AsyncWeb3.to_checksum_address("0x" + message.destination[-40:].hex()),
+                'destination': destination,
                 'contents': ['0x' + content.hex() for content in split_message_contents(message.contents)],
             }
         )
