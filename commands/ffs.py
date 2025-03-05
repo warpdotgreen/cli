@@ -189,11 +189,14 @@ async def partial_relay_message(
     portal_puzzle = puzzle_for_singleton(portal_launcher_id, portal_inner_puzzle)
     portal_puzzle_hash = portal_puzzle.get_tree_hash()
 
+    source = bytes.fromhex(msg['source'])
+    while source.startswith(b'\x00'):
+        source = source[1:]
     portal_msg = PortalMessage(
         nonce=bytes.fromhex(nonce),
         validator_sig_switches=validator_sig_switches,
         source_chain=source_chain.encode(),
-        source=bytes.fromhex(msg['source']),
+        source=source,
         destination=bytes.fromhex(msg['destination']),
         message=Program.to([bytes.fromhex(_) for _ in msg['contents']])
     )
