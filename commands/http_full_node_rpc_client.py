@@ -1,5 +1,6 @@
 # modified from the snippet obtained from the Goby team :heart:
 import aiohttp
+import json
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 
 class HTTPFullNodeRpcClient(FullNodeRpcClient):
@@ -13,7 +14,8 @@ class HTTPFullNodeRpcClient(FullNodeRpcClient):
         async with self.session.post(f"{self.base_url}/{path}", json=request_json) as response:
             response.raise_for_status()
 
-            res_json = await response.json()
-            if not res_json["success"]:
-                raise ValueError(res_json)
-            return res_json
+            # res_json = await response.json()
+            # if not res_json["success"]:
+            #     raise ValueError(res_json)
+            # return res_json
+            return json.loads(await response.text())

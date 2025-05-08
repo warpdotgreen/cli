@@ -30,7 +30,7 @@ async def get_node_client(chain_name: str = "xch", log: bool = True) -> FullNode
         try:
             chia_url = get_config_item([chain_name, "chia_url"])
             node_client = HTTPFullNodeRpcClient(chia_url)
-            await node_client.healthz()
+            # await node_client.healthz()
             return node_client
         except: # Exception as e:
             # logging.error("Failed to get node using specified url", exc_info=True)
