@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - patch-coinset-testnet11
 
 jobs:
   test:
