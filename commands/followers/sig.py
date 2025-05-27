@@ -102,8 +102,8 @@ class MessageBroadcaster:
                 Tag.parse(["c", coin_data])
             ])
 
-            event = await client.send_event_builder(text_note_builder)
-            logging.info(f"Nostr: sent event {event.id.to_bech32()} to relays.")
+            await client.send_event_builder(text_note_builder)
+            logging.info(f"Nostr: sent event to relays.")
 
             await client.disconnect()
         except:
