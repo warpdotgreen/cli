@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - fix-max-query-height
   release:
     types: [created]
 

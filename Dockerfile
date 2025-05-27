@@ -16,7 +16,7 @@ RUN curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
 RUN chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
 
 RUN apt-get install -y nodejs
-RUN npm install -g npm@latest
+RUN npm install -g npm@10.8.2
 
 COPY package.json .
 COPY package-lock.json .
