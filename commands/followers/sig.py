@@ -88,15 +88,6 @@ class MessageBroadcaster:
                 SingleLetterTag.lowercase(Alphabet.C), [coin_data]
             )
             
-            try:
-                events = await client.get_events_of([filter], timedelta(seconds=5))
-                for event in events:
-                    if event.author().to_bech32() == signer.public_key().to_bech32() and sig_data in event.content():
-                        logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
-                        return
-            except:
-                logging.info(f"Nostr: exception when checking sig existence on relays; sending anyway...")
-
             text_note_builder = EventBuilder.text_note(sig_data, [
                 Tag.parse(["r", route_data]),
                 Tag.parse(["c", coin_data])
