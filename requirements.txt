@@ -1,5 +1,5 @@
 web3==6.17.0
-nostr-sdk==0.11.0
+nostr-sdk==0.32.1
 asyncio==3.4.3
 sqlalchemy==2.0.30
 qrcode==7.4.2

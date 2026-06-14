@@ -33,7 +33,7 @@ class EthereumFollower:
     private_key: str
     is_optimism: bool
     send_sig: any
-    max_query_block_limit: int = 1000
+    max_query_block_limit: int = 500
     last_safe_height: int = 0
     l1_block_contract_address: str
     l1_block_contract: any = None

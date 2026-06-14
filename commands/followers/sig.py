@@ -62,7 +62,7 @@ class MessageBroadcaster:
         self.message_queue = queue.Queue()
 
 
-    def send_signature(
+    async def send_signature(
         self,
         sig: str,
         retries: int = 0
@@ -79,8 +79,8 @@ class MessageBroadcaster:
             signer = NostrSigner.keys(self.my_private_key)
             client = Client(signer)
             
-            client.add_relays(self.relays)
-            client.connect()
+            await client.add_relays(self.relays)
+            await client.connect()
 
             filter = Filter().custom_tag(
                 SingleLetterTag.lowercase(Alphabet.R), [route_data]
@@ -88,46 +88,30 @@ class MessageBroadcaster:
                 SingleLetterTag.lowercase(Alphabet.C), [coin_data]
             )
             
-            try:
-                events = client.get_events_of([filter], timedelta(seconds=5))
-                for event in events:
-                    if event.author().to_bech32() == signer.public_key().to_bech32() and sig_data in event.content():
-                        logging.info(f"Nostr: signature already sent to relay; only logging it to messages.txt")
-                        return
-            except:
-                logging.info(f"Nostr: exception when checking sig existence on relays; sending anyway...")
-
             text_note_builder = EventBuilder.text_note(sig_data, [
                 Tag.parse(["r", route_data]),
                 Tag.parse(["c", coin_data])
             ])
 
-            event_id = client.send_event_builder(text_note_builder)
-            logging.info(f"Nostr: sent event {event_id.to_bech32()} to relays.")
+            await client.send_event_builder(text_note_builder)
+            logging.info(f"Nostr: sent event to relays.")
 
-            client.disconnect()
+            await client.disconnect()
         except:
             if retries < 3:
                 retries += 1
                 logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exc_info=True)
                 time.sleep(3)
-                self.send_signature(sig, retries)
+                await self.send_signature(sig, retries)
             else:
                 logging.error(f"Nostr: failed to send signature to relays: {sig}", exc_info=True)
-
 
     async def sender(self):
         while True:
             if not self.message_queue.empty():
-                threads: List[threading.Thread] = []
                 for _ in range(min(64, self.message_queue.qsize())):
                     sig = self.message_queue.get()
-                    thread = threading.Thread(target=self.send_signature, args=(sig,))
-                    thread.start()
-                    threads.append(thread)
-                
-                for thread in threads:
-                    thread.join()
+                    await self.send_signature(sig)
 
             await asyncio.sleep(1)
 
