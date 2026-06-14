@@ -31,6 +31,7 @@ class ChiaFollower:
     per_message_toll: bytes
     syncing: bool
     send_sig: any
+    consecutive_portal_rollbacks: int
 
     def __init__(self, chain: str, send_sig: any):
         self.chain = chain
@@ -42,6 +43,7 @@ class ChiaFollower:
         self.per_message_toll = int(get_config_item([chain, "per_message_toll"]))
         self.syncing = True
         self.send_sig = send_sig
+        self.consecutive_portal_rollbacks = 0
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -250,7 +252,22 @@ class ChiaFollower:
         node: FullNodeRpcClient,
         last_synced_portal: ChiaPortalState
     ) -> ChiaPortalState:
-        coin_record = await self.get_coin_record_by_name(node, last_synced_portal.coin_id)
+        if self.consecutive_portal_rollbacks >= 5:
+            logging.warning(f"Portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}: rolled back 5 times in a row; assuming node is out of sync, continuing to retry current portal coin")
+            coin_record = await self.get_coin_record_by_name(node, last_synced_portal.coin_id)
+        else:
+            coin_record = await self.get_coin_record_by_name(node, last_synced_portal.coin_id, tries=60)
+
+        if coin_record is None:
+            self.consecutive_portal_rollbacks += 1
+            logging.warning(f"Portal coin {self.chain}-0x{last_synced_portal.coin_id.hex()}: not found after 5 minutes; rolling back to parent ({self.consecutive_portal_rollbacks}/5 consecutive rollbacks)")
+            last_synced_portal.confirmed_block_height = None
+            db.commit()
+            return db.query(ChiaPortalState).filter(
+                ChiaPortalState.coin_id == last_synced_portal.parent_id
+            ).first()
+
+        self.consecutive_portal_rollbacks = 0
 
         if coin_record.spent_block_index == 0:
             parent_coin_record = await self.get_coin_record_by_name(node, last_synced_portal.parent_id)
