@@ -2,21 +2,31 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y \
+  curl \
+  build-essential \
+  cmake \
+  git
+
 RUN python3 -m venv venv
 SHELL ["/bin/bash", "-c"]
 RUN source venv/bin/activate
 
-RUN pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
+RUN pip install \
+  --extra-index-url https://pypi.chia.net/simple/ \
+  --no-binary=chiapos \
+  chia-dev-tools==1.2.5
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-RUN apt-get update && apt-get install -y curl
 RUN curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
 RUN chmod +x /tmp/nodesource_setup.sh && /tmp/nodesource_setup.sh
 
 RUN apt-get install -y nodejs
 RUN npm install -g npm@10.8.2
+
+RUN rm -rf /tmp/nodesource_setup.sh /var/lib/apt/lists/*
 
 COPY package.json .
 COPY package-lock.json .
