@@ -884,8 +884,16 @@ async def load_block_spends(node, height: int) -> Optional[List[CoinSpend]]:
             spend = await node.get_puzzle_and_solution(
                 coin_record.coin.name(), coin_record.spent_block_index
             )
-            if spend is not None:
-                spends.append(spend)
+            # A missing spend is an incomplete load. Returning the partial list
+            # makes CAT-wrap policy reject the message permanently.
+            if spend is None:
+                logging.info(
+                    "block spend missing for coin %s at height %s; will retry",
+                    coin_record.coin.name().hex(),
+                    height,
+                )
+                return None
+            spends.append(spend)
         return spends
     except Exception:
         logging.error("Failed to load block spends", exc_info=True)

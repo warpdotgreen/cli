@@ -34,6 +34,14 @@ def encode_signature(
     return res
 
 
+def _bech32_payload_to_bytes(encoded: str, max_length: int | None = None) -> bytes:
+    if max_length is None:
+        data = bech32_decode(encoded)[1]
+    else:
+        data = bech32_decode(encoded, max_length)[1]
+    return bytes(convertbits(data, 5, 8, False))
+
+
 def decode_signature(enc_sig: str) -> Tuple[
     bytes,  # origin_chain
     bytes,  # destination_chain
@@ -42,13 +50,17 @@ def decode_signature(enc_sig: str) -> Tuple[
     bytes  # sig
 ]:
     parts = enc_sig.split("-")
-    route_data = convertbits(bech32_decode(parts[0], (32 + 3 + 3) * 2)[1], 5, 8, False)
+    route_data = _bech32_payload_to_bytes(parts[0], (32 + 3 + 3) * 2)
     origin_chain = route_data[:3]
     destination_chain = route_data[3:6]
     nonce = route_data[6:]
 
-    coin_id = convertbits(bech32_decode(parts[1])[1], 5, 8, False)
-    sig = convertbits(bech32_decode(parts[-1], 96 * 2)[1], 5, 8, False)
+    # xch→eth/bse signatures are encoded with no coin id: "route--sig".
+    if parts[1] == "":
+        coin_id = None
+    else:
+        coin_id = _bech32_payload_to_bytes(parts[1])
+    sig = _bech32_payload_to_bytes(parts[-1], 96 * 2)
 
     return origin_chain, destination_chain, nonce, coin_id, sig
 

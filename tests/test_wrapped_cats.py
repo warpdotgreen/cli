@@ -6,7 +6,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
-from chia.types.coin_spend import CoinSpend
+from chia.types.coin_spend import CoinSpend, make_spend
 from chia.util.bech32m import decode_puzzle_hash
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.cat_wallet.cat_utils import construct_cat_puzzle
@@ -175,7 +175,7 @@ class TestWrappedCATs:
 
         xch_source_coin_solution = Program.to(notarized_payments)
 
-        xch_source_coin_spend = CoinSpend(
+        xch_source_coin_spend = make_spend(
             xch_source_coin,
             OFFER_MOD,
             xch_source_coin_solution
@@ -190,7 +190,7 @@ class TestWrappedCATs:
             ETH_RECEIVER
         )
 
-        locker_coin_spend = CoinSpend(
+        locker_coin_spend = make_spend(
             locker_coin,
             locker_puzzle,
             locker_coin_solution
@@ -205,7 +205,7 @@ class TestWrappedCATs:
         )
         bridging_solution = Program.to([ BRIDGING_TOLL ])
 
-        bridging_coin_spend = CoinSpend(
+        bridging_coin_spend = make_spend(
             bridging_coin,
             BRIDGING_PUZZLE,
             bridging_solution
@@ -279,7 +279,7 @@ class TestWrappedCATs:
             [],
             1
         )
-        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
+        portal_launcher_parent_spend = make_spend(portal_launcher_parent, one_puzzle, Program.to(conditions))
 
         portal_creation_bundle = SpendBundle(
             [portal_launcher_parent_spend, portal_launcher_spend],
@@ -332,6 +332,8 @@ class TestWrappedCATs:
                 total_amount = BRIDGED_ASSET_AMOUNT + (BRIDGED_ASSET_CHANGE if with_change else 0)
                 await wallet.send_transaction(1, total_amount, vault_addr, get_tx_config(1))
         else:
+            while not await wallet.get_synced():
+                time.sleep(0.05)
             if multiple_coins:
                 coin3_amount = BRIDGED_ASSET_AMOUNT3 + (BRIDGED_ASSET_CHANGE if with_change else 0)
                 await wallet.cat_spend(cat_wallet_id, get_tx_config(1), amount=BRIDGED_ASSET_AMOUNT1, inner_address=vault_addr)
@@ -396,7 +398,7 @@ class TestWrappedCATs:
             portal_inner_solution
         )
 
-        message_coin_creation_spend = CoinSpend(
+        message_coin_creation_spend = make_spend(
             portal,
             portal_full_puzzle,
             portal_solution
@@ -451,7 +453,7 @@ class TestWrappedCATs:
             [xch_source_coin.name(), [unlocker_puzzle_hash, 1]]
         ])
 
-        xch_source_coin_spend = CoinSpend(
+        xch_source_coin_spend = make_spend(
             xch_source_coin,
             OFFER_MOD,
             xch_source_coin_solution
@@ -475,7 +477,7 @@ class TestWrappedCATs:
             [(vault_coin.coin.parent_coin_info, vault_coin.coin.amount) for vault_coin in vault_coins]
         )
 
-        unlocker_coin_spend = CoinSpend(
+        unlocker_coin_spend = make_spend(
             unlocker_coin,
             unlocker_puzzle,
             unlocker_coin_solution
@@ -503,7 +505,7 @@ class TestWrappedCATs:
                     Program.to([])
                 )
 
-                spend = CoinSpend(
+                spend = make_spend(
                     vault_coin.coin,
                     vault_full_puzzle,
                     solution
@@ -553,7 +555,7 @@ class TestWrappedCATs:
             message_coin.name()
         )
 
-        message_coin_spend = CoinSpend(
+        message_coin_spend = make_spend(
             message_coin,
             message_coin_puzzle,
             message_coin_solution

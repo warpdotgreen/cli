@@ -3,7 +3,7 @@ import requests
 from commands.cli_wrappers import *
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
-from chia.types.coin_spend import CoinSpend
+from chia.types.coin_spend import make_spend
 from chia.util.condition_tools import conditions_dict_for_solution
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.coin import Coin
@@ -154,7 +154,7 @@ async def partial_relay_message(
         [source_xch_coin.name(), [security_coin_puzzle_hash, 1]],
     ])
 
-    source_coin_spend = CoinSpend(
+    source_coin_spend = make_spend(
         source_xch_coin,
         OFFER_MOD,
         source_coin_solution
@@ -166,7 +166,7 @@ async def partial_relay_message(
 
     security_coin_spend = Program.to([])
 
-    security_coin_spend = CoinSpend(
+    security_coin_spend = make_spend(
         security_coin,
         security_coin_puzzle,
         security_coin_spend
@@ -221,7 +221,7 @@ async def partial_relay_message(
     )
 
     portal_coin = Coin(parent_record.coin.name(), portal_puzzle_hash, 1)
-    portal_coin_spend = CoinSpend(
+    portal_coin_spend = make_spend(
         portal_coin,
         portal_puzzle,
         portal_solution
