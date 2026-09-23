@@ -1,15 +1,25 @@
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 from commands.models import *
 from commands.config import get_config_item
+from commands.cli_wrappers import get_node_client
 from sqlalchemy import and_
 from eth_account.messages import encode_typed_data
 from commands.followers.sig import encode_signature
+from commands.control_channel import ControlConfig
+from commands.spend_policy import REJECTED_SIG, BridgeRoutes, PolicyResult
+from commands.policy_runtime import (
+    apply_policy_result,
+    check_portal_impl,
+    control_allows_start,
+    evaluate_chia_message_policy,
+    evaluate_evm_message_policy,
+    load_block_spends,
+)
 from web3 import AsyncWeb3
 from web3.providers.async_rpc import AsyncHTTPProvider
 import aiohttp
 import asyncio
 import logging
-import asyncio
 import json
 import sys
 
@@ -37,8 +47,10 @@ class EthereumFollower:
     last_safe_height: int = 0
     l1_block_contract_address: str
     l1_block_contract: any = None
+    routes: BridgeRoutes
+    control_config: ControlConfig
     
-    def __init__(self, chain: str, is_optimism: bool, send_sig: any):
+    def __init__(self, chain: str, is_optimism: bool, send_sig: any, routes: BridgeRoutes, control_config: ControlConfig):
         self.chain = chain
         self.chain_id = chain.encode()
         self.sign_min_height = get_config_item([self.chain, 'sign_min_height'])
@@ -50,6 +62,8 @@ class EthereumFollower:
           self.l1_block_contract_address = get_config_item([self.chain, 'l1_block_contract_address'])
         
         self.send_sig = send_sig
+        self.routes = routes
+        self.control_config = control_config
 
 
     def getDb(self):
@@ -148,12 +162,21 @@ class EthereumFollower:
 
       while True:
         try:
+            if not await control_allows_start(self.control_config):
+                logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
+                await asyncio.sleep(60)
+                continue
+
             next_message_event = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
             if next_message_event is None:
                 logging.info(f"{self.chain_id.decode()} message listener: all on-chain messages synced; listening for new messages.")
                 
                 while next_message_event is None:
+                  if not await control_allows_start(self.control_config):
+                      logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
+                      await asyncio.sleep(60)
+                      continue
                   await asyncio.sleep(30)
                   next_message_event = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
 
@@ -207,6 +230,11 @@ class EthereumFollower:
                     l1_block_number = await self.l1_block_contract.functions.number().call()
                     logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
 
+            if not await control_allows_start(self.control_config):
+                logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
+                await asyncio.sleep(60)
+                continue
+
             next_message_event_copy = await self.getEventByIntNonce(web3, contract, latest_synced_nonce_int + 1, last_synced_height - 1)
             if next_message_event_copy is None:
                 logging.info(f"{self.chain_id.decode()} message listener: could not get message event again; assuming reorg and retrying...")
@@ -222,6 +250,34 @@ class EthereumFollower:
                 last_synced_height -= self.max_query_block_limit
                 self.last_safe_height -= 10 * self.max_query_block_limit
                 continue
+
+            tx_hash = next_message_event['transactionHash'].hex()
+            if not tx_hash.startswith("0x"):
+                tx_hash = "0x" + tx_hash
+
+            route = self.routes.for_chain(self.chain_id)
+            if route is None:
+                logging.error(f"{self.chain_id.decode()} message listener: no route configured")
+                sys.exit(1)
+
+            impl_result = await check_portal_impl(web3, route, event_block_number)
+            if impl_result.kind == "hold":
+                logging.info(f"{self.chain_id.decode()} message listener: portal impl hold; leaving unsigned")
+            elif impl_result.kind == "retry":
+                logging.info(f"{self.chain_id.decode()} message listener: portal impl retry; leaving unsigned")
+            else:
+                policy_result = await evaluate_evm_message_policy(
+                    web3=web3,
+                    routes=self.routes,
+                    source_chain=next_message.source_chain,
+                    source=next_message.source,
+                    destination=next_message.destination,
+                    destination_chain=next_message.destination_chain,
+                    contents=split_message_contents(next_message.contents),
+                    block_number=event_block_number,
+                    tx_hash=tx_hash,
+                )
+                apply_policy_result(next_message, policy_result)
             
             logging.info(f"{self.chain_id.decode()} message listener: Adding message #{self.chain_id.decode()}-{next_message.nonce.hex()}")
             db.add(next_message)
@@ -234,6 +290,32 @@ class EthereumFollower:
             sys.exit(1)
   
     async def signMessage(self, db, web3: AsyncWeb3, message: Message):
+        assert message.destination_chain == self.chain_id
+
+        if message.source_chain != b"xch":
+            message.sig = REJECTED_SIG
+            db.commit()
+            return
+
+        policy_ok = await self._recheck_chia_source_policy(message)
+        if not policy_ok:
+            db.commit()
+            return
+
+        route = self.routes.for_chain(self.chain_id)
+        if route is None:
+            return
+
+        impl_result = await check_portal_impl(web3, route, await web3.eth.block_number)
+        if impl_result.kind != "accept":
+            apply_policy_result(message, impl_result)
+            db.commit()
+            return
+
+        if not await control_allows_start(self.control_config):
+            logging.info(f"{self.chain} Signer: control gate stop; not signing")
+            return
+
         domain = {
             'name': 'warp.green Portal',
             'version': '1',
@@ -281,17 +363,72 @@ class EthereumFollower:
 
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {sig.hex()}")
 
-        message.sig = encode_signature(
+        encoded = encode_signature(
             message.source_chain,
             message.destination_chain,
             message.nonce,
             None,
             sig
-        ).encode()
+        )
+
+        if not await control_allows_start(self.control_config):
+            logging.info(f"{self.chain} Signer: control gate stop before write; discarding signature")
+            return
+
+        message.sig = encoded.encode()
         db.commit()
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
         self.send_sig(message.sig.decode())
+
+
+    async def _recheck_chia_source_policy(self, message: Message) -> bool:
+        node = await get_node_client("xch", log=False)
+        if node is None:
+            return apply_policy_result(message, PolicyResult("retry", "chia node unavailable"))
+        try:
+            coin_record = await node.get_coin_record_by_name(message.nonce)
+            if coin_record is None:
+                return apply_policy_result(message, PolicyResult("retry", "bridging coin not found"))
+            parent_id = coin_record.coin.parent_coin_info
+            parent_record = await node.get_coin_record_by_name(parent_id)
+            if parent_record is None or parent_record.spent_block_index == 0:
+                return apply_policy_result(message, PolicyResult("retry", "parent spend not found"))
+            parent_spend = await node.get_puzzle_and_solution(parent_id, parent_record.spent_block_index)
+            if parent_spend is None:
+                return apply_policy_result(message, PolicyResult("retry", "parent spend missing"))
+            block_spends = await load_block_spends(node, parent_record.spent_block_index)
+
+            def web3_for_chain(chain: bytes) -> Optional[AsyncWeb3]:
+                key = chain.decode() if isinstance(chain, (bytes, bytearray)) else chain
+                if key not in ("eth", "bse"):
+                    return None
+                headers = {
+                    'User-Agent': 'requests/1.0.0',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                return AsyncWeb3(AsyncHTTPProvider(
+                    get_config_item([key, 'rpc_url']),
+                    request_kwargs={'headers': headers},
+                ))
+
+            result = await evaluate_chia_message_policy(
+                bridging_coin=coin_record.coin,
+                parent_spend=parent_spend,
+                routes=self.routes,
+                node=node,
+                block_spends=block_spends,
+                web3_for_chain=web3_for_chain,
+                evm_block_number=None,
+            )
+            return apply_policy_result(message, result)
+        except Exception:
+            logging.error("Chia policy recheck failed", exc_info=True)
+            return apply_policy_result(message, PolicyResult("retry", "chia policy recheck error"))
+        finally:
+            node.close()
+            await node.await_closed()
 
 
     async def messageSigner(self):
@@ -300,6 +437,11 @@ class EthereumFollower:
 
       while True:
           try:
+              if not await control_allows_start(self.control_config):
+                  logging.info(f"{self.chain_id.decode()} message signer: control stop; sleeping 60s")
+                  await asyncio.sleep(60)
+                  continue
+
               messages = []
               messages = db.query(Message).filter(and_(
                   Message.destination_chain == self.chain_id,

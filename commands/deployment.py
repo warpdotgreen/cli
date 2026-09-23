@@ -13,7 +13,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import pay_to_singleton_puzzle
 from chia.util.keychain import bytes_to_mnemonic, mnemonic_to_seed
 from commands.keys import mnemonic_to_validator_pk
 from chia.types.blockchain_format.coin import Coin
-from chia.types.coin_spend import CoinSpend
+from chia.types.coin_spend import make_spend
 from drivers.multisig import get_multisig_inner_puzzle
 from drivers.portal import *
 from drivers.wrapped_assets import get_cat_minter_puzzle, get_cat_burner_puzzle, get_wrapped_tail
@@ -233,7 +233,7 @@ async def securely_launch_singleton(
     launcher_parent_parent_solution = Program.to([
         [nonce, [launcher_parent_puzzle_hash, 1]]
     ])
-    launcher_parent_parent_spend = CoinSpend(launcher_parent_parent, launcher_parent_parent_puzzle, launcher_parent_parent_solution)
+    launcher_parent_parent_spend = make_spend(launcher_parent_parent, launcher_parent_parent_puzzle, launcher_parent_parent_solution)
     coin_spends.append(launcher_parent_parent_spend)
 
     # spend launcher coin
@@ -261,7 +261,7 @@ async def securely_launch_singleton(
 
     # finally, spend launcher parent
     launcher_parent_solution = solution_for_conditions(Program.to(conditions))
-    launcher_parent_spend = CoinSpend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
+    launcher_parent_spend = make_spend(launcher_parent, launcher_parent_puzzle, launcher_parent_solution)
     coin_spends.append(launcher_parent_spend)
 
     def just_return_the_fing_key(arg: any):

@@ -4,6 +4,7 @@ from commands.deployment import deployment
 from commands.listen import listen
 from commands.rekey import rekey
 from commands.ffs import ffs
+from commands.control import control
 
 @click.group()
 def cli():
@@ -15,6 +16,7 @@ cli.add_command(deployment)
 cli.add_command(listen)
 cli.add_command(rekey)
 cli.add_command(ffs)
+cli.add_command(control)
 
 if __name__ == '__main__':
     cli()

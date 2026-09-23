@@ -35,6 +35,8 @@ WHITELIST = [
     "get_mempool_items_by_coin_name",
     "get_network_info",
     "get_puzzle_and_solution",
+    "get_block_spends",
+    "get_additions_and_removals",
     "get_routes",
     "healthz",
     "push_tx"

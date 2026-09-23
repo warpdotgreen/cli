@@ -7,15 +7,26 @@ from chia.types.blockchain_format.program import INFINITE_COST
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
-from chia.consensus.block_record import BlockRecord
 from chia.types.coin_spend import CoinSpend
 from chia.types.coin_record import CoinRecord
 from commands.followers.sig import encode_signature, decode_signature
+from commands.control_channel import ControlConfig
+from commands.spend_policy import REJECTED_SIG, BridgeRoutes, evm_address_from_bytes32
+from commands.policy_runtime import (
+    apply_policy_result,
+    control_allows_start,
+    evaluate_chia_message_policy,
+    evaluate_evm_message_policy,
+    load_block_spends,
+)
 from drivers.portal import BRIDGING_PUZZLE_HASH
-from typing import Tuple
+from typing import Optional
+from web3 import AsyncWeb3
+from web3.providers.async_rpc import AsyncHTTPProvider
 import logging
 import asyncio
 import sys
+import json
 from sqlalchemy import and_
 from chia_rs import AugSchemeMPL, PrivateKey
 
@@ -32,8 +43,10 @@ class ChiaFollower:
     syncing: bool
     send_sig: any
     consecutive_portal_rollbacks: int
+    routes: BridgeRoutes
+    control_config: ControlConfig
 
-    def __init__(self, chain: str, send_sig: any):
+    def __init__(self, chain: str, send_sig: any, routes: BridgeRoutes, control_config: ControlConfig):
         self.chain = chain
         self.chain_id = chain.encode()
         self.private_key = PrivateKey.from_bytes(bytes.fromhex(get_config_item([chain, "my_hot_private_key"])))
@@ -44,6 +57,9 @@ class ChiaFollower:
         self.syncing = True
         self.send_sig = send_sig
         self.consecutive_portal_rollbacks = 0
+        self.routes = routes
+        self.control_config = control_config
+        self._evm_web3 = {}
 
 
     async def getUnspentPortalId(self) -> bytes:
@@ -67,6 +83,23 @@ class ChiaFollower:
 
     async def getNode(self, log: bool = True):
         return await get_node_client(self.chain, log)
+
+
+    def getEvmWeb3(self, chain: bytes) -> Optional[AsyncWeb3]:
+        key = chain.decode() if isinstance(chain, (bytes, bytearray)) else chain
+        if key not in ("eth", "bse"):
+            return None
+        if key not in self._evm_web3:
+            headers = {
+                'User-Agent': 'requests/1.0.0',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            self._evm_web3[key] = AsyncWeb3(AsyncHTTPProvider(
+                get_config_item([key, 'rpc_url']),
+                request_kwargs={'headers': headers},
+            ))
+        return self._evm_web3[key]
 
 
     # to save space, used_chains_and_nonces has a special format:
@@ -144,9 +177,39 @@ class ChiaFollower:
         logging.info(f"{self.chain}: Signing message {message.source_chain.decode()}-0x{message.nonce.hex()}")
 
         assert message.destination_chain == self.chain_id
+
+        if message.source_chain not in (b"eth", b"bse"):
+            message.sig = REJECTED_SIG
+            db.commit()
+            return
+
+        policy_ok = await self._recheck_evm_source_policy(db, message)
+        if not policy_ok:
+            db.commit()
+            return
+
+        if not await control_allows_start(self.control_config):
+            logging.info(f"{self.chain} Signer: control gate stop; not signing")
+            return
+
         source = message.source
-        while source.startswith(b'\x00'):
-            source = source[1:]
+        if len(source) > 32:
+            dropped = source[:-32]
+            if dropped != b"\x00" * len(dropped):
+                logging.error(
+                    f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: "
+                    f"source longer than 32 bytes with non-zero prefix; not signing"
+                )
+                return
+            source = source[-32:]
+        try:
+            source = evm_address_from_bytes32(source)
+        except ValueError:
+            logging.error(
+                f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: "
+                f"invalid EVM source encoding; not signing"
+            )
+            return
         # source_chain nonce source destination message
         msg_bytes: bytes = Program(Program.to([
             message.source_chain,
@@ -179,33 +242,94 @@ class ChiaFollower:
         sig = AugSchemeMPL.sign(self.private_key, msg_bytes)
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Raw signature: {bytes(sig).hex()}")
 
-        message.sig = encode_signature(
+        encoded = encode_signature(
             message.source_chain,
             message.destination_chain,
             message.nonce,
             portal_id,
             bytes(sig)
-        ).encode()
+        )
+
+        if not await control_allows_start(self.control_config):
+            logging.info(f"{self.chain} Signer: control gate stop before write; discarding signature")
+            return
+
+        message.sig = encoded.encode()
         db.commit()
         logging.info(f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: Signature: {message.sig.decode()}")
 
         self.send_sig(message.sig.decode())
 
 
+    async def _recheck_evm_source_policy(self, db, message: Message) -> bool:
+        from commands.spend_policy import PolicyResult
+        web3 = self.getEvmWeb3(message.source_chain)
+        if web3 is None:
+            return apply_policy_result(message, PolicyResult("retry", "no web3 for source chain"))
+
+        route = self.routes.for_chain(message.source_chain)
+        if route is None:
+            return apply_policy_result(message, PolicyResult("reject", "unknown source chain"))
+
+        portal_contract_abi = json.loads(open("artifacts/contracts/Portal.sol/Portal.json", "r").read())["abi"]
+        portal_hex = route.portal_address.hex()
+        if len(route.portal_address) > 20:
+            portal_hex = route.portal_address[-20:].hex()
+        contract = web3.eth.contract(
+            address=AsyncWeb3.to_checksum_address("0x" + portal_hex),
+            abi=portal_contract_abi,
+        )
+        try:
+            nonce_hex = "0x" + message.nonce.hex()
+            logs = await contract.events.MessageSent().get_logs(
+                fromBlock=max(0, message.block_number - 5),
+                toBlock=message.block_number + 5,
+                argument_filters={"nonce": nonce_hex},
+            )
+            logs = list(logs)
+            if not logs:
+                return apply_policy_result(message, PolicyResult("retry", "MessageSent not found for recheck"))
+            event = logs[0]
+            tx_hash = event["transactionHash"].hex()
+            if not tx_hash.startswith("0x"):
+                tx_hash = "0x" + tx_hash
+            result = await evaluate_evm_message_policy(
+                web3=web3,
+                routes=self.routes,
+                source_chain=message.source_chain,
+                source=message.source,
+                destination=message.destination,
+                destination_chain=message.destination_chain,
+                contents=split_message_contents(message.contents),
+                block_number=int(event["blockNumber"]),
+                tx_hash=tx_hash,
+            )
+            return apply_policy_result(message, result)
+        except Exception:
+            logging.error("EVM policy recheck failed", exc_info=True)
+            return apply_policy_result(message, PolicyResult("retry", "evm policy recheck error"))
+
+
     async def messageSigner(self):
         db = self.getDb()
 
-        while not self.syncing:
-            logging.info(f"{self.chain_id.decode} message signer: Waiting to be synced before signing messages...")
+        while self.syncing:
+            logging.info(f"{self.chain_id.decode()} message signer: Waiting to be synced before signing messages...")
             await asyncio.sleep(10)
 
+        await self.getUnspentPortalId()
+
         while True:
+            if not await control_allows_start(self.control_config):
+                logging.info(f"{self.chain_id.decode()} message signer: control stop; sleeping 60s")
+                await asyncio.sleep(60)
+                continue
+
             messages = []
             try:
                 messages = db.query(Message).filter(and_(
                     Message.destination_chain == self.chain_id,
                     Message.sig == b'',
-                    Message.sig != SIG_USED_VALUE,
                 )).all()
             except Exception as e:
                 logging.error(f"Error querying messages: {e}", exc_info=True)
@@ -366,7 +490,9 @@ class ChiaFollower:
         if not self.syncing:
             messages = db.query(Message).filter(and_(
                 Message.destination_chain == self.chain_id,
-                Message.sig != SIG_USED_VALUE
+                Message.sig != SIG_USED_VALUE,
+                Message.sig != REJECTED_SIG,
+                Message.sig != b'',
             )).all()
             for message in messages:
                 try:
@@ -422,6 +548,10 @@ class ChiaFollower:
 
         while True:
             try:
+                if not await control_allows_start(self.control_config):
+                    logging.info(f"{self.chain_id.decode()} portal follower: control stop; sleeping 60s")
+                    await asyncio.sleep(60)
+                    continue
                 last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
                 db.commit()
             except:
@@ -438,7 +568,10 @@ class ChiaFollower:
             nonce: bytes,
             source: bytes,
             created_height: int,
-            memo: Program
+            memo: Program,
+            bridging_coin: Coin,
+            parent_spend: CoinSpend,
+            node: FullNodeRpcClient,
     ):
         try:
             destination_chain = memo.first().as_atom()
@@ -479,9 +612,22 @@ class ChiaFollower:
             block_number=created_height,
             sig=b''
         )
+
+        block_spends = await load_block_spends(node, created_height)
+        result = await evaluate_chia_message_policy(
+            bridging_coin=bridging_coin,
+            parent_spend=parent_spend,
+            routes=self.routes,
+            node=node,
+            block_spends=block_spends,
+            web3_for_chain=self.getEvmWeb3,
+            evm_block_number=None,
+        )
+        apply_policy_result(msg, result)
+
         db.add(msg)
         db.commit()
-        logging.info(f"Message {self.chain}-{nonce.hex()} added to db.")
+        logging.info(f"Message {self.chain}-{nonce.hex()} added to db (policy={result.kind}).")
 
 
     async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
@@ -513,7 +659,10 @@ class ChiaFollower:
                                 coin.name(),
                                 parent_record.coin.puzzle_hash,
                                 parent_record.spent_block_index,
-                                memo
+                                memo,
+                                coin,
+                                parent_spend,
+                                node,
                             )
                         except Exception as e:
                             logging.error(f"Coin {self.chain}-{coin.name().hex()} - error when parsing memo to create message; skipping even though we shouldn't")
@@ -537,6 +686,11 @@ class ChiaFollower:
 
         while True:
             try:
+                if not await control_allows_start(self.control_config):
+                    logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
+                    await asyncio.sleep(60)
+                    continue
+
                 last_synced_height = db.query(Message.block_number).filter(
                     Message.source_chain == self.chain_id
                 ).order_by(Message.block_number.desc()).first()
@@ -587,6 +741,12 @@ class ChiaFollower:
                     # wait for this to actually be confirmed :)
                     while earliest_unprocessed_coin_record.confirmed_block_index + self.sign_min_height > (await self.get_current_height(node)):
                         await asyncio.sleep(10)
+
+                    if not await control_allows_start(self.control_config):
+                        logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
+                        await asyncio.sleep(60)
+                        reorg = True
+                        break
 
                     coin_record_copy = await self.get_coin_record_by_name(node, earliest_unprocessed_coin_record.coin.name(), 3)
                     if coin_record_copy is None or coin_record_copy.confirmed_block_index != earliest_unprocessed_coin_record.confirmed_block_index:
