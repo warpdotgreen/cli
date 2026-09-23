@@ -17,6 +17,7 @@ from drivers.multisig import *
 from drivers.portal import *
 from commands.deployment import print_spend_instructions
 from commands.rekey import get_latest_portal_coin_data
+from commands.spend_policy import evm_address_from_bytes32
 from datetime import timedelta
 
 
@@ -190,8 +191,18 @@ async def partial_relay_message(
     portal_puzzle_hash = portal_puzzle.get_tree_hash()
 
     source = bytes.fromhex(msg['source'])
-    while source.startswith(b'\x00'):
-        source = source[1:]
+    if source_chain in ("eth", "bse"):
+        if len(source) > 32:
+            dropped = source[:-32]
+            if dropped != b"\x00" * len(dropped):
+                print("Source longer than 32 bytes with non-zero prefix; skipping relay")
+                return
+            source = source[-32:]
+        try:
+            source = evm_address_from_bytes32(source)
+        except ValueError:
+            print("Invalid EVM source encoding; skipping relay")
+            return
     portal_msg = PortalMessage(
         nonce=bytes.fromhex(nonce),
         validator_sig_switches=validator_sig_switches,
