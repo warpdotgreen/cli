@@ -40,9 +40,18 @@ PolicyKind = Literal["accept", "reject", "retry", "hold"]
 
 
 @dataclass(frozen=True)
+class VerifiedChiaMessage:
+    source: bytes
+    destination_chain: bytes
+    destination: bytes
+    contents: Tuple[bytes, ...]
+
+
+@dataclass(frozen=True)
 class PolicyResult:
     kind: PolicyKind
     reason: str
+    verified: Optional[VerifiedChiaMessage] = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,125 @@ def left_pad_32(value: bytes) -> bytes:
     if len(value) < 32:
         return b"\x00" * (32 - len(value)) + value
     return value
+
+
+def signed_destination_address(destination: bytes) -> bytes:
+    """Last 20 bytes, the address the Base signer puts in typed data."""
+    raw = destination.hex()
+    if len(raw) < 40:
+        raw = "0" * (40 - len(raw)) + raw
+    else:
+        raw = raw[-40:]
+    return bytes.fromhex(raw)
+
+
+def _canonical_contents(words: Sequence[bytes]) -> Optional[Tuple[bytes, ...]]:
+    canonical = []
+    for word in words:
+        if len(word) > 32:
+            return None
+        canonical.append(left_pad_32(word))
+    return tuple(canonical)
+
+
+def _verified_chia_message(
+    *,
+    source: bytes,
+    destination_chain: bytes,
+    destination: bytes,
+    contents: Sequence[bytes],
+) -> Optional[VerifiedChiaMessage]:
+    canonical = _canonical_contents(contents)
+    if canonical is None or len(source) != 32:
+        return None
+    return VerifiedChiaMessage(
+        source=source,
+        destination_chain=destination_chain,
+        destination=destination,
+        contents=canonical,
+    )
+
+
+def chia_row_matches_verified(
+    *,
+    source: bytes,
+    destination_chain: bytes,
+    destination: bytes,
+    contents: Sequence[bytes],
+    verified: VerifiedChiaMessage,
+) -> bool:
+    if source != verified.source:
+        return False
+    if destination_chain != verified.destination_chain:
+        return False
+    if signed_destination_address(destination) != signed_destination_address(verified.destination):
+        return False
+    if len(contents) != len(verified.contents):
+        return False
+    return tuple(contents) == verified.contents
+
+
+def normalize_signed_evm_source(source: bytes) -> Optional[bytes]:
+    """20-byte address, using the same padding rules as the Chia signer."""
+    if len(source) > 32:
+        dropped = source[:-32]
+        if dropped != b"\x00" * len(dropped):
+            return None
+        source = source[-32:]
+    try:
+        return evm_address_from_bytes32(source)
+    except ValueError:
+        return None
+
+
+def _event_atom(value) -> bytes:
+    if isinstance(value, str):
+        if value.startswith(("0x", "0X")):
+            return bytes.fromhex(value[2:])
+        return value.encode()
+    return bytes(value)
+
+
+def decode_message_sent_fields(
+    event,
+) -> Optional[Tuple[bytes, bytes, bytes, bytes, Tuple[bytes, ...]]]:
+    """nonce, source, destination_chain, destination, contents from a MessageSent log."""
+    try:
+        args = event["args"]
+        source = _event_atom(args["source"])
+        nonce = _event_atom(args["nonce"])
+        destination_chain = _event_atom(args["destination_chain"])
+        destination = _event_atom(args["destination"])
+        contents = tuple(_event_atom(word) for word in args["contents"])
+    except Exception:
+        return None
+    return nonce, source, destination_chain, destination, contents
+
+
+def evm_log_matches_row(
+    *,
+    nonce: bytes,
+    source: bytes,
+    destination_chain: bytes,
+    destination: bytes,
+    contents: Sequence[bytes],
+    log_nonce: bytes,
+    log_source: bytes,
+    log_destination_chain: bytes,
+    log_destination: bytes,
+    log_contents: Sequence[bytes],
+) -> bool:
+    if bytes(nonce) != bytes(log_nonce):
+        return False
+    row_source = normalize_signed_evm_source(bytes(source))
+    event_source = normalize_signed_evm_source(bytes(log_source))
+    if row_source is None or event_source is None or row_source != event_source:
+        return False
+    if bytes(destination_chain) != bytes(log_destination_chain):
+        return False
+    if bytes(destination) != bytes(log_destination):
+        return False
+    return tuple(bytes(word) for word in contents) == tuple(bytes(word) for word in log_contents)
 
 
 def compare_portal_impl(actual_codehash: str, expected_codehash: str) -> PolicyResult:
@@ -362,7 +490,15 @@ def validate_chia_erc20_unwrap(
         if not _announcements_tie(burner_conds, inner_conds, burner_spend.coin.name(), cat_spend.coin.name()):
             return PolicyResult("reject", "burner/CAT announcements do not tie")
 
-        return PolicyResult("accept", "chia erc20 unwrap")
+        verified = _verified_chia_message(
+            source=bytes(burner_spend.coin.puzzle_hash),
+            destination_chain=memo_chain,
+            destination=memo_dest,
+            contents=memo_contents,
+        )
+        if verified is None:
+            return PolicyResult("reject", "memo content longer than 32 bytes")
+        return PolicyResult("accept", "chia erc20 unwrap", verified)
     except Exception as exc:
         return PolicyResult("reject", f"chia erc20 unwrap parse error: {exc}")
 
@@ -498,7 +634,15 @@ def validate_chia_cat_wrap(
         if settlement is None:
             return PolicyResult("reject", "settlement offer spend not found")
 
-        return PolicyResult("accept", "chia cat/xch wrap")
+        verified = _verified_chia_message(
+            source=bytes(locker_spend.coin.puzzle_hash),
+            destination_chain=memo_chain,
+            destination=memo_dest,
+            contents=memo_contents,
+        )
+        if verified is None:
+            return PolicyResult("reject", "memo content longer than 32 bytes")
+        return PolicyResult("accept", "chia cat/xch wrap", verified)
     except Exception as exc:
         return PolicyResult("reject", f"chia cat wrap parse error: {exc}")
 

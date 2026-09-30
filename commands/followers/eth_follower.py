@@ -6,7 +6,12 @@ from sqlalchemy import and_
 from eth_account.messages import encode_typed_data
 from commands.followers.sig import encode_signature
 from commands.control_channel import ControlConfig
-from commands.spend_policy import REJECTED_SIG, BridgeRoutes, PolicyResult
+from commands.spend_policy import (
+    REJECTED_SIG,
+    BridgeRoutes,
+    PolicyResult,
+    chia_row_matches_verified,
+)
 from commands.policy_runtime import (
     apply_policy_result,
     check_portal_impl,
@@ -422,6 +427,19 @@ class EthereumFollower:
                 web3_for_chain=web3_for_chain,
                 evm_block_number=None,
             )
+            if result.kind == "accept":
+                verified = result.verified
+                if verified is None or not chia_row_matches_verified(
+                    source=bytes(message.source),
+                    destination_chain=bytes(message.destination_chain),
+                    destination=bytes(message.destination),
+                    contents=split_message_contents(bytes(message.contents or b"")),
+                    verified=verified,
+                ):
+                    return apply_policy_result(
+                        message,
+                        PolicyResult("retry", "signed fields do not match verified chia spend"),
+                    )
             return apply_policy_result(message, result)
         except Exception:
             logging.error("Chia policy recheck failed", exc_info=True)

@@ -11,7 +11,13 @@ from chia.types.coin_spend import CoinSpend
 from chia.types.coin_record import CoinRecord
 from commands.followers.sig import encode_signature, decode_signature
 from commands.control_channel import ControlConfig
-from commands.spend_policy import REJECTED_SIG, BridgeRoutes, evm_address_from_bytes32
+from commands.spend_policy import (
+    REJECTED_SIG,
+    BridgeRoutes,
+    decode_message_sent_fields,
+    evm_address_from_bytes32,
+    evm_log_matches_row,
+)
 from commands.policy_runtime import (
     apply_policy_result,
     control_allows_start,
@@ -289,7 +295,34 @@ class ChiaFollower:
             logs = list(logs)
             if not logs:
                 return apply_policy_result(message, PolicyResult("retry", "MessageSent not found for recheck"))
-            event = logs[0]
+            row_contents = split_message_contents(bytes(message.contents or b""))
+            matching = []
+            for event in logs:
+                decoded = decode_message_sent_fields(event)
+                if decoded is None:
+                    continue
+                log_nonce, log_source, log_destination_chain, log_destination, log_contents = decoded
+                if evm_log_matches_row(
+                    nonce=bytes(message.nonce),
+                    source=bytes(message.source),
+                    destination_chain=bytes(message.destination_chain),
+                    destination=bytes(message.destination),
+                    contents=row_contents,
+                    log_nonce=log_nonce,
+                    log_source=log_source,
+                    log_destination_chain=log_destination_chain,
+                    log_destination=log_destination,
+                    log_contents=log_contents,
+                ):
+                    matching.append(event)
+            if len(matching) != 1:
+                reason = (
+                    "multiple MessageSent logs match row"
+                    if len(matching) > 1
+                    else "MessageSent fields do not match row"
+                )
+                return apply_policy_result(message, PolicyResult("retry", reason))
+            event = matching[0]
             tx_hash = event["transactionHash"].hex()
             if not tx_hash.startswith("0x"):
                 tx_hash = "0x" + tx_hash

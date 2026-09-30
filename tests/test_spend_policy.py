@@ -24,10 +24,15 @@ from chia.wallet.trading.offer import OFFER_MOD, OFFER_MOD_HASH
 from commands import spend_policy
 from commands.spend_policy import (
     BridgeRoutes,
+    chia_row_matches_verified,
     compute_bridge_tip,
+    decode_message_sent_fields,
     evm_address_from_bytes32,
+    evm_log_matches_row,
     left_pad_32,
     load_wrapped_cat_artifact_bytecode,
+    VerifiedChiaMessage,
+    signed_destination_address,
     validate_chia_cat_wrap,
     validate_chia_erc20_unwrap,
     validate_evm_erc20_wrap,
@@ -293,12 +298,78 @@ class TestChiaErc20Unwrap:
         result = validate_chia_erc20_unwrap(bridging, burner, cat, _routes())
         assert result.kind == "accept"
         assert result.reason == "chia erc20 unwrap"
+        verified = result.verified
+        assert verified is not None
+        assert verified.source == bytes(burner.coin.puzzle_hash)
+        assert verified.destination_chain == DEST_CHAIN
+        assert signed_destination_address(verified.destination) == ETH_BRIDGE
+        assert verified.contents == (
+            ASSET_A,
+            left_pad_32(RECEIVER),
+            CAT_AMOUNT.to_bytes(32, "big"),
+        )
+        assert chia_row_matches_verified(
+            source=verified.source,
+            destination_chain=verified.destination_chain,
+            destination=verified.destination,
+            contents=verified.contents,
+            verified=verified,
+        )
+
+    def test_row_asset_amount_or_receiver_must_match_memo(self):
+        bridging, burner, cat = _build_erc20_burn()
+        result = validate_chia_erc20_unwrap(bridging, burner, cat, _routes())
+        verified = result.verified
+        assert verified is not None
+        asset, receiver, amount = verified.contents
+        other_asset = ASSET_B
+        other_receiver = left_pad_32(bytes.fromhex("ee" * 20))
+        other_amount = (CAT_AMOUNT + 1).to_bytes(32, "big")
+        base = dict(
+            source=verified.source,
+            destination_chain=verified.destination_chain,
+            destination=left_pad_32(verified.destination),
+            verified=verified,
+        )
+        assert chia_row_matches_verified(contents=verified.contents, **base)
+        assert not chia_row_matches_verified(
+            contents=(other_asset, receiver, amount), **base
+        )
+        assert not chia_row_matches_verified(
+            contents=(asset, other_receiver, amount), **base
+        )
+        assert not chia_row_matches_verified(
+            contents=(asset, receiver, other_amount), **base
+        )
+
+    def test_source_must_be_exact_puzzle_hash(self):
+        bridging, burner, cat = _build_erc20_burn()
+        result = validate_chia_erc20_unwrap(bridging, burner, cat, _routes())
+        verified = result.verified
+        assert verified is not None
+        source = b"\x00" + verified.source[1:]
+        verified = VerifiedChiaMessage(
+            source=source,
+            destination_chain=verified.destination_chain,
+            destination=verified.destination,
+            contents=verified.contents,
+        )
+        fields = dict(
+            destination_chain=verified.destination_chain,
+            destination=verified.destination,
+            contents=verified.contents,
+            verified=verified,
+        )
+        assert chia_row_matches_verified(source=source, **fields)
+        assert not chia_row_matches_verified(source=source[1:], **fields)
+        assert not chia_row_matches_verified(source=source + b"\x00", **fields)
 
     def test_q_tail_rejects(self):
         bridging, burner, cat = _build_erc20_burn(tail=Q_TAIL)
         result = validate_chia_erc20_unwrap(bridging, burner, cat, _routes())
         assert result.kind == "reject"
-        assert "tail" in result.reason.lower() or "cat" in result.reason.lower()
+        assert result.reason == "tail_hash_hash mismatch"
+        assert result.verified is None
 
     def test_tail_token_a_memo_token_b_rejects(self):
         bridging, burner, cat = _build_erc20_burn(
@@ -375,6 +446,15 @@ class TestChiaCatWrap:
             bridging, locker, other, _routes(), **views
         )
         assert result.kind == "accept"
+        verified = result.verified
+        assert verified is not None
+        assert verified.source == bytes(locker.coin.puzzle_hash)
+        assert verified.destination_chain == DEST_CHAIN
+        assert signed_destination_address(verified.destination) == WRAPPED_CAT_ADDR
+        assert verified.contents == (
+            left_pad_32(RECEIVER),
+            ASSET_AMOUNT.to_bytes(32, "big"),
+        )
 
     def test_honest_xch_lock_accepts(self):
         views = _wrap_views(bytes32(b"\x00" * 32))
@@ -635,3 +715,43 @@ class TestEvmAddressFromBytes32:
         assert len(bad) == 32
         with pytest.raises(ValueError, match="non-zero prefix"):
             evm_address_from_bytes32(bad)
+
+
+class TestEvmLogFieldMatch:
+    def test_identical_log_matches_and_receiver_mismatch_does_not(self):
+        nonce = b"\x11" * 32
+        source = ETH_BRIDGE
+        row_source = b"\x00" * (64 - len(source)) + source
+        destination = b"\x42" * 32
+        receiver = left_pad_32(RECEIVER)
+        amount = (1000).to_bytes(32, "big")
+        contents = (ASSET_A, receiver, amount)
+        event = {
+            "args": {
+                "nonce": "0x" + nonce.hex(),
+                "source": "0x" + source.hex(),
+                "destination_chain": b"xch",
+                "destination": "0x" + destination.hex(),
+                "contents": ["0x" + word.hex() for word in contents],
+            }
+        }
+        decoded = decode_message_sent_fields(event)
+        assert decoded is not None
+        log_nonce, log_source, log_chain, log_dest, log_contents = decoded
+        kwargs = dict(
+            nonce=nonce,
+            source=row_source,
+            destination_chain=b"xch",
+            destination=destination,
+            contents=contents,
+            log_nonce=log_nonce,
+            log_source=log_source,
+            log_destination_chain=log_chain,
+            log_destination=log_dest,
+            log_contents=log_contents,
+        )
+        assert evm_log_matches_row(**kwargs)
+        other_receiver = left_pad_32(bytes.fromhex("ee" * 20))
+        assert not evm_log_matches_row(
+            **{**kwargs, "log_contents": (ASSET_A, other_receiver, amount)}
+        )
