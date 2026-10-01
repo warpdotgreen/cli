@@ -22,6 +22,7 @@ from chia.wallet.lineage_proof import LineageProof
 from chia.wallet.trading.offer import OFFER_MOD, OFFER_MOD_HASH
 
 from commands import spend_policy
+from commands.policy_runtime import evaluate_chia_message_policy
 from commands.spend_policy import (
     BridgeRoutes,
     chia_row_matches_verified,
@@ -429,6 +430,44 @@ class TestChiaErc20Unwrap:
         assert "CAT_BURNER_MOD" in result.reason or "parent" in result.reason
 
 
+class _MissingCoinNode:
+    async def get_coin_record_by_name(self, _name):
+        return None
+
+
+async def _evaluate_unloaded_burn(burner_kwargs: dict):
+    bridging, burner, _ = _build_erc20_burn(**burner_kwargs)
+    return await evaluate_chia_message_policy(
+        bridging_coin=bridging,
+        parent_spend=burner,
+        routes=_routes(),
+        node=_MissingCoinNode(),
+        block_spends=None,
+        web3_for_chain=lambda _chain: None,
+        evm_block_number=None,
+    )
+
+
+class TestUnloadedBurnerCatSpend:
+    @pytest.mark.asyncio
+    async def test_q_tail_missing_coin_rejects_tail_hash_hash_mismatch(self):
+        result = await _evaluate_unloaded_burn({"tail": Q_TAIL})
+        assert result.kind == "reject"
+        assert result.reason == "tail_hash_hash mismatch"
+
+    @pytest.mark.asyncio
+    async def test_other_tail_missing_coin_rejects_tail_hash_hash_mismatch(self):
+        result = await _evaluate_unloaded_burn({"tail": Program.to(1)})
+        assert result.kind == "reject"
+        assert result.reason == "tail_hash_hash mismatch"
+
+    @pytest.mark.asyncio
+    async def test_honest_wrapped_tail_missing_coin_retries(self):
+        result = await _evaluate_unloaded_burn({})
+        assert result.kind == "retry"
+        assert result.reason == "could not load CAT spend for burner"
+
+
 # ---------------------------------------------------------------------------
 # 2. Chia CAT / XCH wrap (lock)
 # ---------------------------------------------------------------------------
@@ -557,6 +596,40 @@ class TestChiaCatWrap:
         )
         assert result.kind == "reject"
         assert "bytecode" in result.reason
+
+    def test_empty_runtime_rejects_without_views(self):
+        try:
+            load_wrapped_cat_artifact_bytecode()
+        except FileNotFoundError:
+            pytest.skip("WrappedCAT artifacts missing")
+        bridging, locker, other = _build_lock(asset_id=None)
+        result = validate_chia_cat_wrap(
+            bridging,
+            locker,
+            other,
+            _routes(),
+            wrapped_cat_runtime_code=b"",
+            view_portal=None,
+            view_other_chain=None,
+            view_locker_puzzle_hash=None,
+        )
+        assert result.kind == "reject"
+        assert "bytecode" in result.reason
+
+    def test_unloaded_runtime_still_retries(self):
+        bridging, locker, other = _build_lock(asset_id=None)
+        result = validate_chia_cat_wrap(
+            bridging,
+            locker,
+            other,
+            _routes(),
+            wrapped_cat_runtime_code=None,
+            view_portal=None,
+            view_other_chain=None,
+            view_locker_puzzle_hash=None,
+        )
+        assert result.kind == "retry"
+        assert "WrappedCAT" in result.reason
 
 
 # ---------------------------------------------------------------------------
@@ -755,3 +828,35 @@ class TestEvmLogFieldMatch:
         assert not evm_log_matches_row(
             **{**kwargs, "log_contents": (ASSET_A, other_receiver, amount)}
         )
+
+
+class _PortalEth:
+    def __init__(self):
+        self.code_address = None
+
+    async def get_storage_at(self, _portal, _slot, block_identifier=None):
+        from hexbytes import HexBytes
+        impl = bytes.fromhex("5d89db6cc9295c8e802d96c521c8209353ce3215")
+        return HexBytes(b"\x00" * 12 + impl)
+
+    async def get_code(self, address, block_identifier=None):
+        self.code_address = address
+        from hexbytes import HexBytes
+        return HexBytes(b"\x60\x00")
+
+
+class _PortalWeb3:
+    def __init__(self):
+        self.eth = _PortalEth()
+
+
+class TestPortalImplCodehash:
+    @pytest.mark.asyncio
+    async def test_impl_address_is_not_double_prefixed(self):
+        from commands.policy_runtime import portal_impl_codehash
+
+        web3 = _PortalWeb3()
+        codehash = await portal_impl_codehash(web3, bytes.fromhex("11" * 20), 1)
+        assert web3.eth.code_address.lower() == "0x5d89db6cc9295c8e802d96c521c8209353ce3215"
+        assert codehash is not None
+        assert not codehash.lower().startswith("0x0x")

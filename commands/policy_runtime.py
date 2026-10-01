@@ -24,11 +24,13 @@ from commands.spend_policy import (
     compare_portal_impl,
     evm_address_from_bytes32,
     left_pad_32,
+    match_wrapped_cat_bytecode,
     validate_chia_cat_wrap,
     validate_chia_erc20_unwrap,
     validate_evm_cat_unwrap,
     validate_evm_erc20_wrap,
 )
+from drivers.utils import raw_hash
 from drivers.wrapped_assets import (
     CAT_BURNER_MOD,
     get_cat_burn_inner_puzzle,
@@ -234,9 +236,10 @@ async def portal_impl_codehash(
         storage = await web3.eth.get_storage_at(
             portal, EIP1967_IMPL_SLOT, block_identifier=block_number
         )
-        impl = storage[-20:]
+        impl = bytes(storage[-20:])
         if impl == b"\x00" * 20:
             return None
+        # HexBytes.hex() already includes 0x. bytes.hex() does not.
         code = await web3.eth.get_code(
             Web3.to_checksum_address("0x" + impl.hex()), block_identifier=block_number
         )
@@ -490,9 +493,33 @@ async def fetch_token_balance_diff(
     return None
 
 
+def _bytecode_is_not_wrapped_cat(code: bytes) -> bool:
+    """True when code is present and cannot be the current WrappedCAT.
+
+    An artifact-load failure returns False so the caller retries instead of
+    rejecting a contract it could not compare.
+    """
+    try:
+        return not match_wrapped_cat_bytecode(code)
+    except Exception:
+        return False
+
+
 async def read_wrapped_cat_views(
     web3: AsyncWeb3, address: bytes, block_number: int
 ) -> Tuple[Optional[bytes], Optional[bytes], Optional[bytes], Optional[bytes], Optional[bytes], Optional[int], Optional[int]]:
+    try:
+        code = bytes(await web3.eth.get_code(_checksum(address), block_identifier=block_number))
+    except Exception:
+        logging.error("Failed to read WrappedCAT code", exc_info=True)
+        return None, None, None, None, None, None, None
+
+    # Empty code and any other non-matching runtime are a definite reject.
+    # View calls are unnecessary, and a reverted portal() must not look like
+    # an RPC failure.
+    if _bytecode_is_not_wrapped_cat(code):
+        return code, None, None, None, None, None, None
+
     try:
         contract = web3.eth.contract(address=_checksum(address), abi=WRAPPED_CAT_ABI)
         portal = await contract.functions.portal().call(block_identifier=block_number)
@@ -501,9 +528,8 @@ async def read_wrapped_cat_views(
         unlocker = await contract.functions.unlockerPuzzleHash().call(block_identifier=block_number)
         tip = await contract.functions.tip().call(block_identifier=block_number)
         ratio = await contract.functions.mojoToTokenRatio().call(block_identifier=block_number)
-        code = await web3.eth.get_code(_checksum(address), block_identifier=block_number)
         return (
-            bytes(code),
+            code,
             left_pad_32(bytes.fromhex(portal[2:] if isinstance(portal, str) else portal.hex())),
             _as_bytes3(other_chain),
             _as_bytes32(locker),
@@ -522,6 +548,41 @@ def _decode_uint256(data: bytes, position: int) -> int:
 
 def _decode_address(data: bytes, position: int) -> bytes:
     return data[position + 12:position + 32]
+
+
+def _burner_tail_hash_hash_mismatch(burner_spend: CoinSpend, routes: BridgeRoutes) -> bool:
+    """True only when the burner solution parses and tail_hash_hash is wrong.
+
+    A match, or a solution that cannot be parsed, returns False so the caller
+    can keep retrying the CAT coin lookup.
+    """
+    try:
+        puzzle = Program.from_bytes(bytes(burner_spend.puzzle_reveal))
+        solution = Program.from_bytes(bytes(burner_spend.solution))
+        _, curried = puzzle.uncurry()
+        curry_args = list(curried.as_iter())
+        dest_chain = curry_args[3].as_atom()
+        dest_addr = curry_args[4].as_atom()
+        sol_args = list(solution.as_iter())
+        tail_hash_hash = sol_args[1].as_atom()
+        memo_asset = sol_args[3].as_atom()
+        if (
+            dest_chain is None
+            or dest_addr is None
+            or tail_hash_hash is None
+            or memo_asset is None
+        ):
+            return False
+        wrapped_tail = get_wrapped_tail(
+            bytes32(routes.portal_launcher_id),
+            dest_chain,
+            dest_addr,
+            left_pad_32(memo_asset),
+        )
+        expected = raw_hash([b"\x01", wrapped_tail.get_tree_hash()])
+        return tail_hash_hash != expected
+    except Exception:
+        return False
 
 
 async def evaluate_chia_message_policy(
@@ -543,6 +604,8 @@ async def evaluate_chia_message_policy(
     if mod == CAT_BURNER_MOD:
         cat_spend = await _fetch_burner_cat_spend(node, parent_spend, routes)
         if cat_spend is None:
+            if _burner_tail_hash_hash_mismatch(parent_spend, routes):
+                return PolicyResult("reject", "tail_hash_hash mismatch")
             return PolicyResult("retry", "could not load CAT spend for burner")
         return validate_chia_erc20_unwrap(bridging_coin, parent_spend, cat_spend, routes)
 

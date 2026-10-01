@@ -599,12 +599,7 @@ def validate_chia_cat_wrap(
         if bridging_coin.amount != locker_spend.coin.amount:
             return PolicyResult("reject", "bridging coin amount")
 
-        if (
-            wrapped_cat_runtime_code is None
-            or view_portal is None
-            or view_other_chain is None
-            or view_locker_puzzle_hash is None
-        ):
+        if wrapped_cat_runtime_code is None:
             return PolicyResult("retry", "missing WrappedCAT bytecode or views")
 
         try:
@@ -612,6 +607,13 @@ def validate_chia_cat_wrap(
                 return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
         except Exception:
             return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+
+        if (
+            view_portal is None
+            or view_other_chain is None
+            or view_locker_puzzle_hash is None
+        ):
+            return PolicyResult("retry", "missing WrappedCAT bytecode or views")
 
         if evm_address_from_bytes32(left_pad_32(view_portal)) != evm_address_from_bytes32(
             left_pad_32(route.portal_address)
