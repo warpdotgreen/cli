@@ -1012,7 +1012,14 @@ def is_rpc_rate_limited(exc: BaseException) -> bool:
 
 def _raise_if_rate_limited(exc: BaseException) -> None:
     if is_rpc_rate_limited(exc):
-        raise RpcRateLimited("rpc rate limited") from None
+        body = getattr(exc, "body", "") or ""
+        if not isinstance(body, str):
+            body = ""
+        body = body.replace("\n", " ").strip()
+        if len(body) > 300:
+            body = body[:300]
+        message = "rpc rate limited" if not body else f"rpc rate limited: {body}"
+        raise RpcRateLimited(message) from None
 
 
 def _bytecode_is_not_wrapped_cat(code: bytes) -> bool:

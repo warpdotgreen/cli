@@ -496,6 +496,17 @@ def stamp_wrapped_cat_immutables(
     return bytes(buf)
 
 
+def _artifact_load_retry(exc: BaseException) -> PolicyResult:
+    """Retry, and keep the loader error. The message must not include a URL."""
+    detail = f"{type(exc).__name__}: {exc}".replace("\n", " ").strip()
+    if len(detail) > 300:
+        detail = detail[:300]
+    return PolicyResult(
+        "retry",
+        f"could not load WrappedCAT artifact for mask compare ({detail})",
+    )
+
+
 def match_wrapped_cat_bytecode(runtime_code: bytes) -> bool:
     """Masked structural compare. Does not accept immutable values.
 
@@ -861,8 +872,8 @@ def validate_chia_cat_wrap(
         try:
             if not match_wrapped_cat_bytecode(wrapped_cat_runtime_code):
                 return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
-        except Exception:
-            return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+        except Exception as exc:
+            return _artifact_load_retry(exc)
 
         if view_tip is None or view_mojo_to_token_ratio is None:
             return PolicyResult("retry", "missing WrappedCAT bytecode or views")
@@ -875,8 +886,8 @@ def validate_chia_cat_wrap(
                 mojo_to_token_ratio=view_mojo_to_token_ratio,
             ):
                 return PolicyResult("reject", "WrappedCAT immutable occurrence mismatch")
-        except Exception:
-            return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+        except Exception as exc:
+            return _artifact_load_retry(exc)
 
         if (
             view_portal is None
@@ -1056,8 +1067,8 @@ def validate_evm_cat_unwrap(
     try:
         if not match_wrapped_cat_bytecode(wrapped_cat_runtime_code):
             return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
-    except Exception:
-        return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+    except Exception as exc:
+        return _artifact_load_retry(exc)
 
     if tip_bps is not None and mojo_to_token_ratio is not None:
         if isinstance(tip_bps, bool) or not isinstance(tip_bps, int) or tip_bps < 1 or tip_bps > 1000:
@@ -1077,8 +1088,8 @@ def validate_evm_cat_unwrap(
                 mojo_to_token_ratio=mojo_to_token_ratio,
             ):
                 return PolicyResult("reject", "WrappedCAT immutable occurrence mismatch")
-        except Exception:
-            return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+        except Exception as exc:
+            return _artifact_load_retry(exc)
 
     if view_portal is None or view_other_chain is None or unlocker_puzzle_hash is None:
         return PolicyResult("retry", "missing WrappedCAT views")
