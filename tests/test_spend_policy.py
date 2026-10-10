@@ -641,6 +641,34 @@ class TestChiaCatWrap:
         assert result.kind == "reject"
         assert "LOCKER_MOD" in result.reason or "parent" in result.reason
 
+    def test_artifact_load_error_names_the_exception(self):
+        with patch(
+            "commands.spend_policy.match_wrapped_cat_bytecode",
+            side_effect=FileNotFoundError("no WrappedCAT in artifacts/build-info"),
+        ):
+            result = validate_evm_cat_unwrap(
+                routes=_routes(),
+                source_chain=b"eth",
+                source=left_pad_32(WRAPPED_CAT_ADDR),
+                destination=b"\x24" * 32,
+                destination_chain=b"xch",
+                contents=[left_pad_32(RECEIVER), (1).to_bytes(32, "big")],
+                tx_status=1,
+                tip_bps=30,
+                mojo_to_token_ratio=1,
+                gross_mojo_amount=1,
+                sender_balance_diff=1,
+                portal_balance_diff=1,
+                view_portal=left_pad_32(ETH_PORTAL),
+                view_other_chain=b"xch",
+                unlocker_puzzle_hash=b"\x24" * 32,
+                wrapped_cat_runtime_code=b"\x60\x00",
+            )
+        assert result.kind == "retry"
+        assert "could not load WrappedCAT artifact for mask compare" in result.reason
+        assert "FileNotFoundError" in result.reason
+        assert "no WrappedCAT in artifacts/build-info" in result.reason
+
     def test_load_wrapped_cat_build_info_from_other_cwd(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         artifact = load_wrapped_cat_build_info()
