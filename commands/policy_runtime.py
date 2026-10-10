@@ -988,6 +988,33 @@ async def fetch_token_balance_diff(
     )
 
 
+class RpcRateLimited(Exception):
+    """The RPC refused the call because the endpoint is rate limited.
+
+    The message is fixed so logs do not include the request URL.
+    """
+
+
+def is_rpc_rate_limited(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        status = getattr(current, "status", None)
+        if status == 429:
+            return True
+        message = getattr(current, "message", None)
+        if isinstance(message, str) and "too many requests" in message.lower():
+            return True
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+    return False
+
+
+def _raise_if_rate_limited(exc: BaseException) -> None:
+    if is_rpc_rate_limited(exc):
+        raise RpcRateLimited("rpc rate limited") from None
+
+
 def _bytecode_is_not_wrapped_cat(code: bytes) -> bool:
     """True when code is present and cannot be the current WrappedCAT.
 
@@ -1005,7 +1032,8 @@ async def read_wrapped_cat_views(
 ) -> Tuple[Optional[bytes], Optional[bytes], Optional[bytes], Optional[bytes], Optional[bytes], Optional[int], Optional[int]]:
     try:
         code = bytes(await web3.eth.get_code(_checksum(address), block_identifier=block_number))
-    except Exception:
+    except Exception as exc:
+        _raise_if_rate_limited(exc)
         logging.error("Failed to read WrappedCAT code", exc_info=True)
         return None, None, None, None, None, None, None
 
@@ -1036,7 +1064,10 @@ async def read_wrapped_cat_views(
             int(tip),
             int(ratio),
         )
-    except Exception:
+    except RpcRateLimited:
+        raise
+    except Exception as exc:
+        _raise_if_rate_limited(exc)
         logging.error("Failed to read WrappedCAT views", exc_info=True)
         return None, None, None, None, None, None, None
 
@@ -1124,12 +1155,17 @@ async def evaluate_chia_message_policy(
         if evm_block_number is None:
             try:
                 evm_block_number = await web3.eth.block_number
-            except Exception:
+            except Exception as exc:
+                if is_rpc_rate_limited(exc):
+                    return PolicyResult("retry", "rpc rate limited")
                 return PolicyResult("retry", "could not read destination block number")
 
-        code, view_portal, view_other, view_locker, _, view_tip, view_ratio = await read_wrapped_cat_views(
-            web3, dest_addr, evm_block_number
-        )
+        try:
+            code, view_portal, view_other, view_locker, _, view_tip, view_ratio = await read_wrapped_cat_views(
+                web3, dest_addr, evm_block_number
+            )
+        except RpcRateLimited:
+            return PolicyResult("retry", "rpc rate limited")
         # get_code succeeded with an empty runtime. Reject before the mask
         # compare: an artifact-load failure must not turn this into a retry.
         # A non-empty runtime we could not compare still falls through.
@@ -1381,9 +1417,12 @@ async def _evaluate_evm_cat_unwrap(
     tx_hash: str,
     tx_status: int,
 ) -> PolicyResult:
-    code, view_portal, view_other, _, unlocker, tip_bps, mojo_to_token_ratio = await read_wrapped_cat_views(
-        web3, source, block_number
-    )
+    try:
+        code, view_portal, view_other, _, unlocker, tip_bps, mojo_to_token_ratio = await read_wrapped_cat_views(
+            web3, source, block_number
+        )
+    except RpcRateLimited:
+        return PolicyResult("retry", "rpc rate limited")
     if code is None:
         return PolicyResult("retry", "missing WrappedCAT runtime code")
     # get_code succeeded. Empty or non-WrappedCAT is final: do not trace the
