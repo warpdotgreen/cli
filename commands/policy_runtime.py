@@ -701,6 +701,258 @@ async def _rpc(web3: AsyncWeb3, method: str, params: list):
     raise RuntimeError("web3 provider does not support make_request")
 
 
+def _keccak_topic(signature: str) -> str:
+    digest = bytes(Web3.keccak(text=signature))
+    return "0x" + binascii.hexlify(digest).decode("ascii")
+
+
+_TRANSFER_TOPIC = _keccak_topic("Transfer(address,address,uint256)")
+_missing_tracer_methods: set[str] = set()
+
+
+def _rpc_error_code(exc: BaseException) -> Optional[int]:
+    if not exc.args:
+        return None
+    err = exc.args[0]
+    if isinstance(err, dict):
+        code = err.get("code")
+        if isinstance(code, int):
+            return code
+    return None
+
+
+def _log_tracer_failure(method: str, exc: BaseException) -> None:
+    if _rpc_error_code(exc) == -32601:
+        if method not in _missing_tracer_methods:
+            _missing_tracer_methods.add(method)
+            logging.info("%s is not available on this RPC", method)
+        return
+    logging.info("%s failed", method, exc_info=True)
+
+
+def _as_hex_bytes(value) -> Optional[bytes]:
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, str):
+        text = value[2:] if value[:2].lower() == "0x" else value
+        try:
+            return bytes.fromhex(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _norm_tx_hash(value) -> Optional[str]:
+    raw = _as_hex_bytes(value)
+    if raw is None:
+        return None
+    return binascii.hexlify(raw).decode("ascii")
+
+
+def _topic_address(topic) -> Optional[bytes]:
+    raw = _as_hex_bytes(topic)
+    if raw is None or len(raw) != 32:
+        return None
+    return raw[-20:]
+
+
+def _log_field(log, name: str):
+    if isinstance(log, dict):
+        return log.get(name)
+    return getattr(log, name, None)
+
+
+def _holder_log_nets(
+    logs, token: bytes, holder: bytes
+) -> Optional[dict]:
+    """Net Transfer amount per tx hash for holder.
+
+    Logs that are not a 3-topic Transfer plus a 32-byte amount are ignored.
+    A standard Transfer that cannot be tied to a transaction hash fails the
+    whole sum: dropping it would under-count the block.
+    """
+    try:
+        holder_addr = evm_address_from_bytes32(left_pad_32(holder))
+        token_addr = evm_address_from_bytes32(left_pad_32(token))
+    except ValueError:
+        return None
+    transfer_topic = bytes.fromhex(_TRANSFER_TOPIC[2:])
+    nets: dict = {}
+    for log in logs:
+        address = _topic_address(_log_field(log, "address"))
+        if address is None:
+            raw_address = _as_hex_bytes(_log_field(log, "address"))
+            if raw_address is None or len(raw_address) != 20:
+                return None
+            address = raw_address
+        if address != token_addr:
+            continue
+        topics = _log_field(log, "topics") or []
+        try:
+            topic_list = list(topics)
+        except TypeError:
+            return None
+        if len(topic_list) != 3:
+            continue
+        topic0 = _as_hex_bytes(topic_list[0])
+        if topic0 != transfer_topic:
+            continue
+        data = _as_hex_bytes(_log_field(log, "data"))
+        sender = _topic_address(topic_list[1])
+        receiver = _topic_address(topic_list[2])
+        if data is None or len(data) != 32 or sender is None or receiver is None:
+            continue
+        tx_key = _norm_tx_hash(_log_field(log, "transactionHash"))
+        if tx_key is None:
+            return None
+        value = int.from_bytes(data, "big")
+        delta = 0
+        if sender == holder_addr:
+            delta -= value
+        if receiver == holder_addr:
+            delta += value
+        if delta != 0:
+            nets[tx_key] = nets.get(tx_key, 0) + delta
+    return nets
+
+
+async def _read_slot_uint(
+    web3: AsyncWeb3, token_cs: str, holder: bytes, slot: int, block_number: int
+) -> Optional[int]:
+    try:
+        raw = await web3.eth.get_storage_at(
+            token_cs, _storage_key(holder, slot), block_identifier=block_number
+        )
+        return int.from_bytes(bytes(raw), "big")
+    except Exception:
+        logging.info("get_storage_at failed during log balance diff", exc_info=True)
+        return None
+
+
+async def _balance_storage_delta(
+    web3: AsyncWeb3, token: bytes, holder: bytes, block_number: int
+) -> Optional[int]:
+    """Change in the balanceOf slot from the parent block to this block.
+
+    A zero balance whose mapped slots are unchanged has delta 0. An ambiguous
+    slot returns None so the caller retries instead of guessing.
+    """
+    if block_number < 1:
+        return None
+    token_cs = _checksum(token)
+    holder_cs = _checksum(holder)
+    try:
+        contract = web3.eth.contract(address=token_cs, abi=ERC20_ABI)
+        balance = int(
+            await contract.functions.balanceOf(holder_cs).call(
+                block_identifier=block_number
+            )
+        )
+    except Exception:
+        logging.info("balanceOf failed during log balance diff", exc_info=True)
+        return None
+
+    matching: List[int] = []
+    for slot in range(0, 64):
+        stored = await _read_slot_uint(web3, token_cs, holder, slot, block_number)
+        if stored is None:
+            return None
+        if stored == balance:
+            matching.append(slot)
+
+    if balance != 0:
+        if len(matching) != 1:
+            return None
+        pre = await _read_slot_uint(
+            web3, token_cs, holder, matching[0], block_number - 1
+        )
+        if pre is None:
+            return None
+        return balance - pre
+
+    if not matching:
+        return None
+    changed: List[int] = []
+    for slot in matching:
+        pre = await _read_slot_uint(web3, token_cs, holder, slot, block_number - 1)
+        if pre is None:
+            return None
+        if pre != 0:
+            changed.append(0 - pre)
+    if len(changed) > 1:
+        return None
+    if len(changed) == 1:
+        return changed[0]
+    return 0
+
+
+async def _balance_diff_from_logs(
+    web3: AsyncWeb3,
+    tx_hash: str,
+    token: bytes,
+    holder: bytes,
+    block_number: int,
+) -> Optional[int]:
+    storage_delta = await _balance_storage_delta(web3, token, holder, block_number)
+    if storage_delta is None:
+        return None
+    try:
+        logs = await web3.eth.get_logs(
+            {
+                "fromBlock": block_number,
+                "toBlock": block_number,
+                "address": _checksum(token),
+                "topics": [_TRANSFER_TOPIC],
+            }
+        )
+        log_list = list(logs)
+    except Exception:
+        logging.info("eth_getLogs failed during log balance diff", exc_info=True)
+        return None
+
+    nets = _holder_log_nets(log_list, token, holder)
+    if nets is None:
+        return None
+    if sum(nets.values()) != storage_delta:
+        logging.info(
+            "token balance logs do not match storage slot change (logs=%s storage=%s)",
+            sum(nets.values()),
+            storage_delta,
+        )
+        return None
+    tx_key = _norm_tx_hash(tx_hash)
+    if tx_key is None:
+        return None
+    return nets.get(tx_key, 0)
+
+
+async def _diff_from_trace_method(
+    web3: AsyncWeb3,
+    method: str,
+    params: list,
+    token: bytes,
+    holder: bytes,
+    block_number: int,
+) -> Optional[Tuple[Optional[int]]]:
+    """(diff,) when this method returned a state diff, else None.
+
+    The diff inside the tuple may be None. That still means a tracer
+    answered, so the log fallback must not replace it.
+    """
+    try:
+        result = await _rpc(web3, method, params)
+    except Exception as exc:
+        _log_tracer_failure(method, exc)
+        return None
+    state_diff = _normalize_trace_state_diff(result)
+    if state_diff is None:
+        return None
+    diff = await _extract_token_balance_diff(
+        web3, state_diff, token, holder, block_number
+    )
+    return (diff,)
+
+
 async def fetch_token_balance_diff(
     web3: AsyncWeb3,
     tx_hash: str,
@@ -709,40 +961,31 @@ async def fetch_token_balance_diff(
     block_number: int,
 ) -> Optional[int]:
     tx_hash_hex = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
-
-    try:
-        result = await _rpc(
-            web3,
+    trace_calls = (
+        (
             "debug_traceTransaction",
             [tx_hash_hex, {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True}}],
-        )
-        state_diff = _normalize_trace_state_diff(result)
-        if state_diff is not None:
-            diff = await _extract_token_balance_diff(
-                web3, state_diff, token, holder, block_number
-            )
-            if diff is not None:
-                return diff
-    except Exception:
-        logging.info("debug_traceTransaction prestateTracer failed", exc_info=True)
-
-    try:
-        result = await _rpc(
-            web3,
+        ),
+        (
             "trace_replayTransaction",
             [tx_hash_hex, ["stateDiff"]],
+        ),
+    )
+    saw_state_diff = False
+    for method, params in trace_calls:
+        traced = await _diff_from_trace_method(
+            web3, method, params, token, holder, block_number
         )
-        state_diff = _normalize_trace_state_diff(result)
-        if state_diff is not None:
-            diff = await _extract_token_balance_diff(
-                web3, state_diff, token, holder, block_number
-            )
-            if diff is not None:
-                return diff
-    except Exception:
-        logging.info("trace_replayTransaction stateDiff failed", exc_info=True)
-
-    return None
+        if traced is None:
+            continue
+        saw_state_diff = True
+        if traced[0] is not None:
+            return traced[0]
+    if saw_state_diff:
+        return None
+    return await _balance_diff_from_logs(
+        web3, tx_hash_hex, token, holder, block_number
+    )
 
 
 def _bytecode_is_not_wrapped_cat(code: bytes) -> bool:

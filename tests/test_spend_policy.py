@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Tuple
 from unittest.mock import patch
 
@@ -1185,3 +1186,222 @@ class TestChiaWrapEmptyCode:
         assert empty.kind == "reject"
         assert empty.reason == "WrappedCAT bytecode mismatch after immutable mask"
         assert other.kind == "retry"
+
+
+def _padded_topic(addr: bytes) -> str:
+    return "0x" + addr.rjust(32, b"\x00").hex()
+
+
+def _uint_data(value: int) -> str:
+    return "0x" + value.to_bytes(32, "big").hex()
+
+
+class _TraceProvider:
+    def __init__(self, responses):
+        self.responses = responses
+        self.methods = []
+
+    async def make_request(self, method, params):
+        self.methods.append(method)
+        response = self.responses.get(method)
+        if response is None:
+            return {
+                "error": {
+                    "code": -32601,
+                    "message": "The method does not exist/is not available",
+                }
+            }
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+class _BalanceCall:
+    def __init__(self, balance):
+        self._balance = balance
+
+    async def call(self, block_identifier=None):
+        return self._balance
+
+
+class _BalanceContract:
+    def __init__(self, balance):
+        self._balance = balance
+        self.functions = self
+
+    def balanceOf(self, _holder):
+        return _BalanceCall(self._balance)
+
+
+class _BalanceEth:
+    def __init__(self, balance, slots, logs, provider):
+        self._balance = balance
+        self.slots = slots
+        self.logs = logs
+        self.provider = provider
+        self.log_calls = 0
+
+    def contract(self, address, abi):
+        return _BalanceContract(self._balance)
+
+    async def get_storage_at(self, token, key, block_identifier=None):
+        value = self.slots.get((block_identifier, str(key).lower()), 0)
+        return value.to_bytes(32, "big")
+
+    async def get_logs(self, filt):
+        self.log_calls += 1
+        if isinstance(self.logs, Exception):
+            raise self.logs
+        return self.logs
+
+
+class _BalanceWeb3:
+    def __init__(self, eth):
+        self.eth = eth
+        self.provider = eth.provider
+
+
+class TestLogBalanceDiff:
+    TOKEN = bytes.fromhex("11" * 20)
+    HOLDER = bytes.fromhex("22" * 20)
+    OTHER = bytes.fromhex("33" * 20)
+    TX_A = "aa" * 32
+    TX_B = "bb" * 32
+    BLOCK = 10
+
+    def _transfer(self, tx_hash: str, sender: bytes, receiver: bytes, value: int):
+        from commands.policy_runtime import _TRANSFER_TOPIC
+
+        return {
+            "address": "0x" + self.TOKEN.hex(),
+            "topics": [
+                _TRANSFER_TOPIC,
+                _padded_topic(sender),
+                _padded_topic(receiver),
+            ],
+            "data": _uint_data(value),
+            "transactionHash": "0x" + tx_hash,
+        }
+
+    def _slot(self, block: int, value: int):
+        from commands.policy_runtime import _storage_key
+
+        return {(block, _storage_key(self.HOLDER, 0).lower()): value}
+
+    def _web3(self, balance, slots, logs, responses=None):
+        provider = _TraceProvider(responses or {})
+        eth = _BalanceEth(balance, slots, logs, provider)
+        return _BalanceWeb3(eth)
+
+    def _trace(self, pre: int, post: int):
+        from commands.policy_runtime import _storage_key
+
+        slot = _storage_key(self.HOLDER, 0)
+        account = "0x" + self.TOKEN.hex()
+        return {
+            "pre": {account: {"storage": {slot: hex(pre)}}},
+            "post": {account: {"storage": {slot: hex(post)}}},
+        }
+
+    async def _fetch(self, web3, tx_hash: str):
+        from commands.policy_runtime import fetch_token_balance_diff
+
+        return await fetch_token_balance_diff(
+            web3, "0x" + tx_hash, self.TOKEN, self.HOLDER, self.BLOCK
+        )
+
+    @pytest.mark.asyncio
+    async def test_two_transfers_attribute_per_transaction(self):
+        logs = [
+            self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50),
+            self._transfer(self.TX_B, self.OTHER, self.HOLDER, 70),
+        ]
+        slots = {**self._slot(self.BLOCK, 120), **self._slot(self.BLOCK - 1, 0)}
+        web3 = self._web3(120, slots, logs)
+        assert await self._fetch(web3, self.TX_A) == 50
+        assert await self._fetch(web3, self.TX_B) == 70
+
+    @pytest.mark.asyncio
+    async def test_log_sum_must_match_storage_delta(self):
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
+        slots = {**self._slot(self.BLOCK, 120), **self._slot(self.BLOCK - 1, 0)}
+        web3 = self._web3(120, slots, logs)
+        assert await self._fetch(web3, self.TX_A) is None
+
+    @pytest.mark.asyncio
+    async def test_unchanged_zero_balance_uses_cancelling_log_net(self):
+        logs = [
+            self._transfer(self.TX_A, self.OTHER, self.HOLDER, 4),
+            self._transfer(self.TX_B, self.HOLDER, self.OTHER, 4),
+        ]
+        web3 = self._web3(0, {}, logs)
+        assert await self._fetch(web3, self.TX_A) == 4
+        assert await self._fetch(web3, self.TX_B) == -4
+
+    @pytest.mark.asyncio
+    async def test_missing_tracers_fall_through_and_log_once(self, caplog):
+        from commands import policy_runtime
+
+        policy_runtime._missing_tracer_methods.clear()
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
+        slots = {**self._slot(self.BLOCK, 50), **self._slot(self.BLOCK - 1, 0)}
+        web3 = self._web3(50, slots, logs)
+        with caplog.at_level(logging.INFO):
+            assert await self._fetch(web3, self.TX_A) == 50
+            assert await self._fetch(web3, self.TX_A) == 50
+        missing = [
+            record
+            for record in caplog.records
+            if record.message.endswith("is not available on this RPC")
+        ]
+        assert [record.message for record in missing] == [
+            "debug_traceTransaction is not available on this RPC",
+            "trace_replayTransaction is not available on this RPC",
+        ]
+        assert all(record.exc_info is None for record in missing)
+
+    @pytest.mark.asyncio
+    async def test_other_tracer_errors_keep_a_traceback(self, caplog):
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
+        slots = {**self._slot(self.BLOCK, 50), **self._slot(self.BLOCK - 1, 0)}
+        web3 = self._web3(
+            50,
+            slots,
+            logs,
+            {"debug_traceTransaction": {"error": {"code": -32000, "message": "boom"}}},
+        )
+        with caplog.at_level(logging.INFO):
+            assert await self._fetch(web3, self.TX_A) == 50
+        failed = [
+            record
+            for record in caplog.records
+            if record.message == "debug_traceTransaction failed"
+        ]
+        assert len(failed) == 1
+        assert failed[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_trace_result_skips_logs(self):
+        slots = self._slot(self.BLOCK, 25)
+        web3 = self._web3(
+            25,
+            slots,
+            AssertionError("logs should not be read"),
+            {"debug_traceTransaction": {"result": self._trace(10, 25)}},
+        )
+        assert await self._fetch(web3, self.TX_A) == 15
+        assert web3.eth.log_calls == 0
+        assert "trace_replayTransaction" not in web3.provider.methods
+
+    @pytest.mark.asyncio
+    async def test_trace_without_token_does_not_use_logs(self):
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
+        slots = {**self._slot(self.BLOCK, 50), **self._slot(self.BLOCK - 1, 0)}
+        web3 = self._web3(
+            50,
+            slots,
+            logs,
+            {"debug_traceTransaction": {"result": {"pre": {}, "post": {}}}},
+        )
+        assert await self._fetch(web3, self.TX_A) is None
+        assert web3.eth.log_calls == 0
