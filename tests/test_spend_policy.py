@@ -957,6 +957,221 @@ class TestEvmErc20Wrap:
         assert "wethToEthRatio" in bad.reason
 
 
+class _ViewCall:
+    def __init__(self, value):
+        self._value = value
+
+    async def call(self, block_identifier=None):
+        return self._value
+
+
+class _ViewFunctions:
+    def __init__(self, values):
+        self._values = values
+
+    def __getattr__(self, name):
+        value = self._values[name]
+
+        def method(*_args, **_kwargs):
+            return _ViewCall(value)
+
+        return method
+
+
+class _ViewContract:
+    def __init__(self, values):
+        self.functions = _ViewFunctions(values)
+
+
+class _ViewEth:
+    def __init__(self, values):
+        self._values = values
+
+    def contract(self, address, abi):
+        return _ViewContract(self._values)
+
+
+class _ViewWeb3:
+    def __init__(self, values):
+        self.eth = _ViewEth(values)
+
+
+class _CalldataTx:
+    def __init__(self, data: bytes, value: int = 0, sender: str = "0x" + "44" * 20):
+        self.input = data
+        self.value = value
+        self._sender = sender
+
+    def __getitem__(self, key):
+        if key == "from":
+            return self._sender
+        raise KeyError(key)
+
+
+class TestSkippedBalanceDiff:
+    def test_wrap_accepts_without_diff_and_still_rejects_amount_mismatch(self):
+        kwargs = TestEvmErc20Wrap()._base_kwargs()
+        kwargs["bridge_token_balance_diff"] = None
+        kwargs["verify_balance_diff"] = False
+        result = validate_evm_erc20_wrap(**kwargs)
+        assert result.kind == "accept"
+
+        kwargs["contents"] = [
+            ASSET_A,
+            left_pad_32(RECEIVER),
+            (10_000).to_bytes(32, "big"),
+        ]
+        result = validate_evm_erc20_wrap(**kwargs)
+        assert result.kind == "reject"
+        assert "message amount" in result.reason
+
+    def test_unwrap_accepts_without_diffs_and_still_rejects_amount_mismatch(self):
+        unlocker = b"\x24" * 32
+        gross = 10_000
+        tip = compute_bridge_tip(gross, WRAP_TIP_BPS)
+        net = gross - tip
+        kwargs = dict(
+            routes=_routes(),
+            source_chain=b"eth",
+            source=left_pad_32(WRAPPED_CAT_ADDR),
+            destination=unlocker,
+            destination_chain=b"xch",
+            contents=[left_pad_32(RECEIVER), net.to_bytes(32, "big")],
+            tx_status=1,
+            tip_bps=WRAP_TIP_BPS,
+            mojo_to_token_ratio=WRAP_MOJO_TO_TOKEN_RATIO,
+            gross_mojo_amount=gross,
+            sender_balance_diff=None,
+            portal_balance_diff=None,
+            view_portal=left_pad_32(ETH_PORTAL),
+            view_other_chain=b"xch",
+            unlocker_puzzle_hash=unlocker,
+            wrapped_cat_runtime_code=b"\x60\x00",
+            verify_balance_diff=False,
+        )
+        with patch("commands.spend_policy.match_wrapped_cat_bytecode", return_value=True), patch(
+            "commands.spend_policy.wrapped_cat_immutable_values_match", return_value=True
+        ):
+            ok = validate_evm_cat_unwrap(**kwargs)
+            assert ok.kind == "accept"
+
+            bad_kwargs = dict(kwargs)
+            bad_kwargs["contents"] = [left_pad_32(RECEIVER), gross.to_bytes(32, "big")]
+            bad = validate_evm_cat_unwrap(**bad_kwargs)
+            assert bad.kind == "reject"
+            assert "net amount" in bad.reason
+
+            default_kwargs = dict(kwargs)
+            default_kwargs["verify_balance_diff"] = True
+            default = validate_evm_cat_unwrap(**default_kwargs)
+            assert default.kind == "retry"
+            assert default.reason == "missing balance diffs"
+
+    @pytest.mark.asyncio
+    async def test_wrap_evaluate_skips_fetch_and_default_still_fetches(self):
+        from commands.policy_runtime import _evaluate_evm_erc20_wrap
+
+        gross = 10_000
+        net = gross - compute_bridge_tip(gross, 30)
+        asset = bytes.fromhex("aa" * 20)
+        calldata = (
+            bytes.fromhex("cdb50da7")
+            + left_pad_32(asset)
+            + b"\x00" * 32
+            + gross.to_bytes(32, "big")
+        )
+        web3 = _ViewWeb3(
+            {"tip": 30, "wethToEthRatio": 1, "messageToll": 0, "decimals": 18}
+        )
+        contents = [left_pad_32(asset), left_pad_32(RECEIVER), net.to_bytes(32, "big")]
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        common = dict(
+            web3=web3,
+            routes=_routes(),
+            route=_routes().for_chain(b"eth"),
+            source_chain=b"eth",
+            source=left_pad_32(ETH_BRIDGE),
+            destination=get_cat_minter_puzzle(PORTAL, b"eth", ETH_BRIDGE).get_tree_hash(),
+            destination_chain=b"xch",
+            contents=contents,
+            block_number=1,
+            tx=_CalldataTx(calldata),
+            tx_hash="0x" + "11" * 32,
+            tx_status=1,
+        )
+        with patch("commands.policy_runtime.fetch_token_balance_diff", new=fetch):
+            skipped = await _evaluate_evm_erc20_wrap(**common, verify_balance_diff=False)
+            assert calls == []
+            assert skipped.kind == "accept"
+
+            default = await _evaluate_evm_erc20_wrap(**common)
+            assert calls == [1]
+            assert default.kind == "retry"
+            assert default.reason == "missing bridge balance diff"
+
+    @pytest.mark.asyncio
+    async def test_unwrap_evaluate_skips_fetch_and_default_still_fetches(self):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        gross = 10_000
+        net = gross - compute_bridge_tip(gross, WRAP_TIP_BPS)
+        calldata = bytes.fromhex("415d9361") + b"\x00" * 32 + gross.to_bytes(32, "big")
+        contents = [left_pad_32(RECEIVER), net.to_bytes(32, "big")]
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        async def views(*_args, **_kwargs):
+            return (
+                b"\x60\x00",
+                left_pad_32(ETH_PORTAL),
+                b"xch",
+                b"\x00" * 32,
+                unlocker,
+                WRAP_TIP_BPS,
+                WRAP_MOJO_TO_TOKEN_RATIO,
+            )
+
+        common = dict(
+            web3=object(),
+            routes=_routes(),
+            source_chain=b"eth",
+            source=left_pad_32(WRAPPED_CAT_ADDR),
+            destination=unlocker,
+            destination_chain=b"xch",
+            contents=contents,
+            block_number=1,
+            tx=_CalldataTx(calldata),
+            tx_hash="0x" + "11" * 32,
+            tx_status=1,
+        )
+        with patch("commands.policy_runtime.fetch_token_balance_diff", new=fetch), patch(
+            "commands.policy_runtime.read_wrapped_cat_views", new=views
+        ), patch(
+            "commands.policy_runtime.match_wrapped_cat_bytecode", return_value=True
+        ), patch(
+            "commands.spend_policy.match_wrapped_cat_bytecode", return_value=True
+        ), patch(
+            "commands.spend_policy.wrapped_cat_immutable_values_match", return_value=True
+        ):
+            skipped = await _evaluate_evm_cat_unwrap(**common, verify_balance_diff=False)
+            assert calls == []
+            assert skipped.kind == "accept"
+
+            default = await _evaluate_evm_cat_unwrap(**common)
+            assert calls == [1, 1]
+            assert default.kind == "retry"
+            assert default.reason == "missing balance diffs"
+
+
 # ---------------------------------------------------------------------------
 # 4. evm_address_from_bytes32
 # ---------------------------------------------------------------------------

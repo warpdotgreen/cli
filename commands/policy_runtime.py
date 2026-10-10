@@ -1253,6 +1253,7 @@ async def evaluate_evm_message_policy(
     contents: Sequence[bytes],
     block_number: int,
     tx_hash: str,
+    verify_balance_diff: bool = True,
 ) -> PolicyResult:
     if len(source) > 32:
         source = source[-32:]
@@ -1291,6 +1292,7 @@ async def evaluate_evm_message_policy(
             tx=tx,
             tx_hash=tx_hash,
             tx_status=tx_status,
+            verify_balance_diff=verify_balance_diff,
         )
 
     return await _evaluate_evm_cat_unwrap(
@@ -1305,6 +1307,7 @@ async def evaluate_evm_message_policy(
         tx=tx,
         tx_hash=tx_hash,
         tx_status=tx_status,
+        verify_balance_diff=verify_balance_diff,
     )
 
 
@@ -1322,6 +1325,7 @@ async def _evaluate_evm_erc20_wrap(
     tx,
     tx_hash: str,
     tx_status: int,
+    verify_balance_diff: bool = True,
 ) -> PolicyResult:
     try:
         bridge = web3.eth.contract(address=_checksum(route.erc20_bridge_address), abi=BRIDGE_ABI)
@@ -1379,7 +1383,7 @@ async def _evaluate_evm_erc20_wrap(
 
     balance_diff_asset = left_pad_32(contents[0]) if contents else None
     bridge_token_balance_diff = None
-    if balance_diff_asset is not None:
+    if verify_balance_diff and balance_diff_asset is not None:
         bridge_token_balance_diff = await fetch_token_balance_diff(
             web3,
             tx_hash,
@@ -1407,6 +1411,7 @@ async def _evaluate_evm_erc20_wrap(
         msg_value=msg_value if is_bridge_ether else None,
         message_toll=int(message_toll) if is_bridge_ether else None,
         weth_to_eth_ratio=int(weth_to_eth_ratio) if is_bridge_ether else None,
+        verify_balance_diff=verify_balance_diff,
     )
 
 
@@ -1423,6 +1428,7 @@ async def _evaluate_evm_cat_unwrap(
     tx,
     tx_hash: str,
     tx_status: int,
+    verify_balance_diff: bool = True,
 ) -> PolicyResult:
     try:
         code, view_portal, view_other, _, unlocker, tip_bps, mojo_to_token_ratio = await read_wrapped_cat_views(
@@ -1454,14 +1460,17 @@ async def _evaluate_evm_cat_unwrap(
     if route is None:
         return PolicyResult("reject", "unknown source chain")
 
-    sender_balance_diff = await fetch_token_balance_diff(
-        web3, tx_hash, source, sender, block_number
-    )
-    portal_balance_diff = await fetch_token_balance_diff(
-        web3, tx_hash, source, route.portal_address, block_number
-    )
-    if sender_balance_diff is None or portal_balance_diff is None:
-        return PolicyResult("retry", "missing balance diffs")
+    sender_balance_diff = None
+    portal_balance_diff = None
+    if verify_balance_diff:
+        sender_balance_diff = await fetch_token_balance_diff(
+            web3, tx_hash, source, sender, block_number
+        )
+        portal_balance_diff = await fetch_token_balance_diff(
+            web3, tx_hash, source, route.portal_address, block_number
+        )
+        if sender_balance_diff is None or portal_balance_diff is None:
+            return PolicyResult("retry", "missing balance diffs")
 
     return validate_evm_cat_unwrap(
         routes=routes,
@@ -1481,6 +1490,7 @@ async def _evaluate_evm_cat_unwrap(
         unlocker_puzzle_hash=unlocker,
         wrapped_cat_runtime_code=code,
         asset_id_known=False,
+        verify_balance_diff=verify_balance_diff,
     )
 
 

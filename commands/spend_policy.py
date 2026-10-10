@@ -948,6 +948,7 @@ def validate_evm_erc20_wrap(
     msg_value: Optional[int] = None,
     message_toll: Optional[int] = None,
     weth_to_eth_ratio: Optional[int] = None,
+    verify_balance_diff: bool = True,
 ) -> PolicyResult:
     route = routes.for_chain(source_chain)
     if route is None:
@@ -997,12 +998,13 @@ def validate_evm_erc20_wrap(
     factor = 10 ** (decimals - 3)
     asset = left_pad_32(contents[0])
 
-    if bridge_token_balance_diff is None:
-        return PolicyResult("retry", "missing bridge balance diff")
-    if balance_diff_asset is None:
-        return PolicyResult("retry", "missing balance diff asset")
-    if evm_address_from_bytes32(balance_diff_asset) != evm_address_from_bytes32(contents[0]):
-        return PolicyResult("reject", "balance diff asset mismatch")
+    if verify_balance_diff:
+        if bridge_token_balance_diff is None:
+            return PolicyResult("retry", "missing bridge balance diff")
+        if balance_diff_asset is None:
+            return PolicyResult("retry", "missing balance diff asset")
+        if evm_address_from_bytes32(balance_diff_asset) != evm_address_from_bytes32(contents[0]):
+            return PolicyResult("reject", "balance diff asset mismatch")
 
     if is_bridge_ether:
         if msg_value is None or message_toll is None or weth_to_eth_ratio is None:
@@ -1019,10 +1021,11 @@ def validate_evm_erc20_wrap(
             left_pad_32(route.millieth_address)
         ):
             return PolicyResult("reject", "ether bridge asset is not milliETH/WETH")
-        expected_diff = (gross_mojo_amount - tip) * factor
-        if bridge_token_balance_diff != expected_diff:
-            return PolicyResult("reject", "milliETH bridge balance diff mismatch")
-    else:
+        if verify_balance_diff:
+            expected_diff = (gross_mojo_amount - tip) * factor
+            if bridge_token_balance_diff != expected_diff:
+                return PolicyResult("reject", "milliETH bridge balance diff mismatch")
+    elif verify_balance_diff:
         expected_diff = (gross_mojo_amount - tip) * factor
         if bridge_token_balance_diff != expected_diff:
             return PolicyResult("reject", "bridge token balance diff mismatch")
@@ -1050,6 +1053,7 @@ def validate_evm_cat_unwrap(
     wrapped_cat_runtime_code: Optional[bytes] = None,
     asset_id: Optional[bytes] = None,
     asset_id_known: bool = False,
+    verify_balance_diff: bool = True,
 ) -> PolicyResult:
     route = routes.for_chain(source_chain)
     if route is None:
@@ -1134,15 +1138,16 @@ def validate_evm_cat_unwrap(
     if _as_int_word(contents[1]) != net:
         return PolicyResult("reject", "message net amount mismatch")
 
-    if sender_balance_diff is None or portal_balance_diff is None:
-        return PolicyResult("retry", "missing balance diffs")
+    if verify_balance_diff:
+        if sender_balance_diff is None or portal_balance_diff is None:
+            return PolicyResult("retry", "missing balance diffs")
 
-    expected_sender_diff = -(gross_mojo_amount * mojo_to_token_ratio)
-    expected_portal_diff = tip * mojo_to_token_ratio
-    if sender_balance_diff != expected_sender_diff:
-        return PolicyResult("reject", "sender balance diff mismatch")
-    if portal_balance_diff != expected_portal_diff:
-        return PolicyResult("reject", "portal balance diff mismatch")
+        expected_sender_diff = -(gross_mojo_amount * mojo_to_token_ratio)
+        expected_portal_diff = tip * mojo_to_token_ratio
+        if sender_balance_diff != expected_sender_diff:
+            return PolicyResult("reject", "sender balance diff mismatch")
+        if portal_balance_diff != expected_portal_diff:
+            return PolicyResult("reject", "portal balance diff mismatch")
 
     return PolicyResult("accept", "evm cat unwrap")
 
