@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -427,9 +428,51 @@ class TestPublish:
         assert seen["published"] == "start incident-7"
 
 
-@pytest.mark.asyncio
-async def test_future_stop_author_drop_is_logged(monkeypatch, caplog):
+def _control_config():
+    return ControlConfig(
+        stop_authors={STOP_AUTHOR},
+        start_authors={START_AUTHOR},
+        relays=["wss://relay.example"],
+    )
+
+
+@pytest.fixture
+def stops_file(tmp_path, monkeypatch):
+    """Point the stops file at a temp path and reset process memory."""
     import commands.policy_runtime as policy_runtime
+
+    path = tmp_path / "stops"
+    monkeypatch.setattr(policy_runtime, "STOPS_FILE", path)
+    saved_stops = dict(policy_runtime._seen_stops)
+    saved_warned = policy_runtime._missing_stops_warned
+    saved_command = policy_runtime._last_control_command
+    policy_runtime._seen_stops.clear()
+    policy_runtime._missing_stops_warned = False
+    policy_runtime._last_control_command = None
+    yield path
+    policy_runtime._seen_stops.clear()
+    policy_runtime._seen_stops.update(saved_stops)
+    policy_runtime._missing_stops_warned = saved_warned
+    policy_runtime._last_control_command = saved_command
+
+
+def _install_fetch(monkeypatch, responses):
+    import commands.policy_runtime as policy_runtime
+
+    pending = list(responses)
+
+    async def fake_fetch(*args, **kwargs):
+        nxt = pending.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+    monkeypatch.setattr(policy_runtime, "fetch_control_events", fake_fetch)
+    monkeypatch.setattr(policy_runtime.time, "time", lambda: NOW)
+
+
+@pytest.mark.asyncio
+async def test_future_stop_author_drop_is_logged(monkeypatch, caplog, stops_file):
     from commands.policy_runtime import control_allows_start
 
     created = NOW + CLOCK_SKEW_SECONDS + 5
@@ -437,23 +480,155 @@ async def test_future_stop_author_drop_is_logged(monkeypatch, caplog):
         _ev(id="futurestop", author=STOP_AUTHOR, content="stop a", created_at=created),
         _ev(id="starta", author=START_AUTHOR, content="start a", created_at=NOW),
     ]
+    _install_fetch(monkeypatch, [events])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+    assert "stop a" in caplog.text
+    assert "clock catches up" in caplog.text
+    assert "futurestop" in json.loads(stops_file.read_text())
 
-    async def fake_fetch(*args, **kwargs):
-        return events
 
-    monkeypatch.setattr(policy_runtime, "fetch_control_events", fake_fetch)
-    monkeypatch.setattr(policy_runtime.time, "time", lambda: NOW)
-    previous = policy_runtime._last_control_command
-    policy_runtime._last_control_command = None
-    try:
-        cfg = ControlConfig(
-            stop_authors={STOP_AUTHOR},
-            start_authors={START_AUTHOR},
-            relays=["wss://relay.example"],
-        )
-        with caplog.at_level(logging.WARNING):
-            assert await control_allows_start(cfg) is False
-        assert "stop a" in caplog.text
-        assert "clock catches up" in caplog.text
-    finally:
-        policy_runtime._last_control_command = previous
+@pytest.mark.asyncio
+async def test_missing_stops_file_warns_and_stays_in_memory(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    assert not stops_file.exists()
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    new_stop = _ev(id="new-stop", author=STOP_AUTHOR, content="stop b", created_at=NOW - 40)
+    _install_fetch(
+        monkeypatch,
+        [
+            [old_stop, old_start, new_stop],
+            [old_stop, old_start],
+        ],
+    )
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+    assert caplog.text.count(
+        "WARNING: Could not find the 'stops' file in the app's folder; please create an empty one"
+    ) == 1
+    assert not stops_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_seen_stops_survive_a_relay_that_omits_them(monkeypatch, stops_file):
+    import commands.policy_runtime as policy_runtime
+    from commands.policy_runtime import control_allows_start
+
+    stops_file.write_text("")
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    new_stop = _ev(id="new-stop", author=STOP_AUTHOR, content="stop b", created_at=NOW - 40)
+    new_start = _ev(id="new-start", author=START_AUTHOR, content="start b", created_at=NOW - 30)
+    _install_fetch(
+        monkeypatch,
+        [
+            [old_stop, old_start],
+            [old_stop, old_start, new_stop],
+            [old_stop, old_start],
+            [old_stop, old_start, new_stop, new_start],
+        ],
+    )
+    cfg = _control_config()
+    assert await control_allows_start(cfg) is True
+    assert set(json.loads(stops_file.read_text())) == {"old-stop"}
+
+    assert await control_allows_start(cfg) is False
+    saved = json.loads(stops_file.read_text())
+    assert set(saved) == {"old-stop", "new-stop"}
+    assert saved["new-stop"]["content"] == "stop b"
+    assert "old-start" not in saved
+
+    policy_runtime._seen_stops.clear()
+    assert await control_allows_start(cfg) is False
+    assert await control_allows_start(cfg) is True
+    assert set(json.loads(stops_file.read_text())) == {"old-stop", "new-stop"}
+
+
+@pytest.mark.asyncio
+async def test_failed_fetch_does_not_change_stops_file(monkeypatch, stops_file):
+    import commands.policy_runtime as policy_runtime
+    from commands.policy_runtime import control_allows_start
+
+    stops_file.write_text("")
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    new_stop = _ev(id="new-stop", author=STOP_AUTHOR, content="stop b", created_at=NOW - 40)
+    _install_fetch(
+        monkeypatch,
+        [
+            [old_stop, old_start, new_stop],
+            RuntimeError("timeout"),
+            [old_stop, old_start],
+        ],
+    )
+    cfg = _control_config()
+    assert await control_allows_start(cfg) is False
+    saved = stops_file.read_text()
+    policy_runtime._seen_stops.clear()
+    assert await control_allows_start(cfg) is False
+    assert stops_file.read_text() == saved
+    assert await control_allows_start(cfg) is False
+
+
+@pytest.mark.asyncio
+async def test_corrupt_stops_file_stays_halted(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    stops_file.write_text("{")
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    _install_fetch(monkeypatch, [[old_stop, old_start]])
+    with caplog.at_level(logging.ERROR):
+        assert await control_allows_start(_control_config()) is False
+    assert stops_file.read_text() == "{"
+    assert "not a JSON object of stops" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_non_utf8_stops_file_stays_halted(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    stops_file.write_bytes(b"\xff")
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    _install_fetch(monkeypatch, [[old_stop, old_start]])
+    with caplog.at_level(logging.ERROR):
+        assert await control_allows_start(_control_config()) is False
+    assert stops_file.read_bytes() == b"\xff"
+    assert "not a JSON object of stops" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_failed_stops_write_stays_halted(monkeypatch, stops_file):
+    import commands.policy_runtime as policy_runtime
+    from commands.policy_runtime import control_allows_start
+
+    stops_file.write_text("")
+    old_stop = _ev(id="old-stop", author=STOP_AUTHOR, content="stop a", created_at=NOW - 100)
+    old_start = _ev(id="old-start", author=START_AUTHOR, content="start a", created_at=NOW - 50)
+    new_stop = _ev(id="new-stop", author=STOP_AUTHOR, content="stop b", created_at=NOW - 40)
+    _install_fetch(
+        monkeypatch,
+        [
+            [old_stop, old_start, new_stop],
+            [old_stop, old_start],
+        ],
+    )
+
+    original_write = policy_runtime._write_stops_file
+
+    def fail_write(path, stops):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(policy_runtime, "_write_stops_file", fail_write)
+    cfg = _control_config()
+    assert await control_allows_start(cfg) is False
+    assert stops_file.read_text() == ""
+
+    monkeypatch.setattr(policy_runtime, "_write_stops_file", original_write)
+    assert await control_allows_start(cfg) is False
+    assert "new-stop" in json.loads(stops_file.read_text())

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import binascii
+import json
 import logging
 import time
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from chia.types.blockchain_format.coin import Coin
@@ -15,9 +17,12 @@ from web3 import AsyncWeb3, Web3
 
 from commands.control_channel import (
     ControlConfig,
+    ControlEvent,
+    _command_and_id,
     decide_control,
     fetch_control_events,
     future_stop_author_notes,
+    normalize_hex,
 )
 from commands.spend_policy import (
     REJECTED_SIG,
@@ -241,6 +246,18 @@ async def sign_due_unsigned_messages(
 
 _last_control_command: str | None = None
 
+# App folder, same working directory as config.json and data.db (/app in Docker).
+STOPS_FILE = Path("stops")
+_MISSING_STOPS_WARNING = (
+    "WARNING: Could not find the 'stops' file in the app's folder; please create an empty one"
+)
+_seen_stops: dict[str, ControlEvent] = {}
+_missing_stops_warned = False
+
+
+class StopsFileError(Exception):
+    """The stops file exists but is not a JSON object of stops."""
+
 
 def _note_control_command(command: str) -> None:
     global _last_control_command
@@ -253,6 +270,133 @@ def _note_control_command(command: str) -> None:
     _last_control_command = command
 
 
+def _is_remembered_stop(event: ControlEvent, stop_authors: set[str]) -> bool:
+    """A stop note from a stop author, including one dated in the future."""
+    parsed = _command_and_id(event.content)
+    if parsed is None:
+        return False
+    command, _note_id = parsed
+    return command == "stop" and normalize_hex(event.author) in stop_authors
+
+
+def _stops_from_json(data: object) -> dict[str, ControlEvent]:
+    if not isinstance(data, dict):
+        raise StopsFileError("stops file is not a JSON object of stops")
+    loaded: dict[str, ControlEvent] = {}
+    for event_id, record in data.items():
+        if not isinstance(event_id, str) or not isinstance(record, dict):
+            raise StopsFileError("stops file is not a JSON object of stops")
+        author = record.get("author")
+        content = record.get("content")
+        created_at = record.get("created_at")
+        if (
+            not isinstance(author, str)
+            or not isinstance(content, str)
+            or isinstance(created_at, bool)
+            or not isinstance(created_at, int)
+        ):
+            raise StopsFileError("stops file is not a JSON object of stops")
+        parsed = _command_and_id(content)
+        if parsed is None or parsed[0] != "stop":
+            raise StopsFileError("stops file is not a JSON object of stops")
+        loaded[event_id] = ControlEvent(
+            id=event_id,
+            author=author,
+            content=content,
+            created_at=created_at,
+        )
+    return loaded
+
+
+def _read_stops_file(path: Path) -> dict[str, ControlEvent] | None:
+    """Load stops. None means the file is missing. An empty file is {}."""
+    try:
+        raw = path.read_text()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as e:
+        raise StopsFileError("stops file is not a JSON object of stops") from e
+    if raw.strip() == "":
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise StopsFileError("stops file is not a JSON object of stops") from e
+    return _stops_from_json(data)
+
+
+def _write_stops_file(path: Path, stops: dict[str, ControlEvent]) -> None:
+    """Overwrite the existing file in place so a bind-mounted inode stays put."""
+    payload = {
+        event_id: {
+            "author": event.author,
+            "content": event.content,
+            "created_at": event.created_at,
+        }
+        for event_id, event in stops.items()
+    }
+    body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    with path.open("r+") as handle:
+        handle.seek(0)
+        handle.write(body)
+        handle.truncate()
+
+
+def _absorb_fetch_stops(
+    events: Sequence[ControlEvent], stop_authors: set[str]
+) -> None:
+    for event in events:
+        if _is_remembered_stop(event, stop_authors):
+            _seen_stops[event.id] = event
+
+
+def _remember_stops(
+    events: Sequence[ControlEvent], stop_authors: set[str]
+) -> dict[str, ControlEvent]:
+    """Merge the stops file with stops in this fetch.
+
+    A missing file logs the warning and leaves new stops in this process only.
+    A file that is not a JSON object of stops raises StopsFileError after the
+    stops in this fetch are remembered in memory. Those are not written back.
+    """
+    global _missing_stops_warned
+    path = STOPS_FILE
+    try:
+        disk = _read_stops_file(path)
+    except StopsFileError:
+        _absorb_fetch_stops(events, stop_authors)
+        raise
+    if disk is None:
+        if not _missing_stops_warned:
+            logging.warning(_MISSING_STOPS_WARNING)
+            _missing_stops_warned = True
+        disk = {}
+        file_missing = True
+    else:
+        _missing_stops_warned = False
+        file_missing = False
+
+    for event in disk.values():
+        _seen_stops.setdefault(event.id, event)
+    _absorb_fetch_stops(events, stop_authors)
+
+    if not file_missing and set(_seen_stops) - set(disk):
+        try:
+            _write_stops_file(path, _seen_stops)
+        except OSError:
+            logging.error("failed to write stops file", exc_info=True)
+            raise
+    return dict(_seen_stops)
+
+
+def _with_remembered_stops(
+    events: Sequence[ControlEvent], remembered: dict[str, ControlEvent]
+) -> List[ControlEvent]:
+    present = {event.id for event in events}
+    extra = [event for event_id, event in remembered.items() if event_id not in present]
+    return list(events) + extra
+
+
 async def control_allows_start(control_config: ControlConfig) -> bool:
     global _last_control_command
     try:
@@ -261,27 +405,40 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
             control_config.stop_authors,
             control_config.start_authors,
         )
-        now_unix = int(time.time())
-        for ev in future_stop_author_notes(
-            events, now_unix, control_config.stop_authors
-        ):
-            logging.warning(
-                f"ignoring future-dated stop-author note {ev.content!r} "
-                f"created_at={ev.created_at} until the clock catches up"
-            )
-        command = decide_control(
-            events,
-            now_unix,
-            control_config.stop_authors,
-            control_config.start_authors,
-        )
-        _note_control_command(command)
-        return command == "start"
     except Exception:
         if _last_control_command != "stop":
             logging.warning("NOSTR STOP: control relay fetch failed", exc_info=True)
             _last_control_command = "stop"
         return False
+
+    stop_authors = {normalize_hex(author) for author in control_config.stop_authors}
+    try:
+        remembered = _remember_stops(events, stop_authors)
+    except StopsFileError:
+        logging.error("stops file is not a JSON object of stops", exc_info=True)
+        _note_control_command("stop")
+        return False
+    except OSError:
+        _note_control_command("stop")
+        return False
+
+    now_unix = int(time.time())
+    combined = _with_remembered_stops(events, remembered)
+    for ev in future_stop_author_notes(
+        combined, now_unix, control_config.stop_authors
+    ):
+        logging.warning(
+            f"ignoring future-dated stop-author note {ev.content!r} "
+            f"created_at={ev.created_at} until the clock catches up"
+        )
+    command = decide_control(
+        combined,
+        now_unix,
+        control_config.stop_authors,
+        control_config.start_authors,
+    )
+    _note_control_command(command)
+    return command == "start"
 
 
 def _checksum(addr: bytes) -> str:

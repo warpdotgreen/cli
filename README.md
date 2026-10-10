@@ -32,6 +32,7 @@ services:
     volumes:
       - ./config.json:/app/config.json
       - /mnt/disk/warp-cli/data.db:/app/data.db
+      - /mnt/disk/warp-cli/stops:/app/stops
     command: listen
 ```
 
@@ -45,7 +46,8 @@ Clone this repository and enter the `cli` directory by running:
     docker build . -t cli
     echo '{}' > config.json
     touch data.db
-    docker run -it -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db cli --help
+    touch stops
+    docker run -it -v "$(pwd)"/config.json:/app/config.json -v "$(pwd)"/data.db:/app/data.db -v "$(pwd)"/stops:/app/stops cli --help
   ```
 ### Build from source
 
