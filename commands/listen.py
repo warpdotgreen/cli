@@ -1,11 +1,12 @@
 import click
 from commands.models import *
-from commands.config import load_listener_config
+from commands.config import config, load_listener_config
 import time
 import logging
 from commands.followers.eth_follower import EthereumFollower
 from commands.followers.xch_follower import ChiaFollower
 from commands.followers.sig import MessageBroadcaster
+from commands.monitoring import start_height_monitors
 import asyncio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -33,6 +34,7 @@ def listen(log_startup_connection_errors: bool):
     xch_follower.run(loop)
     eth_follower.run(loop)
     bse_follower.run(loop)
+    start_height_monitors(loop, config)
     loop.run_forever()
     
     while True:

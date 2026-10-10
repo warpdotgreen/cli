@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
-from glob import glob
-from typing import List, Literal, Optional, Sequence, Tuple, Union
+from pathlib import Path
+from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import INFINITE_COST, Program
@@ -232,6 +231,30 @@ def compare_portal_impl(actual_codehash: str, expected_codehash: str) -> PolicyR
     return PolicyResult("accept", "portal impl matches")
 
 
+# solc 0.8 inlines every immutable as a PUSH32 word. bytesN is left-aligned in
+# that word; addresses and integers are right-aligned. A different width is not
+# masked, because the value check would not know which bytes are the value.
+_IMMUTABLE_WORD = 32
+_WRAPPED_CAT_IMMUTABLES = ("portal", "tip", "mojoToTokenRatio", "otherChain")
+
+
+@dataclass(frozen=True)
+class WrappedCatImmutable:
+    """One AST id's occurrences. Spans are not flattened across ids."""
+
+    ast_id: str
+    name: str
+    spans: Tuple[Tuple[int, int], ...]
+    contract: str
+
+
+@dataclass(frozen=True)
+class WrappedCatArtifact:
+    bytecode: bytes
+    immutables: Tuple[WrappedCatImmutable, ...]
+    base_contracts: Tuple[str, ...]
+
+
 def mask_immutable_bytecode(code: bytes, spans: Sequence[Tuple[int, int]]) -> bytes:
     buf = bytearray(code)
     for start, length in spans:
@@ -242,7 +265,29 @@ def mask_immutable_bytecode(code: bytes, spans: Sequence[Tuple[int, int]]) -> by
     return bytes(buf)
 
 
-def _wrapped_cat_from_build_info(data: dict) -> Optional[Tuple[bytes, List[Tuple[int, int]]]]:
+def _walk_immutable_ast(node, contract_id, contracts, variables, wrapped_bases) -> None:
+    if isinstance(node, dict):
+        next_contract = contract_id
+        node_type = node.get("nodeType")
+        if node_type == "ContractDefinition":
+            next_contract = node.get("id")
+            contracts[next_contract] = str(node.get("name") or "")
+            if node.get("name") == "WrappedCAT":
+                wrapped_bases.extend(node.get("linearizedBaseContracts") or [])
+        elif (
+            node_type == "VariableDeclaration"
+            and node.get("stateVariable")
+            and node.get("mutability") == "immutable"
+        ):
+            variables[str(node.get("id"))] = (next_contract, str(node.get("name") or ""))
+        for value in node.values():
+            _walk_immutable_ast(value, next_contract, contracts, variables, wrapped_bases)
+    elif isinstance(node, list):
+        for value in node:
+            _walk_immutable_ast(value, contract_id, contracts, variables, wrapped_bases)
+
+
+def _wrapped_cat_from_build_info(data: dict) -> Optional[WrappedCatArtifact]:
     try:
         contract = data["output"]["contracts"]["contracts/WrappedCAT.sol"]["WrappedCAT"]
     except KeyError:
@@ -253,50 +298,259 @@ def _wrapped_cat_from_build_info(data: dict) -> Optional[Tuple[bytes, List[Tuple
         return None
     bytecode = bytes.fromhex(str(bytecode_hex).replace("0x", ""))
     refs = deployed.get("immutableReferences") or {}
-    spans: List[Tuple[int, int]] = []
-    for entries in refs.values():
-        for entry in entries:
-            spans.append((int(entry["start"]), int(entry["length"])))
-    return bytecode, spans
+    if not isinstance(refs, dict):
+        return None
+
+    contracts: Dict[object, str] = {}
+    variables: Dict[str, Tuple[object, str]] = {}
+    wrapped_bases: List[object] = []
+    for source in data.get("output", {}).get("sources", {}).values():
+        ast = source.get("ast") if isinstance(source, dict) else None
+        if ast is not None:
+            _walk_immutable_ast(ast, None, contracts, variables, wrapped_bases)
+    if not wrapped_bases:
+        return None
+    base_names: List[str] = []
+    for base_id in wrapped_bases:
+        base_name = contracts.get(base_id)
+        if not base_name:
+            return None
+        base_names.append(base_name)
+
+    immutables: List[WrappedCatImmutable] = []
+    for ast_id, entries in refs.items():
+        if not isinstance(entries, list):
+            return None
+        contract_id, var_name = variables.get(str(ast_id), (None, ""))
+        contract_name = contracts.get(contract_id, "") if contract_id is not None else ""
+        try:
+            spans = tuple(
+                sorted((int(entry["start"]), int(entry["length"])) for entry in entries)
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        immutables.append(
+            WrappedCatImmutable(str(ast_id), var_name, spans, contract_name)
+        )
+    immutables.sort(key=lambda item: item.ast_id)
+    return WrappedCatArtifact(bytecode, tuple(immutables), tuple(base_names))
 
 
-def load_wrapped_cat_build_info() -> Tuple[bytes, List[Tuple[int, int]]]:
-    matches = glob(os.path.join("artifacts", "build-info", "*.json"))
-    found: Optional[Tuple[bytes, Tuple[Tuple[int, int], ...]]] = None
+def load_wrapped_cat_build_info() -> WrappedCatArtifact:
+    build_info_dir = Path(__file__).resolve().parents[1] / "artifacts" / "build-info"
+    matches = build_info_dir.glob("*.json")
+    found: Optional[WrappedCatArtifact] = None
     for path in matches:
-        data = json.loads(open(path, "r").read())
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.loads(handle.read())
         extracted = _wrapped_cat_from_build_info(data)
         if extracted is None:
             continue
-        bytecode, spans = extracted
-        normalized = (bytecode, tuple(sorted(spans)))
         if found is None:
-            found = normalized
-        elif found != normalized:
+            found = extracted
+        elif found != extracted:
             raise ValueError("WrappedCAT build-info artifacts disagree")
     if found is None:
         raise FileNotFoundError("no WrappedCAT in artifacts/build-info")
-    bytecode, spans_t = found
-    return bytecode, list(spans_t)
+    return found
 
 
 def load_wrapped_cat_artifact_bytecode() -> bytes:
-    bytecode, _ = load_wrapped_cat_build_info()
-    return bytecode
+    return load_wrapped_cat_build_info().bytecode
 
 
-def load_wrapped_cat_immutable_spans() -> List[Tuple[int, int]]:
-    _, spans = load_wrapped_cat_build_info()
-    return spans
+def load_wrapped_cat_immutable_spans() -> Tuple[WrappedCatImmutable, ...]:
+    """Per-AST-id immutable occurrences. Spans of different ids stay grouped."""
+    return load_wrapped_cat_build_info().immutables
+
+
+def _span_is_word(span: Tuple[int, int], code_len: int) -> bool:
+    start, length = span
+    return length == _IMMUTABLE_WORD and 0 <= start and start + length <= code_len
+
+
+def _classify_wrapped_cat_immutables(
+    artifact: WrappedCatArtifact,
+) -> Optional[Tuple[List[Tuple[int, int]], List[WrappedCatImmutable], List[WrappedCatImmutable]]]:
+    """Maskable spans, WrappedCAT value immutables, and inherited immutables.
+
+    An unknown name or a width other than the compiler's 32-byte word fails the
+    classification. Those spans are left out of the mask list.
+    """
+    bases = set(artifact.base_contracts)
+    mask_spans: List[Tuple[int, int]] = []
+    values: List[WrappedCatImmutable] = []
+    inherited: List[WrappedCatImmutable] = []
+    found = set()
+    for immutable in artifact.immutables:
+        if not immutable.spans or not immutable.name or immutable.contract not in bases:
+            return None
+        if any(not _span_is_word(span, len(artifact.bytecode)) for span in immutable.spans):
+            return None
+        if immutable.contract == "WrappedCAT":
+            if immutable.name not in _WRAPPED_CAT_IMMUTABLES:
+                return None
+            values.append(immutable)
+            found.add(immutable.name)
+        else:
+            inherited.append(immutable)
+        mask_spans.extend(immutable.spans)
+    if found != set(_WRAPPED_CAT_IMMUTABLES):
+        return None
+    return mask_spans, values, inherited
+
+
+def _uniform_span_bytes(code: bytes, spans: Sequence[Tuple[int, int]]) -> Optional[bytes]:
+    if not spans:
+        return None
+    first: Optional[bytes] = None
+    for start, length in spans:
+        end = start + length
+        if start < 0 or length < 0 or end > len(code):
+            return None
+        chunk = code[start:end]
+        if first is None:
+            first = chunk
+        elif chunk != first:
+            return None
+    return first
+
+
+def _portal_word(portal: bytes) -> bytes:
+    if len(portal) == 20:
+        address = portal
+    else:
+        address = evm_address_from_bytes32(portal)
+    if len(address) != 20:
+        raise ValueError("portal")
+    return b"\x00" * 12 + address
+
+
+def _tip_word(tip: int) -> bytes:
+    if isinstance(tip, bool) or not isinstance(tip, int) or tip < 1 or tip > 1000:
+        raise ValueError("tip")
+    return tip.to_bytes(_IMMUTABLE_WORD, "big")
+
+
+def _ratio_word(mojo_to_token_ratio: int) -> bytes:
+    if (
+        isinstance(mojo_to_token_ratio, bool)
+        or not isinstance(mojo_to_token_ratio, int)
+        or mojo_to_token_ratio < 0
+        or mojo_to_token_ratio >= 2**64
+    ):
+        raise ValueError("mojoToTokenRatio")
+    return mojo_to_token_ratio.to_bytes(_IMMUTABLE_WORD, "big")
+
+
+def _other_chain_word(other_chain: bytes) -> bytes:
+    if bytes(other_chain) != b"xch":
+        raise ValueError("otherChain")
+    # bytes3 is left-aligned in the PUSH32 word.
+    return b"xch" + b"\x00" * (_IMMUTABLE_WORD - 3)
+
+
+def _wrapped_cat_value_words(
+    *,
+    portal: bytes,
+    other_chain: bytes,
+    tip: int,
+    mojo_to_token_ratio: int,
+) -> Dict[str, bytes]:
+    return {
+        "portal": _portal_word(portal),
+        "otherChain": _other_chain_word(other_chain),
+        "tip": _tip_word(tip),
+        "mojoToTokenRatio": _ratio_word(mojo_to_token_ratio),
+    }
+
+
+def stamp_wrapped_cat_immutables(
+    runtime: bytes,
+    immutables: Sequence[WrappedCatImmutable],
+    *,
+    portal: bytes,
+    other_chain: bytes,
+    tip: int,
+    mojo_to_token_ratio: int,
+) -> bytes:
+    """Write portal, xch, tip, and ratio into every span of those ids."""
+    words = _wrapped_cat_value_words(
+        portal=portal,
+        other_chain=other_chain,
+        tip=tip,
+        mojo_to_token_ratio=mojo_to_token_ratio,
+    )
+    buf = bytearray(runtime)
+    for immutable in immutables:
+        word = words.get(immutable.name)
+        if word is None or immutable.contract != "WrappedCAT":
+            continue
+        for start, length in immutable.spans:
+            if length != len(word):
+                raise ValueError("unexpected immutable width")
+            end = start + length
+            if start < 0 or end > len(buf):
+                raise ValueError("immutable span out of range")
+            buf[start:end] = word
+    return bytes(buf)
 
 
 def match_wrapped_cat_bytecode(runtime_code: bytes) -> bool:
-    expected_runtime_code, immutable_spans = load_wrapped_cat_build_info()
-    if len(runtime_code) != len(expected_runtime_code):
+    """Masked structural compare. Does not accept immutable values.
+
+    Unknown names and unexpected widths are not masked; they fail the compare.
+    """
+    artifact = load_wrapped_cat_build_info()
+    classified = _classify_wrapped_cat_immutables(artifact)
+    if classified is None or len(runtime_code) != len(artifact.bytecode):
         return False
-    return mask_immutable_bytecode(runtime_code, immutable_spans) == mask_immutable_bytecode(
-        expected_runtime_code, immutable_spans
+    mask_spans, _, _ = classified
+    return mask_immutable_bytecode(runtime_code, mask_spans) == mask_immutable_bytecode(
+        artifact.bytecode, mask_spans
     )
+
+
+def wrapped_cat_immutable_values_match(
+    runtime_code: bytes,
+    *,
+    portal: bytes,
+    other_chain: bytes,
+    tip: int,
+    mojo_to_token_ratio: int,
+) -> bool:
+    """Require each AST id to be one value, and WrappedCAT's four to match.
+
+    ``tip`` and ``mojo_to_token_ratio`` are the integers fee math uses. Inherited
+    immutables must be uniform across their spans but are not pinned: EIP-712
+    caches depend on the token name, chain id, and deploy address.
+    """
+    artifact = load_wrapped_cat_build_info()
+    classified = _classify_wrapped_cat_immutables(artifact)
+    if classified is None or len(runtime_code) != len(artifact.bytecode):
+        return False
+    _, values, inherited = classified
+    try:
+        expected = _wrapped_cat_value_words(
+            portal=portal,
+            other_chain=other_chain,
+            tip=tip,
+            mojo_to_token_ratio=mojo_to_token_ratio,
+        )
+    except ValueError:
+        return False
+    seen = set()
+    for immutable in values:
+        word = _uniform_span_bytes(runtime_code, immutable.spans)
+        if word is None or word != expected[immutable.name]:
+            return False
+        seen.add(immutable.name)
+    if seen != set(expected):
+        return False
+    for immutable in inherited:
+        if _uniform_span_bytes(runtime_code, immutable.spans) is None:
+            return False
+    return True
 
 
 def compute_bridge_tip(amount: int, tip_bps: int) -> int:
@@ -513,6 +767,8 @@ def validate_chia_cat_wrap(
     view_portal: Optional[bytes],
     view_other_chain: Optional[bytes],
     view_locker_puzzle_hash: Optional[bytes],
+    view_tip: Optional[int] = None,
+    view_mojo_to_token_ratio: Optional[int] = None,
 ) -> PolicyResult:
     try:
         locker_puzzle = _as_program(locker_spend.puzzle_reveal)
@@ -605,6 +861,20 @@ def validate_chia_cat_wrap(
         try:
             if not match_wrapped_cat_bytecode(wrapped_cat_runtime_code):
                 return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
+        except Exception:
+            return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+
+        if view_tip is None or view_mojo_to_token_ratio is None:
+            return PolicyResult("retry", "missing WrappedCAT bytecode or views")
+        try:
+            if not wrapped_cat_immutable_values_match(
+                wrapped_cat_runtime_code,
+                portal=route.portal_address,
+                other_chain=b"xch",
+                tip=view_tip,
+                mojo_to_token_ratio=view_mojo_to_token_ratio,
+            ):
+                return PolicyResult("reject", "WrappedCAT immutable occurrence mismatch")
         except Exception:
             return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
 
@@ -788,6 +1058,27 @@ def validate_evm_cat_unwrap(
             return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
     except Exception:
         return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
+
+    if tip_bps is not None and mojo_to_token_ratio is not None:
+        if isinstance(tip_bps, bool) or not isinstance(tip_bps, int) or tip_bps < 1 or tip_bps > 1000:
+            return PolicyResult("reject", "tip_bps out of range")
+        if (
+            isinstance(mojo_to_token_ratio, bool)
+            or not isinstance(mojo_to_token_ratio, int)
+            or mojo_to_token_ratio <= 0
+        ):
+            return PolicyResult("reject", "invalid ratio or gross amount")
+        try:
+            if not wrapped_cat_immutable_values_match(
+                wrapped_cat_runtime_code,
+                portal=route.portal_address,
+                other_chain=b"xch",
+                tip=tip_bps,
+                mojo_to_token_ratio=mojo_to_token_ratio,
+            ):
+                return PolicyResult("reject", "WrappedCAT immutable occurrence mismatch")
+        except Exception:
+            return PolicyResult("retry", "could not load WrappedCAT artifact for mask compare")
 
     if view_portal is None or view_other_chain is None or unlocker_puzzle_hash is None:
         return PolicyResult("retry", "missing WrappedCAT views")

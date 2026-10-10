@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 import logging
 import time
 from typing import List, Optional, Sequence, Tuple
@@ -16,6 +17,7 @@ from commands.control_channel import (
     ControlConfig,
     decide_control,
     fetch_control_events,
+    future_stop_author_notes,
 )
 from commands.spend_policy import (
     REJECTED_SIG,
@@ -163,6 +165,80 @@ def apply_policy_result(message, result: PolicyResult) -> bool:
     return True
 
 
+SIGNER_BATCH_CAP = 8
+SIGNER_RETRY_INITIAL_SECONDS = 5
+SIGNER_RETRY_MAX_SECONDS = 5 * 60
+
+
+def signer_retry_delay_seconds(attempt: int) -> int:
+    """Exponential delay for a 1-based retry attempt, capped at five minutes."""
+    delay = SIGNER_RETRY_INITIAL_SECONDS * (2 ** (attempt - 1))
+    if delay > SIGNER_RETRY_MAX_SECONDS:
+        return SIGNER_RETRY_MAX_SECONDS
+    return delay
+
+
+class SignerRetryDeadlines:
+    """In-memory message id → next attempt. A process restart starts over."""
+
+    def __init__(self) -> None:
+        self._next_attempt: dict[str, float] = {}
+        self._attempts: dict[str, int] = {}
+
+    def due_batch(self, messages, now: float, cap: int = SIGNER_BATCH_CAP):
+        def rank(message):
+            message_id = _policy_message_id(message)
+            return (self._next_attempt.get(message_id, 0.0), message_id)
+
+        due = [
+            message
+            for message in messages
+            if self._next_attempt.get(_policy_message_id(message), 0.0) <= now
+        ]
+        due.sort(key=rank)
+        return due[:cap]
+
+    def note_retry(self, message, now: float) -> None:
+        message_id = _policy_message_id(message)
+        attempt = self._attempts.get(message_id, 0) + 1
+        self._attempts[message_id] = attempt
+        self._next_attempt[message_id] = now + signer_retry_delay_seconds(attempt)
+
+    def note_finished(self, message) -> None:
+        message_id = _policy_message_id(message)
+        self._next_attempt.pop(message_id, None)
+        self._attempts.pop(message_id, None)
+
+
+def _signature_still_open(message) -> bool:
+    sig = message.sig
+    return sig is None or sig == b""
+
+
+async def sign_due_unsigned_messages(
+    messages,
+    deadlines: SignerRetryDeadlines,
+    sign_one,
+    now: float | None = None,
+):
+    """Sign one bounded batch of unsigned rows whose retry deadline has elapsed.
+
+    A row that stays unsigned is a retry: its next attempt is remembered here,
+    not in the database. A reject writes REJECTED_SIG and drops out of the
+    unsigned query, so it is not scheduled again.
+    """
+    if now is None:
+        now = time.monotonic()
+    batch = deadlines.due_batch(messages, now)
+    for message in batch:
+        await sign_one(message)
+        if _signature_still_open(message):
+            deadlines.note_retry(message, now)
+        else:
+            deadlines.note_finished(message)
+    return batch
+
+
 _last_control_command: str | None = None
 
 
@@ -185,9 +261,17 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
             control_config.stop_authors,
             control_config.start_authors,
         )
+        now_unix = int(time.time())
+        for ev in future_stop_author_notes(
+            events, now_unix, control_config.stop_authors
+        ):
+            logging.warning(
+                f"ignoring future-dated stop-author note {ev.content!r} "
+                f"created_at={ev.created_at} until the clock catches up"
+            )
         command = decide_control(
             events,
-            int(time.time()),
+            now_unix,
             control_config.stop_authors,
             control_config.start_authors,
         )
@@ -201,7 +285,10 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
 
 
 def _checksum(addr: bytes) -> str:
-    return Web3.to_checksum_address("0x" + evm_address_from_bytes32(left_pad_32(addr)).hex())
+    # evm_address_from_bytes32 returns a 20-byte HexBytes unchanged. Copy to
+    # plain bytes so to_checksum_address encodes with binascii, one 0x prefix.
+    raw = bytes(evm_address_from_bytes32(left_pad_32(addr)))
+    return Web3.to_checksum_address(raw)
 
 
 def _as_bytes3(value) -> bytes:
@@ -214,6 +301,13 @@ def _as_bytes3(value) -> bytes:
     if len(raw) >= 3:
         return raw[:3]
     return raw + b"\x00" * (3 - len(raw))
+
+
+def _decode_hex_or_bytes(value) -> bytes:
+    if isinstance(value, str):
+        text = value[2:] if value[:2].lower() == "0x" else value
+        return bytes.fromhex(text)
+    return bytes(value)
 
 
 def _as_bytes32(value) -> bytes:
@@ -236,12 +330,11 @@ async def portal_impl_codehash(
         storage = await web3.eth.get_storage_at(
             portal, EIP1967_IMPL_SLOT, block_identifier=block_number
         )
-        impl = bytes(storage[-20:])
-        if impl == b"\x00" * 20:
+        impl = storage[-20:]
+        if bytes(impl) == b"\x00" * 20:
             return None
-        # HexBytes.hex() already includes 0x. bytes.hex() does not.
         code = await web3.eth.get_code(
-            Web3.to_checksum_address("0x" + impl.hex()), block_identifier=block_number
+            _checksum(impl), block_identifier=block_number
         )
         return Web3.keccak(code).hex()
     except Exception:
@@ -259,7 +352,8 @@ async def check_portal_impl(
 
 
 def _storage_key(holder: bytes, slot: int) -> str:
-    return "0x" + Web3.keccak(left_pad_32(holder) + left_pad_32(slot.to_bytes(32, "big"))).hex()
+    digest = Web3.keccak(left_pad_32(holder) + left_pad_32(slot.to_bytes(32, "big")))
+    return "0x" + binascii.hexlify(bytes(digest)).decode("ascii")
 
 
 def _parse_uint(value) -> Optional[int]:
@@ -371,11 +465,12 @@ async def _find_balance_mapping_slot(
 
 
 def _account_key_variants(address: bytes) -> List[str]:
-    addr = evm_address_from_bytes32(left_pad_32(address)).hex()
+    raw = bytes(evm_address_from_bytes32(left_pad_32(address)))
+    bare = binascii.hexlify(raw).decode("ascii")
     return [
-        "0x" + addr.lower(),
-        Web3.to_checksum_address("0x" + addr),
-        addr.lower(),
+        "0x" + bare,
+        Web3.to_checksum_address(raw),
+        bare,
     ]
 
 
@@ -514,10 +609,14 @@ async def read_wrapped_cat_views(
         logging.error("Failed to read WrappedCAT code", exc_info=True)
         return None, None, None, None, None, None, None
 
-    # Empty code and any other non-matching runtime are a definite reject.
-    # View calls are unnecessary, and a reverted portal() must not look like
-    # an RPC failure.
-    if _bytecode_is_not_wrapped_cat(code):
+    # Empty code and structurally non-matching runtime are a definite reject.
+    # Empty is checked first: an artifact-load failure makes
+    # _bytecode_is_not_wrapped_cat return False, and that must not turn an
+    # EOA into a retry. A non-empty runtime we could not compare falls through
+    # so the caller retries. A masked match is not identity: validate_chia_cat_wrap
+    # and validate_evm_cat_unwrap still check every immutable occurrence against
+    # the route portal, xch, and the tip and ratio those callers pass.
+    if len(code) == 0 or _bytecode_is_not_wrapped_cat(code):
         return code, None, None, None, None, None, None
 
     try:
@@ -530,7 +629,7 @@ async def read_wrapped_cat_views(
         ratio = await contract.functions.mojoToTokenRatio().call(block_identifier=block_number)
         return (
             code,
-            left_pad_32(bytes.fromhex(portal[2:] if isinstance(portal, str) else portal.hex())),
+            left_pad_32(_decode_hex_or_bytes(portal)),
             _as_bytes3(other_chain),
             _as_bytes32(locker),
             _as_bytes32(unlocker),
@@ -628,9 +727,14 @@ async def evaluate_chia_message_policy(
             except Exception:
                 return PolicyResult("retry", "could not read destination block number")
 
-        code, view_portal, view_other, view_locker, _, __, ___ = await read_wrapped_cat_views(
+        code, view_portal, view_other, view_locker, _, view_tip, view_ratio = await read_wrapped_cat_views(
             web3, dest_addr, evm_block_number
         )
+        # get_code succeeded with an empty runtime. Reject before the mask
+        # compare: an artifact-load failure must not turn this into a retry.
+        # A non-empty runtime we could not compare still falls through.
+        if code is not None and len(code) == 0:
+            return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
         return validate_chia_cat_wrap(
             bridging_coin,
             parent_spend,
@@ -640,6 +744,8 @@ async def evaluate_chia_message_policy(
             view_portal=view_portal,
             view_other_chain=view_other,
             view_locker_puzzle_hash=view_locker,
+            view_tip=view_tip,
+            view_mojo_to_token_ratio=view_ratio,
         )
 
     return PolicyResult("reject", "parent is neither burner nor locker")
@@ -880,6 +986,12 @@ async def _evaluate_evm_cat_unwrap(
     )
     if code is None:
         return PolicyResult("retry", "missing WrappedCAT runtime code")
+    # get_code succeeded. Empty or non-WrappedCAT is final: do not trace the
+    # transaction or read balances. Artifact-load failure returns False from
+    # _bytecode_is_not_wrapped_cat, so a non-empty runtime we could not compare
+    # still falls through to retry.
+    if len(code) == 0 or _bytecode_is_not_wrapped_cat(code):
+        return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
 
     raw_input = bytes(tx.input)
     gross_mojo_amount: Optional[int] = None

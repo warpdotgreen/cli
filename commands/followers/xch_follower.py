@@ -19,11 +19,13 @@ from commands.spend_policy import (
     evm_log_matches_row,
 )
 from commands.policy_runtime import (
+    SignerRetryDeadlines,
     apply_policy_result,
     control_allows_start,
     evaluate_chia_message_policy,
     evaluate_evm_message_policy,
     load_block_spends,
+    sign_due_unsigned_messages,
 )
 from drivers.portal import BRIDGING_PUZZLE_HASH
 from typing import Optional
@@ -345,12 +347,21 @@ class ChiaFollower:
 
     async def messageSigner(self):
         db = self.getDb()
+        deadlines = SignerRetryDeadlines()
 
         while self.syncing:
             logging.info(f"{self.chain_id.decode()} message signer: Waiting to be synced before signing messages...")
             await asyncio.sleep(10)
 
         await self.getUnspentPortalId()
+
+        async def sign_one(message):
+            try:
+                await self.signMessage(db, message)
+                db.commit()
+            except Exception as e:
+                logging.error(f"Error signing message {message.nonce.hex()}: {e}", exc_info=True)
+                sys.exit(1)
 
         while True:
             if not await control_allows_start(self.control_config):
@@ -368,13 +379,7 @@ class ChiaFollower:
                 logging.error(f"Error querying messages: {e}", exc_info=True)
                 sys.exit(1)
 
-            for message in messages:
-                try:
-                    await self.signMessage(db, message)
-                    db.commit()
-                except Exception as e:
-                    logging.error(f"Error signing message {message.nonce.hex()}: {e}", exc_info=True)
-                    sys.exit(1)
+            await sign_due_unsigned_messages(messages, deadlines, sign_one)
 
             await asyncio.sleep(5)
 
@@ -664,12 +669,31 @@ class ChiaFollower:
 
 
     async def processCoinRecord(self, db: any, node: FullNodeRpcClient, coin_record: CoinRecord):
-        parent_record = await self.get_coin_record_by_name(node, coin_record.coin.parent_coin_info)
-        parent_spend = await self.get_puzzle_and_solution(
-            node,
-            coin_record.coin.parent_coin_info,
-            parent_record.spent_block_index
-        )
+        started_height = coin_record.confirmed_block_index
+        child_id = coin_record.coin.name()
+        parent_id = coin_record.coin.parent_coin_info
+        parent_record = None
+        parent_spend = None
+
+        while parent_spend is None:
+            child = await node.get_coin_record_by_name(child_id)
+            if child is None or child.confirmed_block_index != started_height:
+                logging.info(
+                    f"{self.chain} message follower: Coin {self.chain}-0x{child_id.hex()}: possible reorg; re-processing"
+                )
+                return True
+
+            parent_record = await node.get_coin_record_by_name(parent_id)
+            spent_height = parent_record.spent_block_index if parent_record is not None else 0
+            if spent_height:
+                parent_spend = await node.get_puzzle_and_solution(parent_id, spent_height)
+            if parent_spend is not None:
+                break
+
+            logging.info(
+                f"{self.chain} message follower: Coin {self.chain}-0x{child_id.hex()}: parent coin record or spend not found; retrying in 5s"
+            )
+            await asyncio.sleep(5)
 
         try:
             _, output = parent_spend.puzzle_reveal.run_with_cost(INFINITE_COST, parent_spend.solution)
@@ -787,7 +811,9 @@ class ChiaFollower:
                         reorg = True
                         break
 
-                    await self.processCoinRecord(db, node, earliest_unprocessed_coin_record)
+                    if await self.processCoinRecord(db, node, earliest_unprocessed_coin_record):
+                        reorg = True
+                        break
 
                     nonce = earliest_unprocessed_coin_record.coin.name()
                     skip_coin_ids.append(nonce)

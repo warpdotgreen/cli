@@ -1,17 +1,10 @@
 import sys
-import time
 
 import click
-from nostr_sdk import Client, EventBuilder, EventId, Keys, Tag
+from nostr_sdk import Client, EventBuilder, Keys
 
 from commands.cli_wrappers import async_func
-from commands.control_channel import (
-    CLOCK_SKEW_SECONDS,
-    ControlEvent,
-    fetch_control_events,
-    load_control_config,
-    normalize_hex,
-)
+from commands.control_channel import load_control_config, normalize_hex
 
 
 @click.group()
@@ -24,22 +17,10 @@ def _prompt_keys() -> Keys:
     return Keys.from_mnemonic(mnemonic, None)
 
 
-def _latest_valid_stop(
-    events: list[ControlEvent],
-    stop_authors: set[str],
-    now_unix: int,
-) -> ControlEvent | None:
-    stop_set = {normalize_hex(a) for a in stop_authors}
-    stops = [
-        ev
-        for ev in events
-        if ev.created_at <= now_unix + CLOCK_SKEW_SECONDS
-        and normalize_hex(ev.author) in stop_set
-        and ev.content == "stop"
-    ]
-    if not stops:
-        return None
-    return max(stops, key=lambda e: (e.created_at, normalize_hex(e.id)))
+def _require_note_id(note_id: str) -> None:
+    if not note_id or any(ch.isspace() for ch in note_id):
+        click.echo("Refused: id must be a single token")
+        sys.exit(1)
 
 
 def _print_event(event) -> None:
@@ -50,7 +31,11 @@ def _print_event(event) -> None:
 
 
 async def _publish_to_relays(relays: list[str], event) -> None:
-    """Publish the same signed event to each relay independently."""
+    """Publish the same signed event to each relay independently.
+
+    Exits non-zero when every relay rejects. One acceptance is enough.
+    """
+    accepted = 0
     for relay in relays:
         client = Client(None)
         try:
@@ -58,6 +43,7 @@ async def _publish_to_relays(relays: list[str], event) -> None:
             await client.connect()
             event_id = await client.send_event(event)
             click.echo(f"ACCEPTED {relay} {event_id.to_hex()}")
+            accepted += 1
         except Exception as e:
             click.echo(f"REJECTED {relay} {e}")
         finally:
@@ -65,11 +51,16 @@ async def _publish_to_relays(relays: list[str], event) -> None:
                 await client.disconnect()
             except Exception:
                 pass
+    if accepted == 0:
+        click.echo("FAILED: no relay accepted the event")
+        sys.exit(1)
 
 
 @control.command()
+@click.argument("note_id")
 @async_func
-async def stop():
+async def stop(note_id: str):
+    _require_note_id(note_id)
     cfg = load_control_config()
     keys = _prompt_keys()
     pubkey = normalize_hex(keys.public_key().to_hex())
@@ -79,14 +70,16 @@ async def stop():
         )
         sys.exit(1)
 
-    event = EventBuilder.text_note("stop", []).to_event(keys)
+    event = EventBuilder.text_note(f"stop {note_id}", []).to_event(keys)
     _print_event(event)
     await _publish_to_relays(cfg.relays, event)
 
 
 @control.command("start")
+@click.argument("note_id")
 @async_func
-async def start_cmd():
+async def start_cmd(note_id: str):
+    _require_note_id(note_id)
     cfg = load_control_config()
     keys = _prompt_keys()
     pubkey = normalize_hex(keys.public_key().to_hex())
@@ -96,18 +89,6 @@ async def start_cmd():
         )
         sys.exit(1)
 
-    events = await fetch_control_events(
-        cfg.relays,
-        cfg.stop_authors,
-        cfg.start_authors,
-    )
-    latest_stop = _latest_valid_stop(
-        events, cfg.stop_authors, int(time.time())
-    )
-    tags = []
-    if latest_stop is not None:
-        tags = [Tag.event(EventId.from_hex(normalize_hex(latest_stop.id)))]
-
-    event = EventBuilder.text_note("start", tags).to_event(keys)
+    event = EventBuilder.text_note(f"start {note_id}", []).to_event(keys)
     _print_event(event)
     await _publish_to_relays(cfg.relays, event)

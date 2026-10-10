@@ -21,7 +21,6 @@ class ControlEvent:
     author: str
     content: str
     created_at: int
-    e_tag_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -100,6 +99,40 @@ def load_control_config(config: Optional[dict] = None) -> ControlConfig:
     )
 
 
+def _command_and_id(content: str) -> Optional[tuple[str, str]]:
+    """Parse a note whose entire text is `start <id>` or `stop <id>`.
+
+    The id is one whitespace-delimited token. Comparison is case-insensitive.
+    Any other text is not a control note.
+    """
+    parts = content.split()
+    if len(parts) != 2:
+        return None
+    command, note_id = parts
+    if command not in ("start", "stop"):
+        return None
+    return command, note_id.casefold()
+
+
+def future_stop_author_notes(
+    events: Sequence[ControlEvent],
+    now_unix: int,
+    stop_authors: Set[str],
+) -> List[ControlEvent]:
+    """Stop-author notes dated more than CLOCK_SKEW_SECONDS ahead of now.
+
+    Callers log these and leave them out of the decision until a later poll,
+    when `now_unix` has caught up. Nothing is discarded permanently.
+    """
+    stop_set = {normalize_hex(a) for a in stop_authors}
+    return [
+        ev
+        for ev in events
+        if ev.created_at > now_unix + CLOCK_SKEW_SECONDS
+        and normalize_hex(ev.author) in stop_set
+    ]
+
+
 def decide_control(
     events: Sequence[ControlEvent],
     now_unix: int,
@@ -107,52 +140,61 @@ def decide_control(
     start_authors: Set[str],
 ) -> ControlCommand:
     """
-    Pure fail-closed control decision.
+    Pure fail-closed control decision. No I/O. Callers inject `now_unix`.
 
-    No I/O. Callers inject `now_unix`. Returns \"stop\" when nothing valid has
-    been posted, when the latest stop is uncleared, or when inputs are empty.
+    A stop note is ``stop <id>`` from a stop author. A start note is
+    ``start <id>`` from a start author. Anything else is ignored, including
+    notes dated more than CLOCK_SKEW_SECONDS ahead of ``now_unix``.
+
+    Returns \"start\" only when the set of stop ids is non-empty and equal
+    to the set of start ids, and every stop note is cancelled by a start of
+    the same id with ``start.created_at >= stop.created_at - CLOCK_SKEW_SECONDS``.
+    A start timestamped earlier than that cannot pre-cancel a later stop.
+    Otherwise returns \"stop\".
     """
     stop_set = {normalize_hex(a) for a in stop_authors}
     start_set = {normalize_hex(a) for a in start_authors}
 
-    stops: List[ControlEvent] = []
-    starts: List[ControlEvent] = []
+    stops: List[tuple[str, ControlEvent]] = []
+    starts: List[tuple[str, ControlEvent]] = []
     for ev in events:
         if ev.created_at > now_unix + CLOCK_SKEW_SECONDS:
             continue
-        author = normalize_hex(ev.author)
-        if author in stop_set and ev.content == "stop":
-            stops.append(ev)
-        elif author in start_set and ev.content == "start":
-            starts.append(ev)
-
-    if not stops:
-        return "start" if starts else "stop"
-
-    latest_stop = max(stops, key=lambda e: (e.created_at, normalize_hex(e.id)))
-    latest_stop_id = normalize_hex(latest_stop.id)
-
-    for start in starts:
-        tagged = {normalize_hex(eid) for eid in start.e_tag_ids}
-        if latest_stop_id not in tagged:
+        parsed = _command_and_id(ev.content)
+        if parsed is None:
             continue
-        if start.created_at >= latest_stop.created_at - CLOCK_SKEW_SECONDS:
-            return "start"
+        command, note_id = parsed
+        author = normalize_hex(ev.author)
+        if command == "stop" and author in stop_set:
+            stops.append((note_id, ev))
+        elif command == "start" and author in start_set:
+            starts.append((note_id, ev))
 
-    return "stop"
+    stop_ids = {note_id for note_id, _ in stops}
+    start_ids = {note_id for note_id, _ in starts}
+    if not stop_ids or stop_ids != start_ids:
+        return "stop"
+
+    starts_by_id: dict[str, List[ControlEvent]] = {}
+    for note_id, ev in starts:
+        starts_by_id.setdefault(note_id, []).append(ev)
+
+    for note_id, stop in stops:
+        if not any(
+            start.created_at >= stop.created_at - CLOCK_SKEW_SECONDS
+            for start in starts_by_id.get(note_id, ())
+        ):
+            return "stop"
+    return "start"
 
 
 def control_event_from_nostr(event) -> ControlEvent:
     """Map a nostr_sdk Event into the pure ControlEvent shape."""
-    e_tag_ids = tuple(
-        normalize_hex(eid.to_hex()) for eid in event.event_ids()
-    )
     return ControlEvent(
         id=normalize_hex(event.id().to_hex()),
         author=normalize_hex(event.author().to_hex()),
         content=event.content(),
         created_at=int(event.created_at().as_secs()),
-        e_tag_ids=e_tag_ids,
     )
 
 
@@ -189,9 +231,10 @@ async def fetch_control_events(
     Fetch kind-1 notes from every control relay and union by event id.
 
     Each relay is queried independently so one withholding relay cannot hide a
-    stop seen on another. If every relay errors, raises RuntimeError (caller
-    must treat that as stop). Partial success returns the union of what came
-    back. No caching.
+    stop seen on another. The events are unioned by id only when every
+    configured relay answers. If any relay errors, raises RuntimeError and
+    does not return the partial union (caller must treat that as stop). One
+    live relay cannot outvote a halt the others failed to return. No caching.
     """
     if not relays:
         raise RuntimeError("no control relays configured")
@@ -214,8 +257,12 @@ async def fetch_control_events(
         except Exception as e:
             errors.append(f"{relay}: {e}")
 
-    if successes == 0:
+    if successes != len(relays):
         detail = "; ".join(errors) if errors else "unknown errors"
-        raise RuntimeError(f"all control relays failed: {detail}")
+        if successes == 0:
+            raise RuntimeError(f"all control relays failed: {detail}")
+        raise RuntimeError(
+            f"control relay fetch incomplete ({successes}/{len(relays)} relays): {detail}"
+        )
 
     return list(by_id.values())

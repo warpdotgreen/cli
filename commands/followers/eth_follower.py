@@ -13,12 +13,14 @@ from commands.spend_policy import (
     chia_row_matches_verified,
 )
 from commands.policy_runtime import (
+    SignerRetryDeadlines,
     apply_policy_result,
     check_portal_impl,
     control_allows_start,
     evaluate_chia_message_policy,
     evaluate_evm_message_policy,
     load_block_spends,
+    sign_due_unsigned_messages,
 )
 from web3 import AsyncWeb3
 from web3.providers.async_rpc import AsyncHTTPProvider
@@ -452,6 +454,11 @@ class EthereumFollower:
     async def messageSigner(self):
       db = self.getDb()
       web3 = self.getWeb3()
+      deadlines = SignerRetryDeadlines()
+
+      async def sign_one(message):
+          await self.signMessage(db, web3, message)
+          db.commit()
 
       while True:
           try:
@@ -460,15 +467,12 @@ class EthereumFollower:
                   await asyncio.sleep(60)
                   continue
 
-              messages = []
               messages = db.query(Message).filter(and_(
                   Message.destination_chain == self.chain_id,
                   Message.sig == b''
               )).all()
 
-              for message in messages:
-                  await self.signMessage(db, web3, message)
-                  db.commit()
+              await sign_due_unsigned_messages(messages, deadlines, sign_one)
 
               await asyncio.sleep(5)
           except:

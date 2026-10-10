@@ -25,6 +25,8 @@ from commands import spend_policy
 from commands.policy_runtime import evaluate_chia_message_policy
 from commands.spend_policy import (
     BridgeRoutes,
+    WrappedCatArtifact,
+    WrappedCatImmutable,
     chia_row_matches_verified,
     compute_bridge_tip,
     decode_message_sent_fields,
@@ -32,11 +34,15 @@ from commands.spend_policy import (
     evm_log_matches_row,
     left_pad_32,
     load_wrapped_cat_artifact_bytecode,
+    load_wrapped_cat_build_info,
+    stamp_wrapped_cat_immutables,
     VerifiedChiaMessage,
     signed_destination_address,
     validate_chia_cat_wrap,
     validate_chia_erc20_unwrap,
+    validate_evm_cat_unwrap,
     validate_evm_erc20_wrap,
+    wrapped_cat_immutable_values_match,
 )
 from drivers.portal import BRIDGING_PUZZLE_HASH
 from drivers.utils import raw_hash
@@ -70,6 +76,8 @@ BURNER_AMOUNT = 1
 BRIDGING_TOLL = 10**9
 ASSET_AMOUNT = 1_337_000
 CHANGE_AMOUNT = 10_000
+WRAP_TIP_BPS = 30
+WRAP_MOJO_TO_TOKEN_RATIO = 10**12
 
 Q_TAIL = Program.from_bytes(bytes.fromhex("ff0180"))
 
@@ -275,17 +283,71 @@ def _build_lock(
     return bridging, locker_spend, other
 
 
+def _wrap_stamp_kwargs():
+    return dict(
+        portal=ETH_PORTAL,
+        other_chain=b"xch",
+        tip=WRAP_TIP_BPS,
+        mojo_to_token_ratio=WRAP_MOJO_TO_TOKEN_RATIO,
+    )
+
+
 def _wrap_views(locker_ph: bytes32):
     try:
-        code = load_wrapped_cat_artifact_bytecode()
+        artifact = load_wrapped_cat_build_info()
     except FileNotFoundError:
         return None
+    code = stamp_wrapped_cat_immutables(
+        artifact.bytecode,
+        artifact.immutables,
+        **_wrap_stamp_kwargs(),
+    )
     return dict(
         wrapped_cat_runtime_code=code,
         view_portal=left_pad_32(ETH_PORTAL),
         view_other_chain=b"xch",
         view_locker_puzzle_hash=locker_ph,
+        view_tip=WRAP_TIP_BPS,
+        view_mojo_to_token_ratio=WRAP_MOJO_TO_TOKEN_RATIO,
     )
+
+
+def _synthetic_wrapped_cat_artifact(
+    *,
+    portal_width: int = 32,
+    extra: Optional[WrappedCatImmutable] = None,
+) -> WrappedCatArtifact:
+    """Standalone bytecode and per-id spans, used when build-info is absent."""
+    portal_spans = ((4, portal_width), (4 + portal_width + 1, portal_width))
+    immutables = [
+        WrappedCatImmutable("1", "portal", portal_spans, "WrappedCAT"),
+        WrappedCatImmutable("2", "tip", ((80, 32),), "WrappedCAT"),
+        WrappedCatImmutable("3", "mojoToTokenRatio", ((120, 32),), "WrappedCAT"),
+        WrappedCatImmutable("4", "otherChain", ((160, 32),), "WrappedCAT"),
+    ]
+    if extra is not None:
+        immutables.append(extra)
+    length = 240
+    code = bytearray(b"\x5b" * length)
+    for immutable in immutables:
+        for start, span_length in immutable.spans:
+            code[start:start + span_length] = b"\x00" * span_length
+    immutables.sort(key=lambda item: item.ast_id)
+    return WrappedCatArtifact(bytes(code), tuple(immutables), ("WrappedCAT",))
+
+
+def _corrupt_portal_span(code: bytes, artifact: WrappedCatArtifact) -> bytes:
+    portal = next(item for item in artifact.immutables if item.name == "portal")
+    assert len(portal.spans) >= 2
+    getter_start, getter_length = portal.spans[0]
+    other_start, other_length = portal.spans[1]
+    forged = bytearray(code)
+    getter = bytes(forged[getter_start:getter_start + getter_length])
+    attacker = b"\x00" * (getter_length - 20) + bytes.fromhex("44" * 20)
+    assert getter != attacker
+    forged[other_start:other_start + other_length] = attacker
+    assert bytes(forged[getter_start:getter_start + getter_length]) == getter
+    return bytes(forged)
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +640,13 @@ class TestChiaCatWrap:
         assert result.kind == "reject"
         assert "LOCKER_MOD" in result.reason or "parent" in result.reason
 
+    def test_load_wrapped_cat_build_info_from_other_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        artifact = load_wrapped_cat_build_info()
+        assert isinstance(artifact, WrappedCatArtifact)
+        assert artifact.bytecode
+        assert artifact.immutables
+
     def test_bytecode_mismatch_rejects_when_artifacts_exist(self):
         try:
             code = load_wrapped_cat_artifact_bytecode()
@@ -630,6 +699,99 @@ class TestChiaCatWrap:
         )
         assert result.kind == "retry"
         assert "WrappedCAT" in result.reason
+
+    def test_divergent_portal_span_rejects_while_getter_stays(self):
+        bridging, locker, other = _build_lock(asset_id=None)
+        views = _wrap_views(locker.coin.puzzle_hash)
+        if views is None:
+            artifact = _synthetic_wrapped_cat_artifact()
+            code = stamp_wrapped_cat_immutables(
+                artifact.bytecode, artifact.immutables, **_wrap_stamp_kwargs()
+            )
+            views = dict(
+                wrapped_cat_runtime_code=code,
+                view_portal=left_pad_32(ETH_PORTAL),
+                view_other_chain=b"xch",
+                view_locker_puzzle_hash=locker.coin.puzzle_hash,
+                view_tip=WRAP_TIP_BPS,
+                view_mojo_to_token_ratio=WRAP_MOJO_TO_TOKEN_RATIO,
+            )
+            patcher = patch.object(
+                spend_policy, "load_wrapped_cat_build_info", return_value=artifact
+            )
+        else:
+            artifact = load_wrapped_cat_build_info()
+            code = views["wrapped_cat_runtime_code"]
+            patcher = None
+        forged = _corrupt_portal_span(code, artifact)
+        forged_views = dict(views)
+        forged_views["wrapped_cat_runtime_code"] = forged
+        forged_views["view_portal"] = left_pad_32(ETH_PORTAL)
+
+        def run():
+            assert wrapped_cat_immutable_values_match(code, **_wrap_stamp_kwargs())
+            result = validate_chia_cat_wrap(
+                bridging, locker, other, _routes(), **forged_views
+            )
+            assert result.kind == "reject"
+            assert result.reason == "WrappedCAT immutable occurrence mismatch"
+
+        if patcher is None:
+            run()
+        else:
+            with patcher:
+                run()
+
+
+class TestWrappedCatImmutableOccurrences:
+    def test_unknown_name_is_not_masked_away(self):
+        extra = WrappedCatImmutable("9", "mintAuthority", ((200, 32),), "WrappedCAT")
+        artifact = _synthetic_wrapped_cat_artifact(extra=extra)
+        mutated = bytearray(artifact.bytecode)
+        mutated[200:232] = b"\x11" * 32
+        with patch.object(spend_policy, "load_wrapped_cat_build_info", return_value=artifact):
+            assert spend_policy.match_wrapped_cat_bytecode(artifact.bytecode) is False
+            assert spend_policy.match_wrapped_cat_bytecode(bytes(mutated)) is False
+
+    def test_unexpected_width_is_not_masked_away(self):
+        artifact = _synthetic_wrapped_cat_artifact(portal_width=20)
+        mutated = bytearray(artifact.bytecode)
+        start, length = next(
+            item for item in artifact.immutables if item.name == "portal"
+        ).spans[1]
+        mutated[start:start + length] = b"\x22" * length
+        with patch.object(spend_policy, "load_wrapped_cat_build_info", return_value=artifact):
+            assert spend_policy.match_wrapped_cat_bytecode(artifact.bytecode) is False
+            assert spend_policy.match_wrapped_cat_bytecode(bytes(mutated)) is False
+
+    def test_evm_unwrap_rejects_divergent_portal_span(self):
+        artifact = _synthetic_wrapped_cat_artifact()
+        code = stamp_wrapped_cat_immutables(
+            artifact.bytecode, artifact.immutables, **_wrap_stamp_kwargs()
+        )
+        forged = _corrupt_portal_span(code, artifact)
+        unlocker = b"\x24" * 32
+        with patch.object(spend_policy, "load_wrapped_cat_build_info", return_value=artifact):
+            result = validate_evm_cat_unwrap(
+                routes=_routes(),
+                source_chain=b"eth",
+                source=left_pad_32(WRAPPED_CAT_ADDR),
+                destination=unlocker,
+                destination_chain=b"xch",
+                contents=[left_pad_32(RECEIVER), (100).to_bytes(32, "big")],
+                tx_status=1,
+                tip_bps=WRAP_TIP_BPS,
+                mojo_to_token_ratio=WRAP_MOJO_TO_TOKEN_RATIO,
+                gross_mojo_amount=10_000,
+                sender_balance_diff=0,
+                portal_balance_diff=0,
+                view_portal=left_pad_32(ETH_PORTAL),
+                view_other_chain=b"xch",
+                unlocker_puzzle_hash=unlocker,
+                wrapped_cat_runtime_code=forged,
+            )
+        assert result.kind == "reject"
+        assert result.reason == "WrappedCAT immutable occurrence mismatch"
 
 
 # ---------------------------------------------------------------------------
@@ -832,16 +994,20 @@ class TestEvmLogFieldMatch:
 
 class _PortalEth:
     def __init__(self):
+        self.storage_address = None
         self.code_address = None
 
-    async def get_storage_at(self, _portal, _slot, block_identifier=None):
+    async def get_storage_at(self, portal, _slot, block_identifier=None):
         from hexbytes import HexBytes
+
+        self.storage_address = portal
         impl = bytes.fromhex("5d89db6cc9295c8e802d96c521c8209353ce3215")
         return HexBytes(b"\x00" * 12 + impl)
 
     async def get_code(self, address, block_identifier=None):
-        self.code_address = address
         from hexbytes import HexBytes
+
+        self.code_address = address
         return HexBytes(b"\x60\x00")
 
 
@@ -850,13 +1016,172 @@ class _PortalWeb3:
         self.eth = _PortalEth()
 
 
+class TestStorageKey:
+    def test_single_prefix_hex_quantity(self):
+        import re
+
+        from hexbytes import HexBytes
+        from web3 import Web3
+
+        from commands.policy_runtime import _storage_key
+
+        holder = HexBytes(bytes.fromhex("22" * 20))
+        digest = Web3.keccak(left_pad_32(bytes(holder)) + left_pad_32((3).to_bytes(32, "big")))
+        assert isinstance(digest, HexBytes)
+        assert digest.hex().startswith("0x")
+        key = _storage_key(holder, 3)
+        assert re.fullmatch(r"0x[0-9a-fA-F]{64}", key)
+        assert "0x0x" not in key
+        assert Web3.to_bytes(hexstr=key) == bytes(digest)
+
+
+class TestAccountKeyVariants:
+    def test_hexbytes_address_is_single_prefixed(self):
+        from hexbytes import HexBytes
+        from web3 import Web3
+
+        from commands.policy_runtime import _account_key_variants
+
+        raw = bytes.fromhex("5d89db6cc9295c8e802d96c521c8209353ce3215")
+        address = HexBytes(b"\x00" * 12 + raw)
+        assert address.hex().startswith("0x")
+        variants = _account_key_variants(address)
+        checksum = Web3.to_checksum_address(raw)
+        assert checksum in variants
+        assert checksum.lower() in variants
+        assert raw.hex() in variants
+        assert all("0x0x" not in variant.lower() for variant in variants)
+
+
+class TestPortalViewHex:
+    def test_hexbytes_portal_decodes_without_fromhex_on_prefixed_hex(self):
+        from hexbytes import HexBytes
+
+        from commands.policy_runtime import _decode_hex_or_bytes
+
+        raw = bytes.fromhex("ab" * 20)
+        portal = HexBytes(b"\x00" * 12 + raw)
+        assert portal.hex().startswith("0x")
+        with pytest.raises(ValueError):
+            bytes.fromhex(portal.hex())
+        assert _decode_hex_or_bytes(portal) == bytes(portal)
+        assert _decode_hex_or_bytes(portal.hex()) == bytes(portal)
+        assert left_pad_32(_decode_hex_or_bytes(portal)) == bytes(portal)
+
+
 class TestPortalImplCodehash:
     @pytest.mark.asyncio
     async def test_impl_address_is_not_double_prefixed(self):
+        from hexbytes import HexBytes
+        from web3 import Web3
+
         from commands.policy_runtime import portal_impl_codehash
 
         web3 = _PortalWeb3()
-        codehash = await portal_impl_codehash(web3, bytes.fromhex("11" * 20), 1)
-        assert web3.eth.code_address.lower() == "0x5d89db6cc9295c8e802d96c521c8209353ce3215"
+        portal = HexBytes(bytes.fromhex("11" * 20))
+        assert isinstance(portal, HexBytes)
+        assert portal.hex().startswith("0x")
+        codehash = await portal_impl_codehash(web3, portal, 1)
+        storage_address = web3.eth.storage_address
+        impl_address = web3.eth.code_address
+        assert storage_address == Web3.to_checksum_address(bytes(portal))
+        assert impl_address == Web3.to_checksum_address(
+            bytes.fromhex("5d89db6cc9295c8e802d96c521c8209353ce3215")
+        )
+        assert not storage_address.lower().startswith("0x0x")
+        assert not impl_address.lower().startswith("0x0x")
         assert codehash is not None
         assert not codehash.lower().startswith("0x0x")
+
+
+class _RuntimeEth:
+    def __init__(self, code: bytes, *, fail: bool = False):
+        self._code = code
+        self._fail = fail
+
+    async def get_code(self, address, block_identifier=None):
+        if self._fail:
+            raise RuntimeError("code read failed")
+        return self._code
+
+
+class _RuntimeWeb3:
+    def __init__(self, code: bytes, *, fail: bool = False):
+        self.eth = _RuntimeEth(code, fail=fail)
+
+
+class TestUnsupportedUnwrapSource:
+    async def _evaluate(self, web3):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        async def _balance_diff(*_args, **_kwargs):
+            raise AssertionError("fetch_token_balance_diff should not run")
+
+        with patch("commands.policy_runtime.fetch_token_balance_diff", new=_balance_diff):
+            return await _evaluate_evm_cat_unwrap(
+                web3=web3,
+                routes=_routes(),
+                source_chain=b"eth",
+                source=left_pad_32(WRAPPED_CAT_ADDR),
+                destination=b"\x24" * 32,
+                destination_chain=b"xch",
+                contents=[left_pad_32(RECEIVER), (1).to_bytes(32, "big")],
+                block_number=1,
+                tx=object(),
+                tx_hash="0x" + "11" * 32,
+                tx_status=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_eoa_and_nonmatching_runtime_reject_without_balance_diff(self):
+        eoa = await self._evaluate(_RuntimeWeb3(b""))
+        assert eoa.kind == "reject"
+        assert eoa.reason == "WrappedCAT bytecode mismatch after immutable mask"
+
+        other = await self._evaluate(_RuntimeWeb3(b"\x60\x00"))
+        assert other.kind == "reject"
+        assert other.reason == "WrappedCAT bytecode mismatch after immutable mask"
+
+    @pytest.mark.asyncio
+    async def test_code_read_failure_retries_without_balance_diff(self):
+        result = await self._evaluate(_RuntimeWeb3(b"", fail=True))
+        assert result.kind == "retry"
+        assert result.reason == "missing WrappedCAT runtime code"
+
+    @pytest.mark.asyncio
+    async def test_uncomparable_runtime_retries_but_empty_code_still_rejects(self):
+        with patch(
+            "commands.policy_runtime.match_wrapped_cat_bytecode",
+            side_effect=OSError("WrappedCAT artifact missing"),
+        ):
+            empty = await self._evaluate(_RuntimeWeb3(b""))
+            other = await self._evaluate(_RuntimeWeb3(b"\x60\x00"))
+        assert empty.kind == "reject"
+        assert other.kind == "retry"
+        assert other.reason == "missing WrappedCAT runtime code"
+
+
+class TestChiaWrapEmptyCode:
+    async def _evaluate(self, web3):
+        bridging, locker, other = _build_lock(asset_id=None)
+        return await evaluate_chia_message_policy(
+            bridging_coin=bridging,
+            parent_spend=locker,
+            routes=_routes(),
+            node=None,
+            block_spends=other,
+            web3_for_chain=lambda _chain: web3,
+            evm_block_number=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_code_rejects_when_artifact_loader_raises(self):
+        with patch(
+            "commands.spend_policy.load_wrapped_cat_build_info",
+            side_effect=OSError("WrappedCAT artifact missing"),
+        ):
+            empty = await self._evaluate(_RuntimeWeb3(b""))
+            other = await self._evaluate(_RuntimeWeb3(b"\x60\x00"))
+        assert empty.kind == "reject"
+        assert empty.reason == "WrappedCAT bytecode mismatch after immutable mask"
+        assert other.kind == "retry"
