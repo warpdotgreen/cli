@@ -41,10 +41,6 @@ jobs:
         pip install --extra-index-url https://pypi.chia.net/simple/ chia-dev-tools==1.2.5
         pip install -r requirements.txt
 
-    - name: Run pytest
-      run: |
-        pytest tests/ -s -v --durations 0 -W ignore::DeprecationWarning
-
     - name: Set up Node.js
       uses: actions/setup-node@v2
       with:
@@ -53,10 +49,17 @@ jobs:
     - name: Install npm dependencies
       run: npm install
 
-    - name: Run Hardhat tests
+    - name: Compile contracts
       run: |
         cp hardhat.config.example.ts hardhat.config.ts
-        npx hardhat test
+        npx hardhat compile
+
+    - name: Run pytest
+      run: |
+        pytest tests/ -s -v --durations 0 -W ignore::DeprecationWarning
+
+    - name: Run Hardhat tests
+      run: npx hardhat test
 
     - name: Check test coverage for Solidity contracts
       run: |
