@@ -19,9 +19,10 @@ from commands.control_channel import (
     ControlConfig,
     ControlEvent,
     _command_and_id,
-    decide_control,
+    explain_control,
     fetch_control_events,
     future_stop_author_notes,
+    ignored_stop_author_notes,
     normalize_hex,
 )
 from commands.spend_policy import (
@@ -244,7 +245,9 @@ async def sign_due_unsigned_messages(
     return batch
 
 
-_last_control_command: str | None = None
+_last_control_explanation: str | None = None
+_logged_future_stop_ids: set[str] = set()
+_logged_ignored_stop_ids: set[str] = set()
 
 # App folder, same working directory as config.json and data.db (/app in Docker).
 STOPS_FILE = Path("stops")
@@ -259,15 +262,26 @@ class StopsFileError(Exception):
     """The stops file exists but is not a JSON object of stops."""
 
 
-def _note_control_command(command: str) -> None:
-    global _last_control_command
-    if command == _last_control_command:
+def _note_control_explanation(explanation: str, *, exc_info: bool = False) -> None:
+    """Log a control reason once, and again only when the reason changes.
+
+    A start line says the process is resuming, so it is logged only after a
+    stop in this process. A gate that is already open at startup is recorded
+    and stays quiet.
+    """
+    global _last_control_explanation
+    if explanation == _last_control_explanation:
         return
-    if command == "stop":
-        logging.warning("NOSTR STOP")
-    elif command == "start" and _last_control_command == "stop":
-        logging.warning("NOSTR START: resume after stop")
-    _last_control_command = command
+    resuming = explanation.startswith("NOSTR START:")
+    was_stopped = (
+        _last_control_explanation is not None
+        and _last_control_explanation.startswith("NOSTR STOP:")
+    )
+    if resuming and not was_stopped:
+        _last_control_explanation = explanation
+        return
+    logging.warning(explanation, exc_info=exc_info)
+    _last_control_explanation = explanation
 
 
 def _is_remembered_stop(event: ControlEvent, stop_authors: set[str]) -> bool:
@@ -398,7 +412,6 @@ def _with_remembered_stops(
 
 
 async def control_allows_start(control_config: ControlConfig) -> bool:
-    global _last_control_command
     try:
         events = await fetch_control_events(
             control_config.relays,
@@ -407,9 +420,9 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
             relay_quorum=control_config.relay_quorum,
         )
     except Exception:
-        if _last_control_command != "stop":
-            logging.warning("NOSTR STOP: control relay fetch failed", exc_info=True)
-            _last_control_command = "stop"
+        _note_control_explanation(
+            "NOSTR STOP: control relay fetch failed", exc_info=True
+        )
         return False
 
     stop_authors = {normalize_hex(author) for author in control_config.stop_authors}
@@ -417,10 +430,10 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
         remembered = _remember_stops(events, stop_authors)
     except StopsFileError:
         logging.error("stops file is not a JSON object of stops", exc_info=True)
-        _note_control_command("stop")
+        _note_control_explanation("NOSTR STOP: stops file is not a JSON object of stops")
         return False
     except OSError:
-        _note_control_command("stop")
+        _note_control_explanation("NOSTR STOP: failed to write stops file")
         return False
 
     now_unix = int(time.time())
@@ -428,17 +441,27 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
     for ev in future_stop_author_notes(
         combined, now_unix, control_config.stop_authors
     ):
+        if ev.id in _logged_future_stop_ids:
+            continue
+        _logged_future_stop_ids.add(ev.id)
         logging.warning(
             f"ignoring future-dated stop-author note {ev.content!r} "
             f"created_at={ev.created_at} until the clock catches up"
         )
-    command = decide_control(
+    for ev in ignored_stop_author_notes(
+        combined, now_unix, control_config.stop_authors
+    ):
+        if ev.id in _logged_ignored_stop_ids:
+            continue
+        _logged_ignored_stop_ids.add(ev.id)
+        logging.warning(f"ignoring note from stop author: {ev.content!r}")
+    command, explanation = explain_control(
         combined,
         now_unix,
         control_config.stop_authors,
         control_config.start_authors,
     )
-    _note_control_command(command)
+    _note_control_explanation(explanation)
     return command == "start"
 
 

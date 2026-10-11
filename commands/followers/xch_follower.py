@@ -349,8 +349,9 @@ class ChiaFollower:
         db = self.getDb()
         deadlines = SignerRetryDeadlines()
 
-        while self.syncing:
+        if self.syncing:
             logging.info(f"{self.chain_id.decode()} message signer: Waiting to be synced before signing messages...")
+        while self.syncing:
             await asyncio.sleep(10)
 
         await self.getUnspentPortalId()
@@ -365,7 +366,6 @@ class ChiaFollower:
 
         while True:
             if not await control_allows_start(self.control_config):
-                logging.info(f"{self.chain_id.decode()} message signer: control stop; sleeping 60s")
                 await asyncio.sleep(60)
                 continue
 
@@ -587,7 +587,6 @@ class ChiaFollower:
         while True:
             try:
                 if not await control_allows_start(self.control_config):
-                    logging.info(f"{self.chain_id.decode()} portal follower: control stop; sleeping 60s")
                     await asyncio.sleep(60)
                     continue
                 last_synced_portal = await self.syncPortal(db, node, last_synced_portal)
@@ -744,7 +743,6 @@ class ChiaFollower:
         while True:
             try:
                 if not await control_allows_start(self.control_config):
-                    logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
                     await asyncio.sleep(60)
                     continue
 
@@ -800,7 +798,6 @@ class ChiaFollower:
                         await asyncio.sleep(10)
 
                     if not await control_allows_start(self.control_config):
-                        logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
                         await asyncio.sleep(60)
                         reorg = True
                         break

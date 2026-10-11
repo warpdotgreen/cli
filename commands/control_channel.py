@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Iterable, List, Literal, Optional, Sequence, Set
@@ -25,6 +26,10 @@ class ControlEvent:
 
 
 DEFAULT_RELAY_QUORUM = 5
+
+# Last set of relays omitted after quorum was met. Logged again only when it changes.
+_quorum_failure_lock = threading.Lock()
+_last_quorum_failures: Optional[frozenset[str]] = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +153,100 @@ def future_stop_author_notes(
     ]
 
 
+def _classified_notes(
+    events: Sequence[ControlEvent],
+    now_unix: int,
+    stop_authors: Set[str],
+    start_authors: Set[str],
+) -> tuple[List[tuple[str, ControlEvent]], List[tuple[str, ControlEvent]]]:
+    """Stop and start notes that are eligible for the decision right now."""
+    stop_set = {normalize_hex(a) for a in stop_authors}
+    start_set = {normalize_hex(a) for a in start_authors}
+    stops: List[tuple[str, ControlEvent]] = []
+    starts: List[tuple[str, ControlEvent]] = []
+    for ev in events:
+        if ev.created_at > now_unix + CLOCK_SKEW_SECONDS:
+            continue
+        parsed = _command_and_id(ev.content)
+        if parsed is None:
+            continue
+        command, note_id = parsed
+        author = normalize_hex(ev.author)
+        if command == "stop" and author in stop_set:
+            stops.append((note_id, ev))
+        elif command == "start" and author in start_set:
+            starts.append((note_id, ev))
+    return stops, starts
+
+
+def ignored_stop_author_notes(
+    events: Sequence[ControlEvent],
+    now_unix: int,
+    stop_authors: Set[str],
+) -> List[ControlEvent]:
+    """Stop-author notes that are not ``stop <id>`` and are not future-dated.
+
+    Future-dated stop-author notes are reported separately. A start note or
+    any other text from a stop author does not affect the decision.
+    """
+    stop_set = {normalize_hex(a) for a in stop_authors}
+    ignored: List[ControlEvent] = []
+    for ev in events:
+        if normalize_hex(ev.author) not in stop_set:
+            continue
+        if ev.created_at > now_unix + CLOCK_SKEW_SECONDS:
+            continue
+        parsed = _command_and_id(ev.content)
+        if parsed is None or parsed[0] != "stop":
+            ignored.append(ev)
+    return ignored
+
+
+def explain_control(
+    events: Sequence[ControlEvent],
+    now_unix: int,
+    stop_authors: Set[str],
+    start_authors: Set[str],
+) -> tuple[ControlCommand, str]:
+    """Same decision as ``decide_control``, plus the one-line reason.
+
+    The reason names unmatched stop ids, a set mismatch, or the start ids
+    that cancelled every stop. It does not log.
+    """
+    stops, starts = _classified_notes(events, now_unix, stop_authors, start_authors)
+    stop_ids = {note_id for note_id, _ in stops}
+    start_ids = {note_id for note_id, _ in starts}
+    if not stop_ids:
+        return "stop", "NOSTR STOP: no stop notes"
+
+    starts_by_id: dict[str, List[ControlEvent]] = {}
+    for note_id, ev in starts:
+        starts_by_id.setdefault(note_id, []).append(ev)
+
+    unmatched = sorted({
+        note_id
+        for note_id, stop in stops
+        if not any(
+            start.created_at >= stop.created_at - CLOCK_SKEW_SECONDS
+            for start in starts_by_id.get(note_id, ())
+        )
+    })
+    if unmatched:
+        reasons = ", ".join(f"stop {note_id}" for note_id in unmatched)
+        return "stop", f"NOSTR STOP: stopping because {reasons}"
+
+    if stop_ids != start_ids:
+        stop_list = ", ".join(sorted(stop_ids))
+        start_list = ", ".join(sorted(start_ids))
+        return (
+            "stop",
+            f"NOSTR STOP: stop ids {stop_list} are not matched by start ids {start_list}",
+        )
+
+    resumed = ", ".join(f"start {note_id}" for note_id in sorted(start_ids))
+    return "start", f"NOSTR START: resuming because {resumed}"
+
+
 def decide_control(
     events: Sequence[ControlEvent],
     now_unix: int,
@@ -167,40 +266,7 @@ def decide_control(
     A start timestamped earlier than that cannot pre-cancel a later stop.
     Otherwise returns \"stop\".
     """
-    stop_set = {normalize_hex(a) for a in stop_authors}
-    start_set = {normalize_hex(a) for a in start_authors}
-
-    stops: List[tuple[str, ControlEvent]] = []
-    starts: List[tuple[str, ControlEvent]] = []
-    for ev in events:
-        if ev.created_at > now_unix + CLOCK_SKEW_SECONDS:
-            continue
-        parsed = _command_and_id(ev.content)
-        if parsed is None:
-            continue
-        command, note_id = parsed
-        author = normalize_hex(ev.author)
-        if command == "stop" and author in stop_set:
-            stops.append((note_id, ev))
-        elif command == "start" and author in start_set:
-            starts.append((note_id, ev))
-
-    stop_ids = {note_id for note_id, _ in stops}
-    start_ids = {note_id for note_id, _ in starts}
-    if not stop_ids or stop_ids != start_ids:
-        return "stop"
-
-    starts_by_id: dict[str, List[ControlEvent]] = {}
-    for note_id, ev in starts:
-        starts_by_id.setdefault(note_id, []).append(ev)
-
-    for note_id, stop in stops:
-        if not any(
-            start.created_at >= stop.created_at - CLOCK_SKEW_SECONDS
-            for start in starts_by_id.get(note_id, ())
-        ):
-            return "stop"
-    return "start"
+    return explain_control(events, now_unix, stop_authors, start_authors)[0]
 
 
 def control_event_from_nostr(event) -> ControlEvent:
@@ -215,6 +281,29 @@ def control_event_from_nostr(event) -> ControlEvent:
 
 def _author_public_keys(authors: Iterable[str]) -> List[PublicKey]:
     return [PublicKey.from_hex(normalize_hex(a)) for a in authors]
+
+
+def _warn_quorum_failures(
+    successes: int,
+    relay_count: int,
+    failures: Sequence[tuple[str, str]],
+) -> None:
+    """Log a quorum miss once per distinct set of failed relays."""
+    global _last_quorum_failures
+    failed = frozenset(relay for relay, _error in failures)
+    with _quorum_failure_lock:
+        if failed == _last_quorum_failures:
+            return
+        _last_quorum_failures = failed
+        if not failed:
+            return
+        detail = "; ".join(f"{relay}: {error}" for relay, error in failures)
+        logging.warning(
+            "control relay fetch met quorum (%s/%s relays); ignoring failures: %s",
+            successes,
+            relay_count,
+            detail,
+        )
 
 
 async def _fetch_events_from_relay(
@@ -263,7 +352,7 @@ async def fetch_control_events(
     timeout = timedelta(seconds=timeout_seconds)
 
     by_id: dict[str, ControlEvent] = {}
-    errors: List[str] = []
+    failures: List[tuple[str, str]] = []
     successes = 0
 
     for relay in relays:
@@ -274,22 +363,16 @@ async def fetch_control_events(
                 ev = control_event_from_nostr(raw)
                 by_id[ev.id] = ev
         except Exception as e:
-            errors.append(f"{relay}: {e}")
+            failures.append((relay, str(e)))
 
     if successes < required:
-        detail = "; ".join(errors) if errors else "unknown errors"
+        detail = "; ".join(f"{relay}: {error}" for relay, error in failures) or "unknown errors"
         if successes == 0:
             raise RuntimeError(f"all control relays failed: {detail}")
         raise RuntimeError(
             f"control relay fetch incomplete ({successes}/{len(relays)} relays): {detail}"
         )
 
-    if errors:
-        logging.warning(
-            "control relay fetch met quorum (%s/%s relays); ignoring failures: %s",
-            successes,
-            len(relays),
-            "; ".join(errors),
-        )
+    _warn_quorum_failures(successes, len(relays), failures)
 
     return list(by_id.values())

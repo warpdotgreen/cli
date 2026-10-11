@@ -14,6 +14,7 @@ from commands.control_channel import (
     ControlConfig,
     ControlEvent,
     decide_control,
+    explain_control,
     fetch_control_events,
     future_stop_author_notes,
     load_control_config,
@@ -233,6 +234,28 @@ class TestDecideControl:
         ]
         assert decide_control(events, NOW, {STOP_AUTHOR}, {START_AUTHOR}) == "stop"
 
+    def test_explain_names_the_stop_or_the_resume(self):
+        stop = _ev(id="s1", author=STOP_AUTHOR, content="stop a", created_at=NOW - 30)
+        start = _ev(id="t1", author=START_AUTHOR, content="start a", created_at=NOW - 10)
+        extra = _ev(id="t2", author=START_AUTHOR, content="start b", created_at=NOW - 5)
+        authors = ({STOP_AUTHOR}, {START_AUTHOR})
+
+        assert explain_control([], NOW, *authors) == ("stop", "NOSTR STOP: no stop notes")
+        assert explain_control([stop], NOW, *authors) == (
+            "stop",
+            "NOSTR STOP: stopping because stop a",
+        )
+        assert explain_control([stop, start], NOW, *authors) == (
+            "start",
+            "NOSTR START: resuming because start a",
+        )
+        assert explain_control([stop, start, extra], NOW, *authors) == (
+            "stop",
+            "NOSTR STOP: stop ids a are not matched by start ids a, b",
+        )
+        assert decide_control([stop, start], NOW, *authors) == "start"
+        assert decide_control([stop, start, extra], NOW, *authors) == "stop"
+
 
 def _valid_pubkeys() -> tuple[str, str]:
     from nostr_sdk import Keys
@@ -330,6 +353,56 @@ class TestFetchControlEvents:
                 {start_author},
                 relay_quorum=5,
             )
+
+    @pytest.mark.asyncio
+    async def test_repeated_quorum_failure_logs_once(self, monkeypatch, caplog):
+        import commands.control_channel as control_channel
+
+        monkeypatch.setattr(control_channel, "_last_quorum_failures", None)
+        stop_author, start_author = _valid_pubkeys()
+
+        async def fake_fetch(relay, filt, timeout):
+            if relay.endswith("bad"):
+                raise RuntimeError("timeout")
+            return []
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fake_fetch
+        )
+        relays = [f"wss://relay-{i}" for i in "abcde"] + ["wss://relay-bad"]
+        with caplog.at_level(logging.WARNING):
+            await fetch_control_events(
+                relays, {stop_author}, {start_author}, relay_quorum=5
+            )
+            await fetch_control_events(
+                relays, {stop_author}, {start_author}, relay_quorum=5
+            )
+        warnings = [r.getMessage() for r in caplog.records if "met quorum" in r.getMessage()]
+        assert warnings == [
+            "control relay fetch met quorum (5/6 relays); ignoring failures: "
+            "wss://relay-bad: timeout"
+        ]
+
+        caplog.clear()
+
+        async def fail_other(relay, filt, timeout):
+            if relay.endswith("a"):
+                raise RuntimeError("timeout")
+            return []
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fail_other
+        )
+        with caplog.at_level(logging.WARNING):
+            await fetch_control_events(
+                [f"wss://relay-{i}" for i in "abcde"],
+                {stop_author},
+                {start_author},
+                relay_quorum=4,
+            )
+        warnings = [r.getMessage() for r in caplog.records if "met quorum" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "wss://relay-a: timeout" in warnings[0]
 
 
 class _Hex:
@@ -1295,15 +1368,23 @@ def stops_file(tmp_path, monkeypatch):
     monkeypatch.setattr(policy_runtime, "STOPS_FILE", path)
     saved_stops = dict(policy_runtime._seen_stops)
     saved_warned = policy_runtime._missing_stops_warned
-    saved_command = policy_runtime._last_control_command
+    saved_explanation = policy_runtime._last_control_explanation
+    saved_future = set(policy_runtime._logged_future_stop_ids)
+    saved_ignored = set(policy_runtime._logged_ignored_stop_ids)
     policy_runtime._seen_stops.clear()
     policy_runtime._missing_stops_warned = False
-    policy_runtime._last_control_command = None
+    policy_runtime._last_control_explanation = None
+    policy_runtime._logged_future_stop_ids.clear()
+    policy_runtime._logged_ignored_stop_ids.clear()
     yield path
     policy_runtime._seen_stops.clear()
     policy_runtime._seen_stops.update(saved_stops)
     policy_runtime._missing_stops_warned = saved_warned
-    policy_runtime._last_control_command = saved_command
+    policy_runtime._last_control_explanation = saved_explanation
+    policy_runtime._logged_future_stop_ids.clear()
+    policy_runtime._logged_future_stop_ids.update(saved_future)
+    policy_runtime._logged_ignored_stop_ids.clear()
+    policy_runtime._logged_ignored_stop_ids.update(saved_ignored)
 
 
 def _install_fetch(monkeypatch, responses):
@@ -1482,3 +1563,93 @@ async def test_failed_stops_write_stays_halted(monkeypatch, stops_file):
     monkeypatch.setattr(policy_runtime, "_write_stops_file", original_write)
     assert await control_allows_start(cfg) is False
     assert "new-stop" in json.loads(stops_file.read_text())
+
+
+def _warnings(caplog, text: str) -> list[str]:
+    return [record.getMessage() for record in caplog.records if text in record.getMessage()]
+
+
+@pytest.mark.asyncio
+async def test_stop_reason_logs_once_until_the_ids_change(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    stop_a = _ev(id="stop-a", author=STOP_AUTHOR, content="stop a", created_at=NOW - 10)
+    stop_b = _ev(id="stop-b", author=STOP_AUTHOR, content="stop b", created_at=NOW - 5)
+    _install_fetch(monkeypatch, [[stop_a], [stop_a], [stop_a, stop_b]])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+    assert _warnings(caplog, "stopping because") == [
+        "NOSTR STOP: stopping because stop a",
+        "NOSTR STOP: stopping because stop a, stop b",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_no_stop_notes_logs_once(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    _install_fetch(monkeypatch, [[], []])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+    assert _warnings(caplog, "no stop notes") == ["NOSTR STOP: no stop notes"]
+
+
+@pytest.mark.asyncio
+async def test_ignored_stop_author_note_logs_once(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    halt = _ev(id="halt", author=STOP_AUTHOR, content="halt", created_at=NOW - 10)
+    other = _ev(id="go", author=STOP_AUTHOR, content="go", created_at=NOW - 5)
+    _install_fetch(monkeypatch, [[halt], [halt], [halt, other]])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+    assert _warnings(caplog, "ignoring note from stop author") == [
+        "ignoring note from stop author: 'halt'",
+        "ignoring note from stop author: 'go'",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_future_stop_warning_logs_once(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    created = NOW + CLOCK_SKEW_SECONDS + 5
+    events = [
+        _ev(id="futurestop", author=STOP_AUTHOR, content="stop a", created_at=created),
+    ]
+    _install_fetch(monkeypatch, [events, events])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is False
+    assert caplog.text.count("clock catches up") == 1
+
+
+@pytest.mark.asyncio
+async def test_open_gate_does_not_log_a_resume_until_a_stop(monkeypatch, caplog, stops_file):
+    from commands.policy_runtime import control_allows_start
+
+    stop = _ev(id="stop-a", author=STOP_AUTHOR, content="stop a", created_at=NOW - 30)
+    start = _ev(id="start-a", author=START_AUTHOR, content="start a", created_at=NOW - 10)
+    extra = _ev(id="stop-b", author=STOP_AUTHOR, content="stop b", created_at=NOW - 5)
+    resumed = _ev(id="start-b", author=START_AUTHOR, content="start b", created_at=NOW - 1)
+    _install_fetch(monkeypatch, [[stop, start], [stop, start, extra], [stop, start, extra, resumed]])
+    stops_file.write_text("")
+    with caplog.at_level(logging.WARNING):
+        assert await control_allows_start(_control_config()) is True
+        assert await control_allows_start(_control_config()) is False
+        assert await control_allows_start(_control_config()) is True
+    assert _warnings(caplog, "NOSTR START") == [
+        "NOSTR START: resuming because start a, start b"
+    ]
+    assert _warnings(caplog, "NOSTR STOP") == [
+        "NOSTR STOP: stopping because stop b"
+    ]

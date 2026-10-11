@@ -170,7 +170,6 @@ class EthereumFollower:
       while True:
         try:
             if not await control_allows_start(self.control_config):
-                logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
                 await asyncio.sleep(60)
                 continue
 
@@ -181,7 +180,6 @@ class EthereumFollower:
                 
                 while next_message_event is None:
                   if not await control_allows_start(self.control_config):
-                      logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
                       await asyncio.sleep(60)
                       continue
                   await asyncio.sleep(30)
@@ -238,7 +236,6 @@ class EthereumFollower:
                     logging.info(f"{self.chain_id.decode()} message listener: Current L1 block number is {l1_block_number}")
 
             if not await control_allows_start(self.control_config):
-                logging.info(f"{self.chain_id.decode()} message listener: control stop; sleeping 60s")
                 await asyncio.sleep(60)
                 continue
 
@@ -463,7 +460,6 @@ class EthereumFollower:
       while True:
           try:
               if not await control_allows_start(self.control_config):
-                  logging.info(f"{self.chain_id.decode()} message signer: control stop; sleeping 60s")
                   await asyncio.sleep(60)
                   continue
 
