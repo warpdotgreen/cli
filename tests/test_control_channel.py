@@ -97,6 +97,19 @@ class TestLoadControlConfig:
         cfg = load_control_config(_nostr_config())
         assert STOP_AUTHOR in cfg.stop_authors
         assert START_AUTHOR in cfg.start_authors
+        assert cfg.relay_quorum == 5
+
+    def test_relay_quorum_override(self):
+        raw = _nostr_config()
+        raw["nostr"]["control_relay_quorum"] = 3
+        assert load_control_config(raw).relay_quorum == 3
+
+    @pytest.mark.parametrize("quorum", [0, -1, True, False, "5", 1.5])
+    def test_relay_quorum_must_be_a_positive_integer(self, quorum):
+        raw = _nostr_config()
+        raw["nostr"]["control_relay_quorum"] = quorum
+        with pytest.raises(ValueError, match="control_relay_quorum"):
+            load_control_config(raw)
 
 
 class TestDecideControl:
@@ -272,6 +285,49 @@ class TestFetchControlEvents:
             {start_author},
         )
         assert {ev.id for ev in events} == {"aa" * 32, "bb" * 32}
+
+    @pytest.mark.asyncio
+    async def test_quorum_allows_some_relays_to_fail(self, monkeypatch):
+        stop_author, start_author = _valid_pubkeys()
+
+        async def fake_fetch(relay, filt, timeout):
+            if relay.endswith("bad"):
+                raise RuntimeError("timeout")
+            index = relay[-1]
+            return [_RawEvent(index * 64, stop_author, "stop a", NOW - 100)]
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fake_fetch
+        )
+        relays = [f"wss://relay-{i}" for i in "abcde"] + ["wss://relay-bad"]
+        events = await fetch_control_events(
+            relays,
+            {stop_author},
+            {start_author},
+            relay_quorum=5,
+        )
+        assert {ev.id for ev in events} == {i * 64 for i in "abcde"}
+
+    @pytest.mark.asyncio
+    async def test_below_quorum_is_incomplete(self, monkeypatch):
+        stop_author, start_author = _valid_pubkeys()
+
+        async def fake_fetch(relay, filt, timeout):
+            if relay[-1] in "ef":
+                raise RuntimeError("timeout")
+            return [_RawEvent("aa" * 32, stop_author, "stop a", NOW - 100)]
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fake_fetch
+        )
+        relays = [f"wss://relay-{i}" for i in "abcdef"]
+        with pytest.raises(RuntimeError, match="incomplete"):
+            await fetch_control_events(
+                relays,
+                {stop_author},
+                {start_author},
+                relay_quorum=5,
+            )
 
 
 class TestPublish:

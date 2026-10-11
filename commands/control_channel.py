@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Iterable, List, Literal, Optional, Sequence, Set
@@ -23,11 +24,15 @@ class ControlEvent:
     created_at: int
 
 
+DEFAULT_RELAY_QUORUM = 5
+
+
 @dataclass(frozen=True)
 class ControlConfig:
     stop_authors: Set[str]
     start_authors: Set[str]
     relays: List[str]
+    relay_quorum: int = DEFAULT_RELAY_QUORUM
 
 
 def normalize_hex(value: str) -> str:
@@ -55,6 +60,7 @@ def load_control_config(config: Optional[dict] = None) -> ControlConfig:
 
     Requires non-empty, non-overlapping control_stop_authors and
     control_start_authors. control_relays is optional and defaults to nostr.relays.
+    control_relay_quorum is optional and defaults to 5.
     """
     cfg = _loaded_config if config is None else config
     try:
@@ -92,11 +98,20 @@ def load_control_config(config: Optional[dict] = None) -> ControlConfig:
     if not isinstance(relays, list) or not all(isinstance(r, str) for r in relays):
         raise ValueError("nostr control relays must be a list of strings")
 
+    relay_quorum = _parse_relay_quorum(nostr.get("control_relay_quorum", DEFAULT_RELAY_QUORUM))
+
     return ControlConfig(
         stop_authors=stop_authors,
         start_authors=start_authors,
         relays=list(relays),
+        relay_quorum=relay_quorum,
     )
+
+
+def _parse_relay_quorum(raw: object) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        raise ValueError("nostr.control_relay_quorum must be a positive integer")
+    return raw
 
 
 def _command_and_id(content: str) -> Optional[tuple[str, str]]:
@@ -226,19 +241,23 @@ async def fetch_control_events(
     start_authors: Set[str],
     *,
     timeout_seconds: float = 10.0,
+    relay_quorum: int = DEFAULT_RELAY_QUORUM,
 ) -> List[ControlEvent]:
     """
-    Fetch kind-1 notes from every control relay and union by event id.
+    Fetch kind-1 notes from control relays and union by event id.
 
-    Each relay is queried independently so one withholding relay cannot hide a
-    stop seen on another. The events are unioned by id only when every
-    configured relay answers. If any relay errors, raises RuntimeError and
-    does not return the partial union (caller must treat that as stop). One
-    live relay cannot outvote a halt the others failed to return. No caching.
+    Each relay is queried independently. The events are unioned when at least
+    min(relay_quorum, number of relays) relays answer. Fewer successes raise
+    RuntimeError and do not return a partial union (caller must treat that as
+    stop). Relays that fail after the quorum is met are logged and omitted
+    from this poll. No caching.
     """
     if not relays:
         raise RuntimeError("no control relays configured")
+    if isinstance(relay_quorum, bool) or not isinstance(relay_quorum, int) or relay_quorum < 1:
+        raise ValueError("relay_quorum must be a positive integer")
 
+    required = min(relay_quorum, len(relays))
     authors = _author_public_keys(set(stop_authors) | set(start_authors))
     filt = Filter().kinds([Kind(1)]).authors(authors)
     timeout = timedelta(seconds=timeout_seconds)
@@ -257,12 +276,20 @@ async def fetch_control_events(
         except Exception as e:
             errors.append(f"{relay}: {e}")
 
-    if successes != len(relays):
+    if successes < required:
         detail = "; ".join(errors) if errors else "unknown errors"
         if successes == 0:
             raise RuntimeError(f"all control relays failed: {detail}")
         raise RuntimeError(
             f"control relay fetch incomplete ({successes}/{len(relays)} relays): {detail}"
+        )
+
+    if errors:
+        logging.warning(
+            "control relay fetch met quorum (%s/%s relays); ignoring failures: %s",
+            successes,
+            len(relays),
+            "; ".join(errors),
         )
 
     return list(by_id.values())

@@ -404,6 +404,7 @@ async def control_allows_start(control_config: ControlConfig) -> bool:
             control_config.relays,
             control_config.stop_authors,
             control_config.start_authors,
+            relay_quorum=control_config.relay_quorum,
         )
     except Exception:
         if _last_control_command != "stop":
