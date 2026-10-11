@@ -1,10 +1,12 @@
 import click
 from commands.models import *
+from commands.config import config, load_listener_config
 import time
 import logging
 from commands.followers.eth_follower import EthereumFollower
 from commands.followers.xch_follower import ChiaFollower
 from commands.followers.sig import MessageBroadcaster
+from commands.monitoring import start_height_monitors
 import asyncio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,14 +14,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 @click.option('--log-startup-connection-errors', is_flag=True, default=False)
 @click.command()
 def listen(log_startup_connection_errors: bool):
-    msg_broadcaster = MessageBroadcaster()
+    routes, control_config = load_listener_config()
+
+    msg_broadcaster = MessageBroadcaster(control_config)
 
     def send_sig(sig: str):
         msg_broadcaster.add_signature(sig)
 
-    eth_follower = EthereumFollower("eth", False, send_sig)
-    bse_follower = EthereumFollower("bse", True, send_sig)
-    xch_follower = ChiaFollower("xch", send_sig)
+    eth_follower = EthereumFollower("eth", False, send_sig, routes, control_config)
+    bse_follower = EthereumFollower("bse", True, send_sig, routes, control_config)
+    xch_follower = ChiaFollower("xch", send_sig, routes, control_config)
 
     asyncio.run(xch_follower.wait_for_node(log_startup_connection_errors))
     asyncio.run(eth_follower.wait_for_node(log_startup_connection_errors))
@@ -30,6 +34,7 @@ def listen(log_startup_connection_errors: bool):
     xch_follower.run(loop)
     eth_follower.run(loop)
     bse_follower.run(loop)
+    start_height_monitors(loop, config)
     loop.run_forever()
     
     while True:

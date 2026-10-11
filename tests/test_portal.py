@@ -5,7 +5,7 @@ from chia.util.bech32m import encode_puzzle_hash
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
-from chia.types.coin_spend import CoinSpend
+from chia.types.coin_spend import make_spend
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.util.bech32m import decode_puzzle_hash
@@ -124,7 +124,7 @@ class TestPortal:
             [],
             1
         )
-        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
+        portal_launcher_parent_spend = make_spend(portal_launcher_parent, one_puzzle, Program.to(conditions))
 
         portal_creation_bundle = SpendBundle(
             [portal_launcher_parent_spend, portal_launcher_spend],
@@ -187,7 +187,7 @@ class TestPortal:
         )
 
         portal_spend_bundle = SpendBundle(
-            [CoinSpend(portal, portal_full_puzzle, portal_solution)],
+            [make_spend(portal, portal_full_puzzle, portal_solution)],
             message_signature
         )
 
@@ -221,7 +221,7 @@ class TestPortal:
             portal_inner_puzzle.get_tree_hash(),
             message_coin.name()
         )
-        message_coin_spend = CoinSpend(
+        message_coin_spend = make_spend(
             message_coin,
             message_coin_puzzle,
             message_coin_solution
@@ -233,7 +233,7 @@ class TestPortal:
             [ConditionOpcode.CREATE_COIN, my_puzzle_hash, 1]
         ])
         
-        message_claimer_spend = CoinSpend(
+        message_claimer_spend = make_spend(
             message_claimer,
             one_puzzle,
             message_claimer_solution
@@ -287,7 +287,7 @@ class TestPortal:
             portal_launcher_id,
             new_portal_inner_puzzle,
         )
-        portal_update_spend = CoinSpend(new_portal, portal_puzzle, portal_solution)
+        portal_update_spend = make_spend(new_portal, portal_puzzle, portal_solution)
 
         sigs = get_validator_set_sigs(
             updater_delegated_puzzle.get_tree_hash(),
@@ -357,7 +357,7 @@ class TestPortal:
 
         portal_spend_bundle = SpendBundle(
             [
-                CoinSpend(portal, portal_full_puzzle, portal_solution)
+                make_spend(portal, portal_full_puzzle, portal_solution)
             ],
             message_signature
         )
@@ -414,7 +414,7 @@ class TestPortal:
         )
 
         portal = Coin(portal.name(), portal_puzzle.get_tree_hash(), 1)
-        portal_update_spend2 = CoinSpend(portal, portal_puzzle, portal_solution)
+        portal_update_spend2 = make_spend(portal, portal_puzzle, portal_solution)
 
         sigs = get_validator_set_sigs(
             updater_delegated_puzzle.get_tree_hash(),

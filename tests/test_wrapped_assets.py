@@ -6,7 +6,7 @@ from chia.wallet.puzzles.singleton_top_layer_v1_1 import generate_launcher_coin
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import \
     launch_conditions_and_coinsol, solution_for_singleton, lineage_proof_for_coinsol
 from chia.wallet.puzzles.singleton_top_layer_v1_1 import puzzle_for_singleton
-from chia.types.coin_spend import CoinSpend
+from chia.types.coin_spend import make_spend
 from chia.types.condition_opcodes import ConditionOpcode
 from chia.wallet.cat_wallet.cat_utils import construct_cat_puzzle
 from chia.wallet.cat_wallet.cat_utils import CAT_MOD
@@ -64,7 +64,7 @@ class TestWrappedAssets:
             [],
             1
         )
-        portal_launcher_parent_spend = CoinSpend(portal_launcher_parent, one_puzzle, Program.to(conditions))
+        portal_launcher_parent_spend = make_spend(portal_launcher_parent, one_puzzle, Program.to(conditions))
 
         portal_creation_bundle = SpendBundle(
             [portal_launcher_parent_spend, portal_launcher_spend],
@@ -110,7 +110,7 @@ class TestWrappedAssets:
         )
 
 
-        message_coin_creation_spend = CoinSpend(
+        message_coin_creation_spend = make_spend(
             portal,
             portal_full_puzzle,
             portal_solution
@@ -141,7 +141,7 @@ class TestWrappedAssets:
             one_puzzle_hash,
             message_coin.name()
         )
-        message_coin_spend = CoinSpend(
+        message_coin_spend = make_spend(
             message_coin,
             message_coin_puzzle,
             message_coin_solution
@@ -154,7 +154,7 @@ class TestWrappedAssets:
             minter_coin.name(),
             message_coin.parent_coin_info
         )
-        minter_coin_spend = CoinSpend(
+        minter_coin_spend = make_spend(
             minter_coin,
             minter_puzzle,
             minter_puzzle_solution
@@ -308,7 +308,7 @@ class TestWrappedAssets:
             ETH_RECEIVER,
             burner_coin
         )
-        burner_spend = CoinSpend(
+        burner_spend = make_spend(
             burner_coin,
             burner_puzzle,
             burner_solution
@@ -322,7 +322,7 @@ class TestWrappedAssets:
         )
         bridging_solution = Program.to([1])
 
-        bridging_coin_spend = CoinSpend(
+        bridging_coin_spend = make_spend(
             bridging_coin,
             BRIDGING_PUZZLE,
             bridging_solution

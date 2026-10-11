@@ -4,18 +4,25 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
   release:
     types: [created]
 
 jobs:
   publish_containers:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
     - name: Login to registry
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
       run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
     - name: Docker meta
@@ -33,6 +40,6 @@ jobs:
       with:
         context: .
         file: Dockerfile
-        push: true
+        push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}

@@ -1,12 +1,14 @@
 from chia.util.bech32m import bech32_encode, convertbits, bech32_decode
 from typing import Tuple, List
 from commands.config import get_config_item
+from commands.control_channel import ControlConfig
+from commands.models import Message, setup_database
+from commands.policy_runtime import control_allows_start
 from nostr_sdk import Keys, Client, NostrSigner, EventBuilder, Tag, Filter, SingleLetterTag, Alphabet
-from datetime import timedelta
+from sqlalchemy import and_
 import logging
 import time
 import queue
-import threading
 import asyncio
 
 def encode_signature(
@@ -32,6 +34,14 @@ def encode_signature(
     return res
 
 
+def _bech32_payload_to_bytes(encoded: str, max_length: int | None = None) -> bytes:
+    if max_length is None:
+        data = bech32_decode(encoded)[1]
+    else:
+        data = bech32_decode(encoded, max_length)[1]
+    return bytes(convertbits(data, 5, 8, False))
+
+
 def decode_signature(enc_sig: str) -> Tuple[
     bytes,  # origin_chain
     bytes,  # destination_chain
@@ -40,13 +50,17 @@ def decode_signature(enc_sig: str) -> Tuple[
     bytes  # sig
 ]:
     parts = enc_sig.split("-")
-    route_data = convertbits(bech32_decode(parts[0], (32 + 3 + 3) * 2)[1], 5, 8, False)
+    route_data = _bech32_payload_to_bytes(parts[0], (32 + 3 + 3) * 2)
     origin_chain = route_data[:3]
     destination_chain = route_data[3:6]
     nonce = route_data[6:]
 
-    coin_id = convertbits(bech32_decode(parts[1])[1], 5, 8, False)
-    sig = convertbits(bech32_decode(parts[-1], 96 * 2)[1], 5, 8, False)
+    # xch→eth/bse signatures are encoded with no coin id: "route--sig".
+    if parts[1] == "":
+        coin_id = None
+    else:
+        coin_id = _bech32_payload_to_bytes(parts[1])
+    sig = _bech32_payload_to_bytes(parts[-1], 96 * 2)
 
     return origin_chain, destination_chain, nonce, coin_id, sig
 
@@ -55,11 +69,33 @@ class MessageBroadcaster:
     relays: List[str]
     my_private_key: Keys
     message_queue: queue.Queue
+    control_config: ControlConfig
 
-    def __init__(self):
+    def __init__(self, control_config: ControlConfig):
         self.relays = get_config_item(["nostr", "relays"])
         self.my_private_key = Keys.from_mnemonic(get_config_item(["nostr", "my_mnemonic"]), None)
         self.message_queue = queue.Queue()
+        self.control_config = control_config
+
+
+    def _clear_message_sig(self, sig: str):
+        try:
+            origin_chain, destination_chain, nonce, _, __ = decode_signature(sig)
+            db = setup_database()
+            msg = db.query(Message).filter(and_(
+                Message.source_chain == origin_chain,
+                Message.nonce == nonce,
+                Message.destination_chain == destination_chain,
+            )).first()
+            if msg is not None and msg.sig == sig.encode():
+                msg.sig = b''
+                db.commit()
+                logging.info(
+                    f"Nostr: discarded signature for {origin_chain.decode()}-{nonce.hex()} after control stop"
+                )
+            db.close()
+        except Exception:
+            logging.error("Nostr: failed to clear message sig after control stop", exc_info=True)
 
 
     async def send_signature(
@@ -72,6 +108,11 @@ class MessageBroadcaster:
             open("messages.txt", "a").write(sig + "\n")
         except:
             open("messages.txt", "w").write(sig + "\n")
+
+        if not await control_allows_start(self.control_config):
+            logging.info("Nostr: control gate stop; not broadcasting and clearing sig")
+            self._clear_message_sig(sig)
+            return
 
         try:
             [route_data, coin_data, sig_data] = sig.split("-")
@@ -98,6 +139,10 @@ class MessageBroadcaster:
 
             await client.disconnect()
         except:
+            if not await control_allows_start(self.control_config):
+                logging.info("Nostr: control gate stop during retry; clearing sig")
+                self._clear_message_sig(sig)
+                return
             if retries < 3:
                 retries += 1
                 logging.error("Nostr: failed to send signature to relays; retrying in 3s...", exc_info=True)
