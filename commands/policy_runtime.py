@@ -537,6 +537,17 @@ def _storage_key(holder: bytes, slot: int) -> str:
     return "0x" + binascii.hexlify(bytes(digest)).decode("ascii")
 
 
+# OpenZeppelin v5 stores balances at the ERC-7201 base of
+# openzeppelin.storage.ERC20, not in slots 0-63.
+_OZ_ERC20_BALANCES_SLOT = int(
+    "52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00", 16
+)
+
+
+def _balance_mapping_slots() -> list[int]:
+    return [*range(64), _OZ_ERC20_BALANCES_SLOT]
+
+
 def _parse_uint(value) -> Optional[int]:
     if value is None:
         return None
@@ -621,7 +632,7 @@ async def _find_balance_mapping_slot(
         return None
 
     matching: List[int] = []
-    for slot in range(0, 64):
+    for slot in _balance_mapping_slots():
         key = _storage_key(holder, slot)
         try:
             raw = await web3.eth.get_storage_at(
@@ -858,6 +869,75 @@ def _holder_log_nets(
     return nets
 
 
+async def _unwrap_burn_sender(
+    web3: AsyncWeb3,
+    tx_hash: str,
+    token: bytes,
+    burn_value: int,
+    block_number: int,
+) -> Optional[bytes]:
+    """Account that burned exactly burn_value of token in this transaction.
+
+    The burn is the wrapped-token Transfer to address(0). Zero matches, or
+    more than one, returns None.
+    """
+    try:
+        token_addr = evm_address_from_bytes32(left_pad_32(token))
+    except ValueError:
+        return None
+    tx_key = _norm_tx_hash(tx_hash)
+    if tx_key is None:
+        return None
+    try:
+        logs = await web3.eth.get_logs(
+            {
+                "fromBlock": block_number,
+                "toBlock": block_number,
+                "address": _checksum(token),
+                "topics": [_TRANSFER_TOPIC],
+            }
+        )
+        log_list = list(logs)
+    except Exception:
+        logging.info("eth_getLogs failed during unwrap sender lookup", exc_info=True)
+        return None
+
+    transfer_topic = bytes.fromhex(_TRANSFER_TOPIC[2:])
+    zero = b"\x00" * 20
+    senders: list[bytes] = []
+    for log in log_list:
+        address = _topic_address(_log_field(log, "address"))
+        if address is None:
+            raw_address = _as_hex_bytes(_log_field(log, "address"))
+            if raw_address is None or len(raw_address) != 20:
+                continue
+            address = raw_address
+        if address != token_addr:
+            continue
+        if _norm_tx_hash(_log_field(log, "transactionHash")) != tx_key:
+            continue
+        topics = _log_field(log, "topics") or []
+        try:
+            topic_list = list(topics)
+        except TypeError:
+            continue
+        if len(topic_list) != 3:
+            continue
+        if _as_hex_bytes(topic_list[0]) != transfer_topic:
+            continue
+        data = _as_hex_bytes(_log_field(log, "data"))
+        sender = _topic_address(topic_list[1])
+        receiver = _topic_address(topic_list[2])
+        if data is None or len(data) != 32 or sender is None or receiver is None:
+            continue
+        if receiver != zero or int.from_bytes(data, "big") != burn_value:
+            continue
+        senders.append(sender)
+    if len(senders) != 1:
+        return None
+    return senders[0]
+
+
 async def _read_slot_uint(
     web3: AsyncWeb3, token_cs: str, holder: bytes, slot: int, block_number: int
 ) -> Optional[int]:
@@ -895,7 +975,7 @@ async def _balance_storage_delta(
         return None
 
     matching: List[int] = []
-    for slot in range(0, 64):
+    for slot in _balance_mapping_slots():
         stored = await _read_slot_uint(web3, token_cs, holder, slot, block_number)
         if stored is None:
             return None
@@ -1123,12 +1203,85 @@ async def read_wrapped_cat_views(
         return None, None, None, None, None, None, None
 
 
-def _decode_uint256(data: bytes, position: int) -> int:
-    return int.from_bytes(data[position:position + 32], "big")
+def _failed_tx(tx_status: Optional[int]) -> Optional[PolicyResult]:
+    """Final reject once a receipt says the transaction did not succeed.
+
+    A missing status stays a retry. These checks run before calldata matching
+    so a reverted bundle is not retried as a missing burn or amount.
+    """
+    if tx_status is None or tx_status == 1:
+        return None
+    return PolicyResult("reject", "tx status not success")
 
 
-def _decode_address(data: bytes, position: int) -> bytes:
-    return data[position + 12:position + 32]
+def _as_word(value: bytes) -> Optional[bytes]:
+    try:
+        return left_pad_32(value)
+    except ValueError:
+        return None
+
+
+def _embedded_calls(raw: bytes, selector: bytes, word_count: int) -> list[list[bytes]]:
+    """ABI words after every occurrence of selector, including nested calls."""
+    hits: list[list[bytes]] = []
+    start = 0
+    need = 4 + 32 * word_count
+    while True:
+        found = raw.find(selector, start)
+        if found < 0:
+            break
+        start = found + 1
+        if len(raw) < found + need:
+            continue
+        base = found + 4
+        hits.append([raw[base + 32 * n:base + 32 * (n + 1)] for n in range(word_count)])
+    return hits
+
+
+def _unique_uint(values: list[int]) -> tuple[Optional[int], bool]:
+    found = set(values)
+    if len(found) == 1:
+        return next(iter(found)), False
+    if len(found) > 1:
+        return None, True
+    return None, False
+
+
+def _bridge_back_gross(raw: bytes, receiver: bytes) -> tuple[Optional[int], bool]:
+    """Gross mojos from bridgeBack calls whose receiver word matches."""
+    receiver_word = _as_word(receiver)
+    if receiver_word is None:
+        return None, False
+    amounts = [
+        int.from_bytes(words[1], "big")
+        for words in _embedded_calls(raw, BRIDGE_BACK_SEL, 2)
+        if words[0] == receiver_word
+    ]
+    return _unique_uint(amounts)
+
+
+def _token_bridge_gross(
+    raw: bytes, contents: Sequence[bytes]
+) -> tuple[Optional[int], Optional[bytes], bool]:
+    """Gross mojos and asset from bridgeToChia or permit calls.
+
+    The bool is true when more than one amount matches this message.
+    """
+    if len(contents) < 2:
+        return None, None, False
+    asset_word = _as_word(contents[0])
+    receiver_word = _as_word(contents[1])
+    if asset_word is None or receiver_word is None:
+        return None, None, False
+    amounts: list[int] = []
+    for selector in (BRIDGE_TO_CHIA_SEL, BRIDGE_PERMIT_SEL):
+        for words in _embedded_calls(raw, selector, 3):
+            if words[0] == asset_word and words[1] == receiver_word:
+                amounts.append(int.from_bytes(words[2], "big"))
+    amount, ambiguous = _unique_uint(amounts)
+    if ambiguous or amount is None:
+        return None, None, ambiguous
+    return amount, asset_word[-20:], False
 
 
 def _burner_tail_hash_hash_mismatch(burner_spend: CoinSpend, routes: BridgeRoutes) -> bool:
@@ -1382,6 +1535,10 @@ async def _evaluate_evm_erc20_wrap(
     except Exception:
         return PolicyResult("retry", "could not read bridge/portal views")
 
+    failed = _failed_tx(tx_status)
+    if failed is not None:
+        return failed
+
     raw_input = bytes(tx.input)
     selector = raw_input[:4] if len(raw_input) >= 4 else b""
     msg_value = int(tx.value)
@@ -1391,13 +1548,7 @@ async def _evaluate_evm_erc20_wrap(
     asset_for_decimals: Optional[bytes] = None
 
     try:
-        if selector == BRIDGE_TO_CHIA_SEL:
-            asset_for_decimals = _decode_address(raw_input, 4)
-            gross_mojo_amount = _decode_uint256(raw_input, 4 + 32 + 32)
-        elif selector == BRIDGE_PERMIT_SEL:
-            asset_for_decimals = _decode_address(raw_input, 4)
-            gross_mojo_amount = _decode_uint256(raw_input, 4 + 32 + 32)
-        elif selector == BRIDGE_ETHER_SEL:
+        if is_bridge_ether:
             asset_for_decimals = evm_address_from_bytes32(left_pad_32(route.millieth_address))
             if msg_value < message_toll:
                 return PolicyResult("reject", "msg.value < message toll")
@@ -1411,9 +1562,14 @@ async def _evaluate_evm_erc20_wrap(
                 return PolicyResult("reject", "amountAfterToll not divisible by wethToEthRatio")
             gross_mojo_amount = amount_after_toll // weth_to_eth_ratio // factor
         else:
-            if len(contents) == 3:
+            amount, asset, ambiguous = _token_bridge_gross(raw_input, contents)
+            if ambiguous:
+                return PolicyResult("retry", "ambiguous bridge amount")
+            if amount is not None:
+                gross_mojo_amount = amount
+                asset_for_decimals = asset
+            elif len(contents) == 3:
                 asset_for_decimals = evm_address_from_bytes32(left_pad_32(contents[0]))
-            gross_mojo_amount = None
     except Exception:
         return PolicyResult("retry", "could not decode bridge calldata")
 
@@ -1489,11 +1645,18 @@ async def _evaluate_evm_cat_unwrap(
     if len(code) == 0 or _bytecode_is_not_wrapped_cat(code):
         return PolicyResult("reject", "WrappedCAT bytecode mismatch after immutable mask")
 
+    failed = _failed_tx(tx_status)
+    if failed is not None:
+        return failed
+
     raw_input = bytes(tx.input)
-    gross_mojo_amount: Optional[int] = None
-    selector = raw_input[:4] if len(raw_input) >= 4 else b""
-    if selector == BRIDGE_BACK_SEL and len(raw_input) >= 4 + 64:
-        gross_mojo_amount = _decode_uint256(raw_input, 4 + 32)
+    outer_bridge_back = raw_input[:4] == BRIDGE_BACK_SEL
+    receiver = contents[0] if contents else b""
+    gross_mojo_amount, ambiguous_back = _bridge_back_gross(raw_input, receiver)
+    if ambiguous_back:
+        return PolicyResult("retry", "ambiguous bridgeBack amount")
+    if outer_bridge_back and gross_mojo_amount is None and len(raw_input) >= 4 + 64:
+        return PolicyResult("reject", "bridgeBack receiver mismatch")
 
     tx_from = tx["from"]
     if isinstance(tx_from, str):
@@ -1503,6 +1666,23 @@ async def _evaluate_evm_cat_unwrap(
     route = routes.for_chain(source_chain)
     if route is None:
         return PolicyResult("reject", "unknown source chain")
+
+    if (
+        verify_balance_diff
+        and not outer_bridge_back
+        and gross_mojo_amount is not None
+        and mojo_to_token_ratio is not None
+    ):
+        burner = await _unwrap_burn_sender(
+            web3,
+            tx_hash,
+            source,
+            gross_mojo_amount * int(mojo_to_token_ratio),
+            block_number,
+        )
+        if burner is None:
+            return PolicyResult("retry", "missing unwrap sender")
+        sender = burner
 
     sender_balance_diff = None
     portal_balance_diff = None

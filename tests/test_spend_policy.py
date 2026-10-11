@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from typing import List, Optional, Tuple
 from unittest.mock import patch
 
@@ -1077,7 +1078,7 @@ class TestSkippedBalanceDiff:
         calldata = (
             bytes.fromhex("cdb50da7")
             + left_pad_32(asset)
-            + b"\x00" * 32
+            + left_pad_32(RECEIVER)
             + gross.to_bytes(32, "big")
         )
         web3 = _ViewWeb3(
@@ -1121,7 +1122,11 @@ class TestSkippedBalanceDiff:
         unlocker = b"\x24" * 32
         gross = 10_000
         net = gross - compute_bridge_tip(gross, WRAP_TIP_BPS)
-        calldata = bytes.fromhex("415d9361") + b"\x00" * 32 + gross.to_bytes(32, "big")
+        calldata = (
+            bytes.fromhex("415d9361")
+            + left_pad_32(RECEIVER)
+            + gross.to_bytes(32, "big")
+        )
         contents = [left_pad_32(RECEIVER), net.to_bytes(32, "big")]
         calls = []
 
@@ -1170,6 +1175,338 @@ class TestSkippedBalanceDiff:
             assert calls == [1, 1]
             assert default.kind == "retry"
             assert default.reason == "missing balance diffs"
+
+    @pytest.mark.asyncio
+    async def test_bundled_unwrap_uses_inner_bridge_back_and_burn_sender(self):
+        from commands.policy_runtime import _TRANSFER_TOPIC, _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        smart = bytes.fromhex("ab" * 20)
+        gross = 1_000_000_000
+        tip = compute_bridge_tip(gross, WRAP_TIP_BPS)
+        net = gross - tip
+        prefix = bytes.fromhex("1fad948c") + b"\x11" * 80
+        calldata = (
+            prefix
+            + bytes.fromhex("415d9361")
+            + left_pad_32(RECEIVER)
+            + gross.to_bytes(32, "big")
+        )
+        burn = gross * WRAP_MOJO_TO_TOKEN_RATIO
+        tx_hash = "0x" + "11" * 32
+        web3 = _LogsWeb3(
+            [
+                {
+                    "address": "0x" + WRAPPED_CAT_ADDR.hex(),
+                    "topics": [
+                        _TRANSFER_TOPIC,
+                        _padded_topic(smart),
+                        _padded_topic(b"\x00" * 20),
+                    ],
+                    "data": _uint_data(burn),
+                    "transactionHash": tx_hash,
+                }
+            ]
+        )
+        holders = []
+
+        async def fetch(_web3, _tx_hash, _token, holder, _block):
+            holders.append(bytes(holder)[-20:])
+            if bytes(holder)[-20:] == smart:
+                return -burn
+            return tip * WRAP_MOJO_TO_TOKEN_RATIO
+
+        with _unwrap_patches(fetch, unlocker):
+            result = await _evaluate_evm_cat_unwrap(
+                **_unwrap_call(
+                    web3,
+                    calldata,
+                    [left_pad_32(RECEIVER), net.to_bytes(32, "big")],
+                    unlocker,
+                    tx_hash,
+                    "0x" + "44" * 20,
+                )
+            )
+        assert web3.eth.calls == 1
+        assert holders[0] == smart
+        assert result.kind == "accept"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_embedded_bridge_back_retries(self):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        receiver = left_pad_32(RECEIVER)
+        first = bytes.fromhex("415d9361") + receiver + (1_000_000_000).to_bytes(32, "big")
+        second = bytes.fromhex("415d9361") + receiver + (2_000_000_000).to_bytes(32, "big")
+        calldata = bytes.fromhex("1fad948c") + first + second
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        with _unwrap_patches(fetch, unlocker):
+            result = await _evaluate_evm_cat_unwrap(
+                **_unwrap_call(
+                    _LogsWeb3([]),
+                    calldata,
+                    [receiver, (997_000_000).to_bytes(32, "big")],
+                    unlocker,
+                    "0x" + "11" * 32,
+                    "0x" + "44" * 20,
+                )
+            )
+        assert calls == []
+        assert result.kind == "retry"
+        assert result.reason == "ambiguous bridgeBack amount"
+
+    @pytest.mark.asyncio
+    async def test_direct_bridge_back_uses_tx_from_without_burn_log(self):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        gross = 10_000
+        tip = compute_bridge_tip(gross, WRAP_TIP_BPS)
+        net = gross - tip
+        sender = bytes.fromhex("44" * 20)
+        calldata = (
+            bytes.fromhex("415d9361")
+            + left_pad_32(RECEIVER)
+            + gross.to_bytes(32, "big")
+        )
+        web3 = _LogsWeb3(AssertionError("burn log"))
+        holders = []
+
+        async def fetch(_web3, _tx_hash, _token, holder, _block):
+            holders.append(bytes(holder)[-20:])
+            if len(holders) == 1:
+                return -(gross * WRAP_MOJO_TO_TOKEN_RATIO)
+            return tip * WRAP_MOJO_TO_TOKEN_RATIO
+
+        with _unwrap_patches(fetch, unlocker):
+            result = await _evaluate_evm_cat_unwrap(
+                **_unwrap_call(
+                    web3,
+                    calldata,
+                    [left_pad_32(RECEIVER), net.to_bytes(32, "big")],
+                    unlocker,
+                    "0x" + "11" * 32,
+                    "0x" + sender.hex(),
+                )
+            )
+        assert web3.eth.calls == 0
+        assert holders[0] == sender
+        assert result.kind == "accept"
+
+    @pytest.mark.asyncio
+    async def test_failed_bundled_unwrap_rejects_without_burn_lookup(self):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        gross = 1_000_000_000
+        net = gross - compute_bridge_tip(gross, WRAP_TIP_BPS)
+        calldata = (
+            bytes.fromhex("1fad948c")
+            + bytes.fromhex("415d9361")
+            + left_pad_32(RECEIVER)
+            + gross.to_bytes(32, "big")
+        )
+        web3 = _LogsWeb3(AssertionError("burn log"))
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        kwargs = _unwrap_call(
+            web3,
+            calldata,
+            [left_pad_32(RECEIVER), net.to_bytes(32, "big")],
+            unlocker,
+            "0x" + "11" * 32,
+            "0x" + "44" * 20,
+        )
+        kwargs["tx_status"] = 0
+        with _unwrap_patches(fetch, unlocker):
+            result = await _evaluate_evm_cat_unwrap(**kwargs)
+        assert web3.eth.calls == 0
+        assert calls == []
+        assert result.kind == "reject"
+        assert result.reason == "tx status not success"
+
+    @pytest.mark.asyncio
+    async def test_direct_bridge_back_receiver_mismatch_rejects(self):
+        from commands.policy_runtime import _evaluate_evm_cat_unwrap
+
+        unlocker = b"\x24" * 32
+        gross = 10_000
+        net = gross - compute_bridge_tip(gross, WRAP_TIP_BPS)
+        other = bytes.fromhex("cc" * 20)
+        calldata = (
+            bytes.fromhex("415d9361")
+            + left_pad_32(other)
+            + gross.to_bytes(32, "big")
+        )
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        with _unwrap_patches(fetch, unlocker):
+            result = await _evaluate_evm_cat_unwrap(
+                **_unwrap_call(
+                    _LogsWeb3([]),
+                    calldata,
+                    [left_pad_32(RECEIVER), net.to_bytes(32, "big")],
+                    unlocker,
+                    "0x" + "11" * 32,
+                    "0x" + "44" * 20,
+                )
+            )
+        assert calls == []
+        assert result.kind == "reject"
+        assert result.reason == "bridgeBack receiver mismatch"
+
+    @pytest.mark.asyncio
+    async def test_embedded_bridge_to_chia_decodes_gross(self):
+        from commands.policy_runtime import _evaluate_evm_erc20_wrap
+
+        gross = 10_000
+        net = gross - compute_bridge_tip(gross, 30)
+        asset = bytes.fromhex("aa" * 20)
+        prefix = bytes.fromhex("1fad948c") + b"\x22" * 40
+        calldata = (
+            prefix
+            + bytes.fromhex("cdb50da7")
+            + left_pad_32(asset)
+            + left_pad_32(RECEIVER)
+            + gross.to_bytes(32, "big")
+        )
+        web3 = _ViewWeb3(
+            {"tip": 30, "wethToEthRatio": 1, "messageToll": 0, "decimals": 18}
+        )
+        contents = [left_pad_32(asset), left_pad_32(RECEIVER), net.to_bytes(32, "big")]
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        with patch("commands.policy_runtime.fetch_token_balance_diff", new=fetch):
+            result = await _evaluate_evm_erc20_wrap(
+                web3=web3,
+                routes=_routes(),
+                route=_routes().for_chain(b"eth"),
+                source_chain=b"eth",
+                source=left_pad_32(ETH_BRIDGE),
+                destination=get_cat_minter_puzzle(PORTAL, b"eth", ETH_BRIDGE).get_tree_hash(),
+                destination_chain=b"xch",
+                contents=contents,
+                block_number=1,
+                tx=_CalldataTx(calldata),
+                tx_hash="0x" + "11" * 32,
+                tx_status=1,
+                verify_balance_diff=False,
+            )
+        assert calls == []
+        assert result.kind == "accept"
+
+    @pytest.mark.asyncio
+    async def test_failed_wrap_rejects_before_balance_lookup(self):
+        from commands.policy_runtime import _evaluate_evm_erc20_wrap
+
+        asset = bytes.fromhex("aa" * 20)
+        web3 = _ViewWeb3(
+            {"tip": 30, "wethToEthRatio": 1, "messageToll": 0, "decimals": 18}
+        )
+        calls = []
+
+        async def fetch(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        with patch("commands.policy_runtime.fetch_token_balance_diff", new=fetch):
+            result = await _evaluate_evm_erc20_wrap(
+                web3=web3,
+                routes=_routes(),
+                route=_routes().for_chain(b"eth"),
+                source_chain=b"eth",
+                source=left_pad_32(ETH_BRIDGE),
+                destination=get_cat_minter_puzzle(PORTAL, b"eth", ETH_BRIDGE).get_tree_hash(),
+                destination_chain=b"xch",
+                contents=[
+                    left_pad_32(asset),
+                    left_pad_32(RECEIVER),
+                    (1).to_bytes(32, "big"),
+                ],
+                block_number=1,
+                tx=_CalldataTx(b""),
+                tx_hash="0x" + "11" * 32,
+                tx_status=0,
+            )
+        assert calls == []
+        assert result.kind == "reject"
+        assert result.reason == "tx status not success"
+
+
+def _unwrap_call(web3, calldata, contents, unlocker, tx_hash, sender):
+    return dict(
+        web3=web3,
+        routes=_routes(),
+        source_chain=b"eth",
+        source=left_pad_32(WRAPPED_CAT_ADDR),
+        destination=unlocker,
+        destination_chain=b"xch",
+        contents=contents,
+        block_number=1,
+        tx=_CalldataTx(calldata, sender=sender),
+        tx_hash=tx_hash,
+        tx_status=1,
+    )
+
+
+@contextmanager
+def _unwrap_patches(fetch, unlocker):
+    async def views(*_args, **_kwargs):
+        return (
+            b"\x60\x00",
+            left_pad_32(ETH_PORTAL),
+            b"xch",
+            b"\x00" * 32,
+            unlocker,
+            WRAP_TIP_BPS,
+            WRAP_MOJO_TO_TOKEN_RATIO,
+        )
+
+    with patch("commands.policy_runtime.fetch_token_balance_diff", new=fetch), patch(
+        "commands.policy_runtime.read_wrapped_cat_views", new=views
+    ), patch(
+        "commands.policy_runtime.match_wrapped_cat_bytecode", return_value=True
+    ), patch(
+        "commands.spend_policy.match_wrapped_cat_bytecode", return_value=True
+    ), patch(
+        "commands.spend_policy.wrapped_cat_immutable_values_match", return_value=True
+    ):
+        yield
+
+
+class _LogsEth:
+    def __init__(self, logs):
+        self.logs = logs
+        self.calls = 0
+
+    async def get_logs(self, _filt):
+        self.calls += 1
+        if isinstance(self.logs, Exception):
+            raise self.logs
+        return self.logs
+
+
+class _LogsWeb3:
+    def __init__(self, logs):
+        self.eth = _LogsEth(logs)
 
 
 # ---------------------------------------------------------------------------
@@ -1526,10 +1863,10 @@ class TestLogBalanceDiff:
             "transactionHash": "0x" + tx_hash,
         }
 
-    def _slot(self, block: int, value: int):
+    def _slot(self, block: int, value: int, slot: int = 0):
         from commands.policy_runtime import _storage_key
 
-        return {(block, _storage_key(self.HOLDER, 0).lower()): value}
+        return {(block, _storage_key(self.HOLDER, slot).lower()): value}
 
     def _web3(self, balance, slots, logs, responses=None):
         provider = _TraceProvider(responses or {})
@@ -1707,6 +2044,18 @@ class TestLogBalanceDiff:
         assert await self._fetch(web3, self.TX_A) == 15
         assert web3.eth.log_calls == 0
         assert "trace_replayTransaction" not in web3.provider.methods
+
+    @pytest.mark.asyncio
+    async def test_openzeppelin_v5_balance_slot_matches_logs(self):
+        from commands.policy_runtime import _OZ_ERC20_BALANCES_SLOT
+
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 1_000_000_000_000_000)]
+        slots = {
+            **self._slot(self.BLOCK, 20_040_000_000_000_000_000, _OZ_ERC20_BALANCES_SLOT),
+            **self._slot(self.BLOCK - 1, 20_039_000_000_000_000_000, _OZ_ERC20_BALANCES_SLOT),
+        }
+        web3 = self._web3(20_040_000_000_000_000_000, slots, logs)
+        assert await self._fetch(web3, self.TX_A) == 1_000_000_000_000_000
 
     @pytest.mark.asyncio
     async def test_trace_without_token_does_not_use_logs(self):
