@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from dataclasses import dataclass
@@ -355,15 +356,31 @@ async def fetch_control_events(
     failures: List[tuple[str, str]] = []
     successes = 0
 
-    for relay in relays:
+    async def _query_relay(relay: str):
         try:
-            raw_events = await _fetch_events_from_relay(relay, filt, timeout)
-            successes += 1
-            for raw in raw_events:
-                ev = control_event_from_nostr(raw)
-                by_id[ev.id] = ev
+            raw_events = await asyncio.wait_for(
+                _fetch_events_from_relay(relay, filt, timeout),
+                timeout_seconds,
+            )
+        except TimeoutError:
+            return relay, None, "timeout"
         except Exception as e:
-            failures.append((relay, str(e)))
+            return relay, None, str(e)
+        return relay, raw_events, None
+
+    # Every relay is queried at once. The wait is the slowest one, capped at
+    # timeout_seconds, and a late relay is still included so a stop it alone
+    # holds is not dropped once the quorum has already answered.
+    for relay, raw_events, error in await asyncio.gather(
+        *(_query_relay(relay) for relay in relays)
+    ):
+        if error is not None:
+            failures.append((relay, error))
+            continue
+        successes += 1
+        for raw in raw_events:
+            ev = control_event_from_nostr(raw)
+            by_id[ev.id] = ev
 
     if successes < required:
         detail = "; ".join(f"{relay}: {error}" for relay, error in failures) or "unknown errors"

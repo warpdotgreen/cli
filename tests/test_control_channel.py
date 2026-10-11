@@ -404,6 +404,59 @@ class TestFetchControlEvents:
         assert len(warnings) == 1
         assert "wss://relay-a: timeout" in warnings[0]
 
+    @pytest.mark.asyncio
+    async def test_relays_are_queried_together(self, monkeypatch):
+        stop_author, start_author = _valid_pubkeys()
+        started = 0
+        release = asyncio.Event()
+
+        async def fake_fetch(relay, filt, timeout):
+            nonlocal started
+            started += 1
+            if started < 3:
+                await release.wait()
+            else:
+                release.set()
+            return []
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fake_fetch
+        )
+        await asyncio.wait_for(
+            fetch_control_events(
+                ["wss://relay-a", "wss://relay-b", "wss://relay-c"],
+                {stop_author},
+                {start_author},
+                relay_quorum=1,
+            ),
+            timeout=1,
+        )
+        assert started == 3
+
+    @pytest.mark.asyncio
+    async def test_slow_relay_is_capped_at_the_timeout(self, monkeypatch):
+        stop_author, start_author = _valid_pubkeys()
+
+        async def fake_fetch(relay, filt, timeout):
+            if relay.endswith("slow"):
+                await asyncio.sleep(30)
+            return []
+
+        monkeypatch.setattr(
+            "commands.control_channel._fetch_events_from_relay", fake_fetch
+        )
+        started = asyncio.get_running_loop().time()
+        events = await fetch_control_events(
+            ["wss://relay-fast", "wss://relay-slow"],
+            {stop_author},
+            {start_author},
+            timeout_seconds=0.2,
+            relay_quorum=1,
+        )
+        elapsed = asyncio.get_running_loop().time() - started
+        assert events == []
+        assert elapsed < 1
+
 
 class _Hex:
     def __init__(self, value):
