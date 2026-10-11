@@ -1602,9 +1602,75 @@ class TestLogBalanceDiff:
             "trace_replayTransaction is not available on this RPC",
         ]
         assert all(record.exc_info is None for record in missing)
+        assert web3.provider.methods == [
+            "debug_traceTransaction",
+            "trace_replayTransaction",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_http_405_is_remembered_per_endpoint(self, caplog):
+        from aiohttp import ClientResponseError
+        from commands import policy_runtime
+
+        policy_runtime._missing_tracer_methods.clear()
+        refused = ClientResponseError(
+            type("Req", (), {"real_url": "https://rpc.example/base"})(),
+            (),
+            status=405,
+            message="Method Not Allowed",
+        )
+        logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
+        slots = {**self._slot(self.BLOCK, 50), **self._slot(self.BLOCK - 1, 0)}
+        base = self._web3(
+            50,
+            slots,
+            logs,
+            {
+                "debug_traceTransaction": refused,
+                "trace_replayTransaction": refused,
+            },
+        )
+        base.provider.endpoint_uri = "https://rpc.example/base"
+        eth = self._web3(
+            50,
+            slots,
+            logs,
+            {
+                "debug_traceTransaction": refused,
+                "trace_replayTransaction": refused,
+            },
+        )
+        eth.provider.endpoint_uri = "https://rpc.example/eth"
+        with caplog.at_level(logging.INFO):
+            assert await self._fetch(base, self.TX_A) == 50
+            assert await self._fetch(base, self.TX_A) == 50
+            assert await self._fetch(eth, self.TX_A) == 50
+        missing = [
+            record
+            for record in caplog.records
+            if record.message.endswith("is not available on this RPC")
+        ]
+        assert [record.message for record in missing] == [
+            "debug_traceTransaction is not available on this RPC",
+            "trace_replayTransaction is not available on this RPC",
+            "debug_traceTransaction is not available on this RPC",
+            "trace_replayTransaction is not available on this RPC",
+        ]
+        assert all(record.exc_info is None for record in missing)
+        assert base.provider.methods == [
+            "debug_traceTransaction",
+            "trace_replayTransaction",
+        ]
+        assert eth.provider.methods == [
+            "debug_traceTransaction",
+            "trace_replayTransaction",
+        ]
 
     @pytest.mark.asyncio
     async def test_other_tracer_errors_keep_a_traceback(self, caplog):
+        from commands import policy_runtime
+
+        policy_runtime._missing_tracer_methods.clear()
         logs = [self._transfer(self.TX_A, self.OTHER, self.HOLDER, 50)]
         slots = {**self._slot(self.BLOCK, 50), **self._slot(self.BLOCK - 1, 0)}
         web3 = self._web3(
@@ -1615,13 +1681,19 @@ class TestLogBalanceDiff:
         )
         with caplog.at_level(logging.INFO):
             assert await self._fetch(web3, self.TX_A) == 50
+            assert await self._fetch(web3, self.TX_A) == 50
         failed = [
             record
             for record in caplog.records
             if record.message == "debug_traceTransaction failed"
         ]
-        assert len(failed) == 1
-        assert failed[0].exc_info is not None
+        assert len(failed) == 2
+        assert all(record.exc_info is not None for record in failed)
+        assert web3.provider.methods == [
+            "debug_traceTransaction",
+            "trace_replayTransaction",
+            "debug_traceTransaction",
+        ]
 
     @pytest.mark.asyncio
     async def test_trace_result_skips_logs(self):

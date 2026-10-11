@@ -731,7 +731,17 @@ def _keccak_topic(signature: str) -> str:
 
 
 _TRANSFER_TOPIC = _keccak_topic("Transfer(address,address,uint256)")
-_missing_tracer_methods: set[str] = set()
+# (endpoint, method) pairs this process has learned the RPC does not offer.
+_missing_tracer_methods: set[tuple[str, str]] = set()
+
+
+def _tracer_endpoint(web3: AsyncWeb3) -> str:
+    """Identity of the RPC, so one chain's 405 does not disable another's tracer."""
+    provider = web3.provider
+    endpoint = getattr(provider, "endpoint_uri", None)
+    if isinstance(endpoint, str) and endpoint:
+        return endpoint
+    return str(id(provider))
 
 
 def _rpc_error_code(exc: BaseException) -> Optional[int]:
@@ -745,10 +755,18 @@ def _rpc_error_code(exc: BaseException) -> Optional[int]:
     return None
 
 
-def _log_tracer_failure(method: str, exc: BaseException) -> None:
-    if _rpc_error_code(exc) == -32601:
-        if method not in _missing_tracer_methods:
-            _missing_tracer_methods.add(method)
+def _tracer_unsupported(exc: BaseException) -> bool:
+    """JSON-RPC method-not-found, or an HTTP 405 from an endpoint that blocks it."""
+    if getattr(exc, "status", None) == 405:
+        return True
+    return _rpc_error_code(exc) == -32601
+
+
+def _log_tracer_failure(web3: AsyncWeb3, method: str, exc: BaseException) -> None:
+    if _tracer_unsupported(exc):
+        key = (_tracer_endpoint(web3), method)
+        if key not in _missing_tracer_methods:
+            _missing_tracer_methods.add(key)
             logging.info("%s is not available on this RPC", method)
         return
     logging.info("%s failed", method, exc_info=True)
@@ -963,10 +981,12 @@ async def _diff_from_trace_method(
     The diff inside the tuple may be None. That still means a tracer
     answered, so the log fallback must not replace it.
     """
+    if (_tracer_endpoint(web3), method) in _missing_tracer_methods:
+        return None
     try:
         result = await _rpc(web3, method, params)
     except Exception as exc:
-        _log_tracer_failure(method, exc)
+        _log_tracer_failure(web3, method, exc)
         return None
     state_diff = _normalize_trace_state_diff(result)
     if state_diff is None:
