@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import json
 import logging
 
@@ -330,6 +332,84 @@ class TestFetchControlEvents:
             )
 
 
+class _Hex:
+    def __init__(self, value):
+        self._value = value
+
+    def to_hex(self):
+        return self._value
+
+
+class _Secs:
+    def __init__(self, value):
+        self._value = value
+
+    def as_secs(self):
+        return self._value
+
+
+class _KindValue:
+    def __init__(self, value):
+        self._value = value
+
+    def as_u16(self):
+        return self._value
+
+
+class _FakeControlEvent:
+    def __init__(
+        self,
+        *,
+        author,
+        content,
+        kind=1,
+        tags=None,
+        verified=True,
+        verify_raises=False,
+        created_at=NOW,
+    ):
+        self._author = author
+        self._content = content
+        self._kind = kind
+        self._tags = [] if tags is None else tags
+        self._verified = verified
+        self._verify_raises = verify_raises
+        self._created_at = created_at
+
+    def content(self):
+        return self._content
+
+    def author(self):
+        return _Hex(self._author)
+
+    def tags(self):
+        return self._tags
+
+    def created_at(self):
+        return _Secs(self._created_at)
+
+    def kind(self):
+        return _KindValue(self._kind)
+
+    def verify(self):
+        if self._verify_raises:
+            raise RuntimeError("bad signature")
+        return self._verified
+
+
+def _event_json(**overrides) -> str:
+    payload = {
+        "author": STOP_AUTHOR,
+        "content": "stop incident-7",
+        "kind": 1,
+        "tags": [],
+        "created_at": NOW,
+        "verified": True,
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
+
+
 class TestPublish:
     @pytest.mark.asyncio
     async def test_zero_accepts_exits_nonzero(self, monkeypatch, capsys):
@@ -390,6 +470,94 @@ class TestPublish:
         out = capsys.readouterr().out
         assert "ACCEPTED wss://good.example" in out
         assert "REJECTED wss://bad.example" in out
+
+    @pytest.mark.asyncio
+    async def test_relays_are_published_concurrently(self, monkeypatch, capsys):
+        from commands.control import _publish_to_relays
+
+        # Both sends must be inside send_event together. Sequential publish
+        # never starts the second send, so the barrier waits until the test
+        # timeout fails it.
+        barrier = asyncio.Barrier(2)
+        event_hex = "ab" * 32
+
+        class _Eid:
+            def to_hex(self):
+                return event_hex
+
+        class _Client:
+            def __init__(self, signer):
+                self.relay = ""
+
+            async def add_relay(self, relay):
+                self.relay = relay
+
+            async def connect(self):
+                return None
+
+            async def send_event(self, event):
+                await barrier.wait()
+                return _Eid()
+
+            async def disconnect(self):
+                return None
+
+        monkeypatch.setattr("commands.control.Client", _Client)
+        await asyncio.wait_for(
+            _publish_to_relays(
+                ["wss://a.example", "wss://b.example"], object()
+            ),
+            timeout=1,
+        )
+        out = capsys.readouterr().out
+        assert out.splitlines() == [
+            f"ACCEPTED wss://a.example {event_hex}",
+            f"ACCEPTED wss://b.example {event_hex}",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_hung_relay_times_out_other_is_accepted(
+        self, monkeypatch, capsys
+    ):
+        from commands.control import _publish_to_relays
+
+        event_hex = "cd" * 32
+        monkeypatch.setattr("commands.control.PUBLISH_TIMEOUT_SECONDS", 0.05)
+
+        class _Eid:
+            def to_hex(self):
+                return event_hex
+
+        class _Client:
+            def __init__(self, signer):
+                self.relay = ""
+
+            async def add_relay(self, relay):
+                self.relay = relay
+
+            async def connect(self):
+                return None
+
+            async def send_event(self, event):
+                if "hung" in self.relay:
+                    await asyncio.Event().wait()
+                return _Eid()
+
+            async def disconnect(self):
+                return None
+
+        monkeypatch.setattr("commands.control.Client", _Client)
+        await asyncio.wait_for(
+            _publish_to_relays(
+                ["wss://hung.example", "wss://good.example"], object()
+            ),
+            timeout=1,
+        )
+        out = capsys.readouterr().out
+        assert out.splitlines() == [
+            "REJECTED wss://hung.example timeout",
+            f"ACCEPTED wss://good.example {event_hex}",
+        ]
 
     @pytest.mark.asyncio
     async def test_stop_and_start_publish_id_text_without_tags(self, monkeypatch):
@@ -482,6 +650,632 @@ class TestPublish:
         assert seen["content"] == "start incident-7"
         assert seen["tags"] == []
         assert seen["published"] == "start incident-7"
+
+    def _install_sign_fakes(self, monkeypatch, pubkey: str):
+        import commands.control as control_mod
+
+        seen = {"signed": False, "published": False, "pubkey": pubkey}
+
+        def fake_text_note(content, tags):
+            seen["signed"] = True
+            seen["content"] = content
+            seen["tags"] = list(tags)
+
+            class _Author:
+                def to_hex(self):
+                    return seen["pubkey"]
+
+            class _Created:
+                def as_secs(self):
+                    return NOW
+
+            class _Event:
+                def content(self):
+                    return content
+
+                def author(self):
+                    return _Author()
+
+                def tags(self):
+                    return []
+
+                def created_at(self):
+                    return _Created()
+
+                def as_json(self):
+                    return json.dumps({"content": content, "tags": []})
+
+            class _Builder:
+                def to_event(self, keys):
+                    return _Event()
+
+            return _Builder()
+
+        class _Pub:
+            def __init__(self, value):
+                self._value = value
+
+            def to_hex(self):
+                return self._value
+
+        class _Keys:
+            def public_key(self):
+                return _Pub(pubkey)
+
+        def fail_publish(*args, **kwargs):
+            seen["published"] = True
+            raise AssertionError("sign must not publish")
+
+        class _Client:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("sign must not construct a Client")
+
+        monkeypatch.setattr(control_mod.EventBuilder, "text_note", fake_text_note)
+        monkeypatch.setattr(control_mod, "_publish_to_relays", fail_publish)
+        monkeypatch.setattr(control_mod, "Client", _Client)
+        monkeypatch.setattr(control_mod, "_prompt_keys", lambda: _Keys())
+        monkeypatch.setattr(
+            control_mod,
+            "load_control_config",
+            lambda: ControlConfig(
+                stop_authors={STOP_AUTHOR},
+                start_authors={START_AUTHOR},
+                relays=["wss://relay.example"],
+            ),
+        )
+        return control_mod, seen
+
+    @staticmethod
+    def _unwrap(command):
+        callback = command.callback
+        while hasattr(callback, "__wrapped__"):
+            callback = callback.__wrapped__
+        return callback
+
+    def test_sign_stop_and_sign_start_print_json_without_publishing(
+        self, monkeypatch, capsys
+    ):
+        control_mod, seen = self._install_sign_fakes(monkeypatch, STOP_AUTHOR)
+        note_id = "Incident-7"
+
+        self._unwrap(control_mod.sign_stop)(note_id)
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload == {"content": f"stop {note_id}", "tags": []}
+        assert captured.out == json.dumps(payload) + "\n"
+        assert captured.err.splitlines() == [
+            f"content: stop {note_id}",
+            f"author: {STOP_AUTHOR}",
+            "tags: []",
+            f"created_at: {NOW}",
+        ]
+        assert "content:" not in captured.out
+        assert seen["content"] == f"stop {note_id}"
+        assert seen["tags"] == []
+        assert seen["published"] is False
+
+        control_mod, seen = self._install_sign_fakes(monkeypatch, START_AUTHOR)
+        self._unwrap(control_mod.sign_start)(note_id)
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload == {"content": f"start {note_id}", "tags": []}
+        assert captured.out == json.dumps(payload) + "\n"
+        assert captured.err.splitlines() == [
+            f"content: start {note_id}",
+            f"author: {START_AUTHOR}",
+            "tags: []",
+            f"created_at: {NOW}",
+        ]
+        assert "content:" not in captured.out
+        assert seen["content"] == f"start {note_id}"
+        assert seen["tags"] == []
+        assert seen["published"] is False
+
+    @pytest.mark.parametrize(
+        ("command_name", "verb", "author"),
+        [
+            ("sign-stop", "stop", STOP_AUTHOR),
+            ("sign-start", "start", START_AUTHOR),
+        ],
+    )
+    def test_sign_mnemonic_prompt_goes_to_stderr(
+        self, monkeypatch, command_name, verb, author
+    ):
+        from click.testing import CliRunner
+
+        import commands.control as control_mod
+
+        seen = {"published": False, "pubkey": author, "mnemonic": None}
+
+        def fake_text_note(content, tags):
+            class _Author:
+                def to_hex(self):
+                    return seen["pubkey"]
+
+            class _Created:
+                def as_secs(self):
+                    return NOW
+
+            class _Event:
+                def content(self):
+                    return content
+
+                def author(self):
+                    return _Author()
+
+                def tags(self):
+                    return []
+
+                def created_at(self):
+                    return _Created()
+
+                def as_json(self):
+                    return json.dumps({"content": content, "tags": []})
+
+            class _Builder:
+                def to_event(self, keys):
+                    return _Event()
+
+            return _Builder()
+
+        class _Pub:
+            def to_hex(self):
+                return seen["pubkey"]
+
+        class _Keys:
+            def public_key(self):
+                return _Pub()
+
+        def fake_from_mnemonic(mnemonic, passphrase):
+            seen["mnemonic"] = mnemonic
+            return _Keys()
+
+        def fail_publish(*args, **kwargs):
+            seen["published"] = True
+            raise AssertionError("sign must not publish")
+
+        monkeypatch.setattr(control_mod.EventBuilder, "text_note", fake_text_note)
+        monkeypatch.setattr(
+            control_mod.Keys, "from_mnemonic", staticmethod(fake_from_mnemonic)
+        )
+        monkeypatch.setattr(control_mod, "_publish_to_relays", fail_publish)
+        monkeypatch.setattr(
+            control_mod,
+            "load_control_config",
+            lambda: ControlConfig(
+                stop_authors={STOP_AUTHOR},
+                start_authors={START_AUTHOR},
+                relays=["wss://relay.example"],
+            ),
+        )
+
+        note_id = "Incident-7"
+        mnemonic = "test mnemonic words"
+        result = CliRunner(mix_stderr=False).invoke(
+            control_mod.control,
+            [command_name, note_id],
+            input=f"{mnemonic}\n",
+        )
+        assert result.exit_code == 0
+        stdout = result.stdout.strip()
+        assert "Nostr mnemonic" not in stdout
+        assert json.loads(stdout) == {
+            "content": f"{verb} {note_id}",
+            "tags": [],
+        }
+        assert "Nostr mnemonic" in result.stderr
+        assert seen["published"] is False
+        assert seen["mnemonic"] == mnemonic
+
+    def test_sign_refuses_pubkey_outside_author_list(self, monkeypatch, capsys):
+        control_mod, seen = self._install_sign_fakes(monkeypatch, OTHER_AUTHOR)
+
+        with pytest.raises(SystemExit) as exc:
+            self._unwrap(control_mod.sign_stop)("incident-7")
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert (
+            captured.out
+            == f"Refused: pubkey {OTHER_AUTHOR} is not in control_stop_authors\n"
+        )
+        assert seen["signed"] is False
+        assert seen["published"] is False
+
+        with pytest.raises(SystemExit) as exc:
+            self._unwrap(control_mod.sign_start)("incident-7")
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert (
+            captured.out
+            == f"Refused: pubkey {OTHER_AUTHOR} is not in control_start_authors\n"
+        )
+        assert seen["signed"] is False
+        assert seen["published"] is False
+
+    @pytest.mark.parametrize("note_id", ["", " ", "bad id", "id\n"])
+    @pytest.mark.parametrize(
+        "command_name",
+        ["sign_stop", "sign_start"],
+    )
+    def test_sign_refuses_empty_or_whitespace_id(
+        self, monkeypatch, capsys, note_id, command_name
+    ):
+        control_mod, seen = self._install_sign_fakes(monkeypatch, STOP_AUTHOR)
+
+        def fail_prompt():
+            raise AssertionError("sign must not prompt for a bad id")
+
+        monkeypatch.setattr(control_mod, "_prompt_keys", fail_prompt)
+        with pytest.raises(SystemExit) as exc:
+            self._unwrap(getattr(control_mod, command_name))(note_id)
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert captured.out == "Refused: id must be a single token\n"
+        assert seen["signed"] is False
+        assert seen["published"] is False
+
+    def _install_publish_recorder(
+        self, monkeypatch, *, stop_authors, start_authors=None
+    ):
+        import commands.control as control_mod
+
+        seen = {"published": False}
+
+        async def fake_publish(relays, event):
+            seen["published"] = True
+            seen["relays"] = list(relays)
+            seen["published_event"] = event
+
+        async def fail_fetch(*args, **kwargs):
+            raise AssertionError("control publish must not query relays")
+
+        def fail_prompt():
+            raise AssertionError("publish-signed must not prompt for a mnemonic")
+
+        def fail_text_note(*args, **kwargs):
+            raise AssertionError("publish-signed must not re-sign")
+
+        class _Client:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("publish-signed must not open a relay client")
+
+        monkeypatch.setattr(control_mod, "_publish_to_relays", fake_publish)
+        monkeypatch.setattr(control_mod, "_prompt_keys", fail_prompt)
+        monkeypatch.setattr(control_mod.EventBuilder, "text_note", fail_text_note)
+        monkeypatch.setattr(control_mod, "Client", _Client)
+        monkeypatch.setattr(
+            "commands.control_channel.fetch_control_events", fail_fetch
+        )
+        monkeypatch.setattr(
+            control_mod,
+            "load_control_config",
+            lambda: ControlConfig(
+                stop_authors=set(stop_authors),
+                start_authors=set(
+                    start_authors if start_authors is not None else {START_AUTHOR}
+                ),
+                relays=["wss://relay.example"],
+            ),
+        )
+        return control_mod, seen
+
+    def _install_fake_signed_event(self, monkeypatch):
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch,
+            stop_authors={STOP_AUTHOR},
+            start_authors={START_AUTHOR},
+        )
+
+        def fake_from_json(raw):
+            seen["raw"] = raw
+            data = json.loads(raw)
+            if data.get("parse_error"):
+                raise ValueError("structurally invalid event")
+            event = _FakeControlEvent(
+                author=data["author"],
+                content=data["content"],
+                kind=data.get("kind", 1),
+                tags=data.get("tags", []),
+                verified=data.get("verified", True),
+                verify_raises=data.get("verify_raises", False),
+                created_at=data.get("created_at", NOW),
+            )
+            seen["event"] = event
+            return event
+
+        monkeypatch.setattr(control_mod.Event, "from_json", fake_from_json)
+        return control_mod, seen
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_stop_publishes_valid_event(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        payload = _event_json()
+        path = tmp_path / "stop.json"
+        path.write_text(payload, encoding="utf-8")
+
+        await self._unwrap(control_mod.publish_signed_stop)(str(path))
+
+        assert seen["raw"] == path.read_text(encoding="utf-8")
+        assert seen["published"] is True
+        assert seen["published_event"] is seen["event"]
+        assert seen["relays"] == ["wss://relay.example"]
+        assert seen["published_event"].content() == "stop incident-7"
+        assert capsys.readouterr().out.splitlines() == [
+            "content: stop incident-7",
+            f"author: {STOP_AUTHOR}",
+            "tags: []",
+            f"created_at: {NOW}",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_start_publishes_valid_event(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        payload = _event_json(
+            author=START_AUTHOR,
+            content="start incident-7",
+        )
+        path = tmp_path / "start.json"
+        path.write_text(payload, encoding="utf-8")
+
+        await self._unwrap(control_mod.publish_signed_start)(str(path))
+
+        assert seen["raw"] == payload
+        assert seen["published"] is True
+        assert seen["published_event"] is seen["event"]
+        assert seen["relays"] == ["wss://relay.example"]
+        assert seen["published_event"].content() == "start incident-7"
+        assert capsys.readouterr().out.splitlines() == [
+            "content: start incident-7",
+            f"author: {START_AUTHOR}",
+            "tags: []",
+            f"created_at: {NOW}",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_reads_stdin(
+        self, monkeypatch, capsys
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        payload = _event_json()
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+
+        await self._unwrap(control_mod.publish_signed_stop)("-")
+
+        assert seen["raw"] == payload
+        assert seen["published"] is True
+        assert seen["published_event"].content() == "stop incident-7"
+        assert "content: stop incident-7" in capsys.readouterr().out
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("verify_raises", [False, True])
+    async def test_publish_signed_refuses_bad_signature(
+        self, monkeypatch, tmp_path, capsys, verify_raises
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        path = tmp_path / "bad-sig.json"
+        path.write_text(
+            _event_json(verified=False, verify_raises=verify_raises),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert (
+            capsys.readouterr().out
+            == "Refused: signature or id did not verify\n"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "start incident-7",
+            "stop",
+            "stop incident-7 extra",
+            "STOP incident-7",
+        ],
+    )
+    async def test_publish_signed_stop_refuses_non_stop_content(
+        self, monkeypatch, tmp_path, capsys, content
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        path = tmp_path / "content.json"
+        path.write_text(_event_json(content=content), encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert (
+            capsys.readouterr().out
+            == "Refused: content must be exactly 'stop <id>'\n"
+        )
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_refuses_non_empty_tags(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        path = tmp_path / "tagged.json"
+        path.write_text(
+            _event_json(tags=[["t", "nope"]]),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert capsys.readouterr().out == "Refused: tags must be empty\n"
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_refuses_kind_other_than_1(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        path = tmp_path / "kind.json"
+        path.write_text(_event_json(kind=0), encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert capsys.readouterr().out == "Refused: kind must be 1\n"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "command_name,content,author_list",
+        [
+            ("publish_signed_stop", "stop incident-7", "control_stop_authors"),
+            ("publish_signed_start", "start incident-7", "control_start_authors"),
+        ],
+    )
+    async def test_publish_signed_refuses_author_outside_list(
+        self, monkeypatch, tmp_path, capsys, command_name, content, author_list
+    ):
+        control_mod, seen = self._install_fake_signed_event(monkeypatch)
+        path = tmp_path / "author.json"
+        path.write_text(
+            _event_json(author=OTHER_AUTHOR, content=content),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(getattr(control_mod, command_name))(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert (
+            capsys.readouterr().out
+            == f"Refused: pubkey {OTHER_AUTHOR} is not in {author_list}\n"
+        )
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_stop_round_trips_real_event(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        from nostr_sdk import EventBuilder, Keys
+
+        import commands.control as control_mod
+
+        keys = Keys.generate()
+        pubkey = control_mod.normalize_hex(keys.public_key().to_hex())
+        signed = EventBuilder.text_note("stop incident-7", []).to_event(keys)
+        path = tmp_path / "real-stop.json"
+        path.write_text(signed.as_json(), encoding="utf-8")
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch, stop_authors={pubkey}
+        )
+
+        await self._unwrap(control_mod.publish_signed_stop)(str(path))
+
+        event = seen["published_event"]
+        assert seen["published"] is True
+        assert event.content() == "stop incident-7"
+        assert list(event.tags()) == []
+        assert event.kind().as_u16() == 1
+        assert control_mod.normalize_hex(event.author().to_hex()) == pubkey
+        assert event.verify() is True
+        assert seen["relays"] == ["wss://relay.example"]
+        assert capsys.readouterr().out.splitlines()[:3] == [
+            "content: stop incident-7",
+            f"author: {keys.public_key().to_hex()}",
+            "tags: []",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_start_round_trips_real_event(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        from nostr_sdk import EventBuilder, Keys
+
+        import commands.control as control_mod
+
+        keys = Keys.generate()
+        pubkey = control_mod.normalize_hex(keys.public_key().to_hex())
+        signed = EventBuilder.text_note("start incident-7", []).to_event(keys)
+        path = tmp_path / "real-start.json"
+        path.write_text(signed.as_json(), encoding="utf-8")
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch,
+            stop_authors={STOP_AUTHOR},
+            start_authors={pubkey},
+        )
+
+        await self._unwrap(control_mod.publish_signed_start)(str(path))
+
+        event = seen["published_event"]
+        assert event.content() == "start incident-7"
+        assert list(event.tags()) == []
+        assert event.kind().as_u16() == 1
+        assert event.verify() is True
+        assert seen["relays"] == ["wss://relay.example"]
+        assert "content: start incident-7" in capsys.readouterr().out
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_refuses_tampered_real_event(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        from nostr_sdk import EventBuilder, Keys
+
+        import commands.control as control_mod
+
+        keys = Keys.generate()
+        pubkey = control_mod.normalize_hex(keys.public_key().to_hex())
+        signed = EventBuilder.text_note("stop incident-7", []).to_event(keys)
+        data = json.loads(signed.as_json())
+        data["content"] = "stop incident-8"
+        path = tmp_path / "tampered.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch, stop_authors={pubkey}
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert (
+            capsys.readouterr().out
+            == "Refused: signature or id did not verify\n"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["{", "{}", ""])
+    async def test_publish_signed_refuses_invalid_event_json(
+        self, monkeypatch, tmp_path, capsys, text
+    ):
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch, stop_authors={STOP_AUTHOR}
+        )
+        path = tmp_path / "bad.json"
+        path.write_text(text, encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(path))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert capsys.readouterr().out == "Refused: invalid event JSON\n"
+
+    @pytest.mark.asyncio
+    async def test_publish_signed_missing_file_is_refused(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        control_mod, seen = self._install_publish_recorder(
+            monkeypatch, stop_authors={STOP_AUTHOR}
+        )
+        missing = tmp_path / "missing.json"
+
+        with pytest.raises(SystemExit) as exc:
+            await self._unwrap(control_mod.publish_signed_stop)(str(missing))
+        assert exc.value.code not in (0, None)
+        assert seen["published"] is False
+        assert capsys.readouterr().out.startswith("Refused:")
 
 
 def _control_config():
