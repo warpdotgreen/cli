@@ -22,12 +22,14 @@ from commands.policy_runtime import (
     SignerRetryDeadlines,
     apply_policy_result,
     control_allows_start,
+    eth_historical_recheck_bypass,
     evaluate_chia_message_policy,
     evaluate_evm_message_policy,
     load_block_spends,
     sign_due_unsigned_messages,
 )
 from drivers.portal import BRIDGING_PUZZLE_HASH
+from datetime import datetime, timezone
 from typing import Optional
 from web3 import AsyncWeb3
 from web3.providers.async_rpc import AsyncHTTPProvider
@@ -191,10 +193,16 @@ class ChiaFollower:
             db.commit()
             return
 
-        policy_ok = await self._recheck_evm_source_policy(db, message)
-        if not policy_ok:
-            db.commit()
-            return
+        if eth_historical_recheck_bypass(message, datetime.now(timezone.utc)):
+            logging.info(
+                f"{self.chain} Signer: {message.source_chain.decode()}-{message.nonce.hex()}: "
+                f"historical recheck skipped until 2027-11-01"
+            )
+        else:
+            policy_ok = await self._recheck_evm_source_policy(db, message)
+            if not policy_ok:
+                db.commit()
+                return
 
         if not await control_allows_start(self.control_config):
             logging.info(f"{self.chain} Signer: control gate stop; not signing")

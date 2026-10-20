@@ -4,6 +4,7 @@ import binascii
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -15,6 +16,7 @@ from chia.wallet.cat_wallet.cat_utils import CAT_MOD, construct_cat_puzzle
 from chia.wallet.cat_wallet.cat_wallet import CAT_MOD_HASH
 from web3 import AsyncWeb3, Web3
 
+from commands.models import split_message_contents
 from commands.control_channel import (
     ControlConfig,
     ControlEvent,
@@ -169,6 +171,77 @@ def apply_policy_result(message, result: PolicyResult) -> bool:
         logging.warning(f"HOLD {message_id}: {result.reason}")
         return False
     return True
+
+
+# eth 0xea / 0xeb were observed before this Reth prune window. The signer may
+# skip the historical recheck only for these exact rows, and only until this
+# instant. After it, the predicate is false and nothing turns it back on.
+BYPASS_UNTIL = datetime(2027, 11, 1, tzinfo=timezone.utc)
+_USED_SIG = b"used"
+_ETH_BYPASS_BRIDGE = bytes.fromhex("208b80e85dac3354dd80f72cc272297909ee81b7")
+_ETH_BYPASS_SOURCE = b"\x00" * 12 + _ETH_BYPASS_BRIDGE
+_ETH_BYPASS_DESTINATION = bytes.fromhex(
+    "c32f398f4fe576bf53a4b405c0308e20e8158c0698607078ed1722933e27f00d"
+)
+_ETH_BYPASS_ASSET_ID = bytes.fromhex(
+    "51125b1021069ed6a1ed935118dd740fe86d199636edbb3b9ad1bff5344320c5"
+)
+_ETH_BYPASS_AMOUNT = bytes.fromhex(
+    "0000000000000000000000000000000000000000000000000000000000000063"
+)
+_ETH_BYPASS_NONCE_EA = bytes.fromhex(
+    "00000000000000000000000000000000000000000000000000000000000000ea"
+)
+_ETH_BYPASS_NONCE_EB = bytes.fromhex(
+    "00000000000000000000000000000000000000000000000000000000000000eb"
+)
+_ETH_BYPASS_CONTENTS = {
+    _ETH_BYPASS_NONCE_EA: (
+        bytes.fromhex("000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+        _ETH_BYPASS_ASSET_ID,
+        _ETH_BYPASS_AMOUNT,
+    ),
+    _ETH_BYPASS_NONCE_EB: (
+        bytes.fromhex("000000000000000000000000f2d5d8ec69e2faed5eb4de90749c87ee314a4b12"),
+        _ETH_BYPASS_ASSET_ID,
+        _ETH_BYPASS_AMOUNT,
+    ),
+}
+
+
+def _trimmed_pinned_source(source: bytes) -> bool:
+    raw = bytes(source)
+    if len(raw) > 32:
+        dropped = raw[:-32]
+        if dropped != b"\x00" * len(dropped):
+            return False
+        raw = raw[-32:]
+    return raw == _ETH_BYPASS_SOURCE
+
+
+def eth_historical_recheck_bypass(message, now: datetime) -> bool:
+    """True only for the two pinned eth rows, and only before BYPASS_UNTIL."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        return False
+    if now.astimezone(timezone.utc) >= BYPASS_UNTIL:
+        return False
+    if getattr(message, "source_chain", None) != b"eth":
+        return False
+    if getattr(message, "destination_chain", None) != b"xch":
+        return False
+    sig = bytes(message.sig or b"")
+    if sig in (REJECTED_SIG, _USED_SIG):
+        return False
+    nonce = bytes(message.nonce)
+    expected_contents = _ETH_BYPASS_CONTENTS.get(nonce)
+    if expected_contents is None:
+        return False
+    if not _trimmed_pinned_source(message.source):
+        return False
+    if bytes(message.destination) != _ETH_BYPASS_DESTINATION:
+        return False
+    contents = tuple(split_message_contents(bytes(message.contents or b"")))
+    return contents == expected_contents
 
 
 SIGNER_BATCH_CAP = 8
