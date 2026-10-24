@@ -35,8 +35,12 @@ async def custom_retry_middleware(make_request: Callable[[str, Any], Any], web3:
         while True:
             try:
                 return await make_request(method, params)
-            except aiohttp.ClientResponseError as e:
-                logging.error(f"HTTP error when calling RPC: {e.status} {e.message}; retrying in 5s...")
+            except (aiohttp.ClientError, TimeoutError) as e:
+                if isinstance(e, aiohttp.ClientResponseError):
+                    detail = f"{e.status} {e.message}"
+                else:
+                    detail = type(e).__name__
+                logging.error(f"RPC error: {detail}; retrying in 5s...")
                 await asyncio.sleep(5)
 
     return middleware
